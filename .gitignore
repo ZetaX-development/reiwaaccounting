@@ -4,3 +4,9 @@
 .server*.pid
 .tunnel*.log
 .tunnel*.pid
+
+# server
+server/node_modules
+server/dist
+server/.env
+
