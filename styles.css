@@ -1123,6 +1123,62 @@ td:last-child {
   gap: 6px;
 }
 
+/* Missing receipts (spec 07) */
+.missing-alert {
+  padding: 14px;
+  background: #fff5f6;
+  border: 1px solid #fbd5db;
+  border-radius: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+.missing-alert.empty {
+  background: #f4faf6;
+  border-color: #c8e2d2;
+}
+.missing-alert strong {
+  font-size: 18px;
+  color: #8a2035;
+}
+.missing-alert.empty strong { color: #1f6e3a; }
+
+.missing-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+  border: 1px solid #e3e7ee;
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 12px;
+}
+.missing-table th, .missing-table td {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 1px solid #eef0f3;
+}
+.missing-table th {
+  background: #f7f8fb;
+  font-size: 11px;
+  color: #5c6675;
+}
+.missing-table tr:last-child td { border-bottom: none; }
+.missing-table .priority-bar {
+  width: 60px;
+  height: 6px;
+  background: #e5e7eb;
+  border-radius: 3px;
+  display: inline-block;
+}
+.missing-table .priority-bar > i {
+  display: block;
+  height: 100%;
+  background: #dc2f55;
+  border-radius: 3px;
+}
+
 
 .confidence {
   display: grid;

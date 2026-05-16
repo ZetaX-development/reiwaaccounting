@@ -827,15 +827,113 @@ function renderFeedback() {
   return html;
 }
 
+// Spec 07: 3-section receipt view
 function renderReceipts() {
   const client = currentClient();
-  let html = '<div class="split-review">';
+  let html = '';
+  // Section 1: missing alert (loaded async)
+  html += '<div id="missingAlertSlot"></div>';
+  html += '<div id="missingTableSlot"></div>';
+  // Section 3: existing tables
+  html += '<div class="split-review" style="margin-top:14px">';
   html += '<section><div class="section-heading"><p class="eyebrow">Documents</p><h3>証憑回収・紐付け</h3></div>';
   html += renderTable(client.receipts, ["証憑", "紐付け状況", "根拠"]);
   html += '</section><section><div class="section-heading"><p class="eyebrow">Reconciliation</p><h3>入金消込・差異</h3></div>';
   html += renderTable(client.matching, ["請求/入金", "候補判定", "根拠"]);
   html += '</section></div>';
   return html;
+}
+
+function loadAndRenderMissing() {
+  const client = currentClient();
+  if (!client?.id) return;
+  fetch("/api/clients/" + encodeURIComponent(client.id) + "/missing-receipts")
+    .then((r) => r.json())
+    .then((rows) => {
+      const alertSlot = $("#missingAlertSlot");
+      const tableSlot = $("#missingTableSlot");
+      if (!alertSlot || !tableSlot) return;
+      if (!Array.isArray(rows) || rows.length === 0) {
+        alertSlot.innerHTML = '<div class="missing-alert empty"><div><strong>今日はありません</strong><br><small>不足している領収書はありません。お疲れさまでした。</small></div></div>';
+        tableSlot.innerHTML = '';
+        return;
+      }
+      alertSlot.innerHTML = '<div class="missing-alert">' +
+        '<div><strong>あと ' + rows.length + ' 件、お客さまに連絡すれば終わります</strong>' +
+        '<br><small>優先度の高い順に並べています。複数選択して依頼文をまとめて作れます。</small></div>' +
+        '<button class="primary-action compact" data-action="missing-build-request">依頼文を作る</button>' +
+        '</div>';
+      let h = '<table class="missing-table"><thead><tr>';
+      h += '<th><input type="checkbox" id="missingSelectAll" /></th>';
+      h += '<th>日付</th><th>科目</th><th>取引先</th><th>金額</th><th>不足理由</th><th>優先度</th><th>操作</th>';
+      h += '</tr></thead><tbody>';
+      for (const r of rows) {
+        h += '<tr>';
+        h += '<td><input type="checkbox" class="missing-row-check" data-entry-id="' + r.entryId + '" /></td>';
+        h += '<td>' + new Date(r.occurredAt).toISOString().slice(0, 10) + '</td>';
+        h += '<td>' + escapeHtml(r.account) + '</td>';
+        h += '<td>' + escapeHtml(r.vendor || "—") + '</td>';
+        h += '<td>¥' + r.amount.toLocaleString("ja-JP") + '</td>';
+        h += '<td>' + escapeHtml(r.reason) + '</td>';
+        h += '<td><span class="priority-bar"><i style="width:' + Math.min(100, r.priority) + '%"></i></span> ' + r.priority + '</td>';
+        h += '<td><button class="vendor-link" data-action="missing-not-required" data-entry-id="' + r.entryId + '">不要</button> ';
+        h += '<button class="vendor-link" data-action="open-vendor" data-vendor="' + r.source + '">' + (r.source === "mf" ? "MFで見る" : "freeeで見る") + '</button></td>';
+        h += '</tr>';
+      }
+      h += '</tbody></table>';
+      tableSlot.innerHTML = h;
+      bindMissingHandlers(rows);
+    });
+}
+
+function bindMissingHandlers(rows) {
+  const selectAll = $("#missingSelectAll");
+  if (selectAll) {
+    selectAll.addEventListener("change", () => {
+      document.querySelectorAll(".missing-row-check").forEach((cb) => {
+        cb.checked = selectAll.checked;
+      });
+    });
+  }
+  document.querySelectorAll('[data-action="missing-not-required"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      fetch("/api/entries/" + encodeURIComponent(btn.dataset.entryId) + "/mark-not-required", { method: "POST" })
+        .then(() => { showToast("不要として除外しました"); loadAndRenderMissing(); });
+    });
+  });
+  document.querySelectorAll('[data-action="missing-build-request"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const checked = Array.from(document.querySelectorAll(".missing-row-check"))
+        .filter((cb) => cb.checked)
+        .map((cb) => cb.dataset.entryId);
+      const targets = checked.length > 0 ? checked : rows.map((r) => r.entryId);
+      const client = currentClient();
+      const channel = client.contactPrimary || "email";
+      fetch("/api/clients/" + encodeURIComponent(client.id) + "/receipt-requests", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ entryIds: targets, channel }),
+      }).then((r) => r.json()).then((draft) => {
+        appState.activeView = "portal";
+        appState.portalChannel = channel;
+        // Stash draft in messageDraft so portal renderer picks it up
+        if ($("#messageDraft")) $("#messageDraft").value = draft.body;
+        client.message = draft.body;
+        render();
+        const portalDraft = $("#portalDraft");
+        if (portalDraft) portalDraft.value = formatBodyForChannel(draft.body, channel);
+        showToast("依頼文を作りました。確認して送信してください");
+        // Mark as requested so they disappear from the missing list once sent.
+        // (Marking happens after the user actually sends in spec 03, but for the
+        // PoC we mark immediately to demo end-to-end.)
+        fetch("/api/entries/mark-requested", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ entryIds: targets }),
+        });
+      });
+    });
+  });
 }
 
 function renderValidation() {
@@ -1155,6 +1253,9 @@ function renderView() {
   }
   if (appState.activeView === "rules") {
     loadAndRenderRules();
+  }
+  if (appState.activeView === "receipts") {
+    loadAndRenderMissing();
   }
   viewContent.querySelectorAll("[data-action]").forEach((button) => {
     button.addEventListener("click", () => {
