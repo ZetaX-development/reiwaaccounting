@@ -584,6 +584,10 @@ function renderTable(rows, columns) {
 
 function renderDashboard() {
   const client = currentClient();
+  // Spec 05 F3: yearend mode shows yearend checklist instead of tasks.
+  if (client.mode === "yearend") {
+    return renderYearendDashboard();
+  }
   const [stage, stageClass] = progressStatus(client);
   const role = appState.currentRole;
   const rawTasks = client.rawTasks || [];
@@ -648,6 +652,56 @@ function renderDashboard() {
   }
   html += "</div>";
   return html;
+}
+
+function renderYearendDashboard() {
+  const client = currentClient();
+  let html = '<div class="review-hero">';
+  html += '<div><p class="eyebrow">期末クローズモード</p><h3>申告期限までに残しておくべき手続き</h3>';
+  html += '<p>月次決算ではなく、期末調整・税務調整・申告書草案の準備状況を見せています。</p></div>';
+  html += '<div class="review-run-card"><strong>進行中</strong><small>期末項目チェック</small></div>';
+  html += '</div>';
+  html += '<div id="yearendSlot" class="yearend-checklist"><div class="empty-state">読み込み中…</div></div>';
+  return html;
+}
+
+function loadAndRenderYearend() {
+  const client = currentClient();
+  if (!client?.id || client.mode !== "yearend") return;
+  fetch("/api/clients/" + encodeURIComponent(client.id) + "/yearend-checklist")
+    .then((r) => r.json())
+    .then((rows) => {
+      const slot = $("#yearendSlot");
+      if (!slot) return;
+      if (!Array.isArray(rows) || rows.length === 0) {
+        slot.innerHTML = '<div class="empty-state">期末チェック項目はまだありません</div>';
+        return;
+      }
+      let h = "";
+      for (const r of rows) {
+        h += '<div class="yearend-check-row ' + (r.status === "done" ? "done" : "") + '">';
+        h += '<div><strong>' + escapeHtml(r.title) + '</strong>';
+        if (r.note) h += '<br><small style="color:#5c6675">' + escapeHtml(r.note) + '</small>';
+        h += '</div>';
+        h += '<div style="display:flex;gap:6px">';
+        if (r.status !== "done") {
+          h += '<button class="row-action" data-action="yearend-status" data-yc-id="' + r.id + '" data-yc-status="done">完了</button>';
+        } else {
+          h += '<button class="vendor-link" data-action="yearend-status" data-yc-id="' + r.id + '" data-yc-status="open">未完了に戻す</button>';
+        }
+        h += '</div></div>';
+      }
+      slot.innerHTML = h;
+      slot.querySelectorAll('[data-action="yearend-status"]').forEach((btn) => {
+        btn.addEventListener("click", () => {
+          fetch("/api/yearend-checks/" + encodeURIComponent(btn.dataset.ycId), {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ status: btn.dataset.ycStatus }),
+          }).then(() => { showToast("更新しました"); loadAndRenderYearend(); });
+        });
+      });
+    });
 }
 
 function stageJpLabel(stage) {
@@ -1257,6 +1311,9 @@ function renderView() {
   if (appState.activeView === "receipts") {
     loadAndRenderMissing();
   }
+  if (appState.activeView === "dashboard") {
+    loadAndRenderYearend();
+  }
   viewContent.querySelectorAll("[data-action]").forEach((button) => {
     button.addEventListener("click", () => {
       const action = button.dataset.action;
@@ -1470,6 +1527,7 @@ function render() {
   renderView();
   renderAiPanel();
   renderIntegrationCard();
+  syncModeToggleActive();
 }
 
 document.querySelectorAll(".nav-item").forEach((button) => {
@@ -1488,6 +1546,31 @@ $("#searchInput").addEventListener("input", (event) => {
   appState.search = event.target.value.trim();
   renderView();
 });
+
+// Spec 05 F1: mode toggle
+document.querySelectorAll("#modeToggle .mode-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    const client = currentClient();
+    if (!client?.id) return;
+    const mode = btn.dataset.mode;
+    fetch("/api/clients/" + encodeURIComponent(client.id) + "/mode", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode }),
+    }).then(() => {
+      client.mode = mode;
+      showToast(mode === "yearend" ? "期末モードに切り替えました" : "月次モードに戻しました");
+      loadClientsFromApi().finally(render);
+    });
+  });
+});
+
+function syncModeToggleActive() {
+  const client = currentClient();
+  document.querySelectorAll("#modeToggle .mode-btn").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.mode === client?.mode);
+  });
+}
 
 // Spec 02 F1: role selector
 const roleSel = $("#roleSelector");

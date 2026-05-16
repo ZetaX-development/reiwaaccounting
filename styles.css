@@ -1123,6 +1123,49 @@ td:last-child {
   gap: 6px;
 }
 
+/* Mode toggle (spec 05) */
+.mode-toggle {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  background: #f5f7fa;
+  border-radius: 8px;
+  margin-left: 12px;
+  vertical-align: middle;
+}
+.mode-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 6px;
+  color: #2b3950;
+}
+.mode-btn.active {
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+  font-weight: bold;
+}
+
+.yearend-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+.yearend-check-row {
+  background: #fff;
+  border: 1px solid #e3e7ee;
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.yearend-check-row.done { opacity: 0.5; }
+
 /* Missing receipts (spec 07) */
 .missing-alert {
   padding: 14px;
