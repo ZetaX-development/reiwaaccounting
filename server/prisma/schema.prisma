@@ -1,0 +1,227 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Client {
+  id              String   @id @default(cuid())
+  name            String
+  industry        String   @default("その他")
+  vendor          String   @default("mf") // 'freee' | 'mf' | 'both'
+  mode            String   @default("monthly") // 'monthly' | 'yearend'
+  fiscalYearStart DateTime
+  fiscalYearEnd   DateTime
+  contactPrimary  String   @default("email")
+  contactEndpoints Json    @default("{}")
+  receiptPolicyOverrides Json?
+  yearendKpi      Json?
+
+  // MF OAuth tokens (encryption is future work)
+  mfAccessToken    String?
+  mfRefreshToken   String?
+  mfTokenExpiresAt DateTime?
+  mfExternalId     String?
+
+  // Snapshot fields used by dashboard (recomputed on writes)
+  progress   Int @default(0)
+  tasksOpen  Int @default(0)
+  risk       Int @default(0)
+  receipt    Int @default(0)
+  missing    Int @default(0)
+  diff       Int @default(0)
+  matches    Int @default(0)
+
+  // Cached display strings
+  ownerLabel   String?
+  chatMessage  String?
+  messageDraft String?
+
+  vendorSyncs       VendorSync[]
+  entries           Entry[]
+  receipts          Receipt[]
+  matchings         Matching[]
+  tasks             Task[]
+  rules             Rule[]
+  threads           Thread[]
+  yearendChecklist  YearendCheck[]
+  trendData         TrendDatum[]
+  monthlyChecks     MonthlyCheck[]
+
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}
+
+model VendorSync {
+  id        String    @id @default(cuid())
+  client    Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId  String
+  vendor    String
+  lastSync  DateTime?
+  status    String    @default("ok")
+  count     Int       @default(0)
+  errorMsg  String?
+  @@unique([clientId, vendor])
+}
+
+model Entry {
+  id            String   @id @default(cuid())
+  client        Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId      String
+  source        String
+  sourceEntryId String?
+  account       String
+  description   String
+  amount        Int
+  taxClass      String?
+  occurredAt    DateTime
+  receiptStatus String   @default("na")
+  score         Int?
+  requestedAt   DateTime?
+  raw           Json?
+  syncedAt      DateTime @default(now())
+
+  @@index([clientId, occurredAt])
+  @@unique([source, sourceEntryId])
+}
+
+model Receipt {
+  id              String   @id @default(cuid())
+  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId        String
+  source          String
+  sourceReceiptId String?
+  status          String
+  vendorRef       String?
+  amount          Int?
+  occurredAt      DateTime
+  raw             Json?
+  syncedAt        DateTime @default(now())
+}
+
+model Matching {
+  id            String   @id @default(cuid())
+  client        Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId      String
+  source        String
+  invoiceRef    String
+  invoiceAmount Int
+  paidAmount    Int
+  diffNote      String?
+  status        String
+  occurredAt    DateTime
+  raw           Json?
+  syncedAt      DateTime @default(now())
+}
+
+model Task {
+  id        String   @id @default(cuid())
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId  String
+  title     String
+  note      String
+  category  String
+  status    String
+  score     Int      @default(50)
+  stage     String   @default("awaiting_approval")
+  assignee  String?
+  approver  String?
+  ruleId    String?
+  history   TaskHistory[]
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}
+
+model TaskHistory {
+  id      String   @id @default(cuid())
+  task    Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  taskId  String
+  at      DateTime @default(now())
+  by      String
+  action  String
+  comment String?
+}
+
+model Rule {
+  id        String   @id @default(cuid())
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId  String
+  type      String   @default("custom")
+  industry  String?
+  title     String
+  detail    String   @default("")
+  severity  String   @default("mid")
+  active    Boolean  @default(true)
+  createdBy String   @default("system")
+  createdAt DateTime @default(now())
+  hits      RuleHit[]
+}
+
+model RuleHit {
+  id      String   @id @default(cuid())
+  rule    Rule     @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  ruleId  String
+  at      DateTime @default(now())
+  target  String
+  outcome String   @default("matched")
+}
+
+model Thread {
+  id          String   @id @default(cuid())
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId    String
+  channel     String
+  direction   String
+  subject     String?
+  body        String
+  preview     String?
+  status      String   @default("queued")
+  externalId  String?
+  errorMsg    String?
+  scheduledAt DateTime?
+  sentAt      DateTime?
+  createdAt   DateTime @default(now())
+}
+
+model ReceiptPolicy {
+  account          String  @id
+  requiresReceipt  Boolean @default(true)
+  requiresApproval Boolean @default(false)
+  exemptUnder      Int?
+  notes            String?
+}
+
+model YearendCheck {
+  id       String  @id @default(cuid())
+  client   Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId String
+  title    String
+  note     String?
+  status   String  @default("open")
+  order    Int
+}
+
+model TrendDatum {
+  id         String   @id @default(cuid())
+  client     Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId   String
+  account    String
+  prev3      Json
+  curr       Float
+  changePct  Float
+  flag       String
+}
+
+model MonthlyCheck {
+  id       String  @id @default(cuid())
+  client   Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId String
+  title    String
+  note     String?
+  detail   String?
+  status   String  @default("open")
+  score    Int     @default(50)
+}
