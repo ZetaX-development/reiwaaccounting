@@ -9,6 +9,9 @@ import { logger } from './lib/logger.js';
 import { healthRoutes } from './routes/health.js';
 import { clientRoutes } from './routes/clients.js';
 import { syncRoutes } from './routes/sync.js';
+import { syncStatusRoutes } from './routes/sync-status.js';
+import { summaryRoutes } from './routes/summary.js';
+import { mfOauthRoutes } from './routes/mf-oauth.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ loggerInstance: logger });
@@ -28,6 +31,9 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(healthRoutes);
   await app.register(clientRoutes);
   await app.register(syncRoutes);
+  await app.register(syncStatusRoutes);
+  await app.register(summaryRoutes);
+  await app.register(mfOauthRoutes);
 
   app.setErrorHandler((err, _req, reply) => {
     logger.error({ err }, 'unhandled');
