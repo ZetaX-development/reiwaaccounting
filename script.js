@@ -409,6 +409,7 @@ function renderClients() {
     html += '<button class="client-card ' + (i === appState.activeClient ? "active" : "") + '" data-client="' + i + '">';
     html += "<strong>" + client.name + "</strong><span>" + client.owner + "</span>";
     html += vendorBadgeHtml(client.vendor);
+    html += channelBadgeHtml(client.contactPrimary);
     html += '<div class="mini-progress"><i style="width:' + client.progress + '%"></i></div></button>';
   }
   clientStrip.innerHTML = html;
@@ -424,6 +425,12 @@ function vendorBadgeHtml(vendor) {
   if (vendor === "mf") return '<span class="pill vendor-mf">MF</span>';
   if (vendor === "freee") return '<span class="pill vendor-freee">freee</span>';
   return "";
+}
+
+function channelBadgeHtml(channel) {
+  if (!channel) return "";
+  const labels = { email: "メール", slack: "Slack", chatwork: "Chatwork", line_works: "LW", messenger: "FB" };
+  return '<span class="pill channel-' + channel + '">' + (labels[channel] || channel) + '</span>';
 }
 
 function renderSummary() {
@@ -478,6 +485,51 @@ function renderIntegrationCard() {
       card.innerHTML = html;
     })
     .catch(() => {});
+}
+
+function loadAndRenderThreads() {
+  const client = currentClient();
+  if (!client?.id) return;
+  fetch("/api/clients/" + encodeURIComponent(client.id) + "/threads")
+    .then((r) => (r.ok ? r.json() : null))
+    .then((threads) => {
+      const wrap = $("#portalThreads");
+      if (!wrap) return;
+      if (!Array.isArray(threads) || threads.length === 0) {
+        wrap.innerHTML = '<div class="thread-item out"><span class="thread-header">まだやり取りはありません</span></div>';
+        return;
+      }
+      let html = "";
+      const channelLabels = { email: "メール", slack: "Slack", chatwork: "Chatwork", line_works: "LINE WORKS", messenger: "Messenger" };
+      for (const t of threads) {
+        html += '<div class="thread-item ' + t.direction + '">';
+        html += '<span class="thread-header">';
+        html += channelBadgeHtml(t.channel);
+        html += ' <span class="pill thread-' + t.status + '">' + (t.status === "sent" ? "送信済み" : t.status === "queued" ? "送信待ち" : t.status === "failed" ? "うまく届かず" : t.status) + '</span>';
+        html += ' ' + formatRelative(new Date(t.createdAt));
+        if (t.direction === "out") html += " · " + (channelLabels[t.channel] || t.channel) + "へ送信";
+        html += '</span>';
+        if (t.subject) html += '<span class="thread-preview"><strong>' + escapeHtml(t.subject) + '</strong></span>';
+        html += '<span class="thread-preview">' + escapeHtml(t.preview || t.body.slice(0, 120)) + '</span>';
+        if (t.status === "failed" && t.errorMsg) {
+          html += '<span class="thread-header" style="color:#9a3040">失敗: ' + escapeHtml(t.errorMsg) + '</span>';
+          html += '<button class="row-action" data-action="resend-thread" data-thread-id="' + t.id + '">再送する</button>';
+        }
+        html += '</div>';
+      }
+      wrap.innerHTML = html;
+      // Re-bind resend handlers
+      wrap.querySelectorAll('[data-action="resend-thread"]').forEach((btn) => {
+        btn.addEventListener("click", () => {
+          fetch("/api/messages/" + encodeURIComponent(btn.dataset.threadId) + "/send", { method: "POST" })
+            .then(async (r) => {
+              const t2 = await r.json();
+              showToast(t2.status === "sent" ? "再送しました" : "再送失敗: " + (t2.errorMsg || ""));
+              loadAndRenderThreads();
+            });
+        });
+      });
+    });
 }
 
 function formatRelative(d) {
@@ -782,22 +834,80 @@ function renderSettings() {
   return html;
 }
 
+// Spec 03 F2: 3-column portal: edit | history | settings
 function renderPortal() {
   const client = currentClient();
-  let html = '<div class="portal-layout">';
-  html += '<section class="message-list"><article class="message-card">';
-  html += '<span class="pill urgent">未送信</span><h3>不足資料の依頼</h3>';
-  html += "<p>" + client.message.replace(/\n/g, "<br>") + "</p>";
-  html += '<div class="row-actions"><button class="row-action" data-action="send">送信予約</button>';
-  html += '<button class="row-action reject" data-action="edit">編集</button></div></article>';
-  html += '<article class="message-card"><span class="pill done">自動作成済み</span>';
-  html += "<h3>月次完了予定の共有</h3><p>現在の進捗は " + client.progress + "% です。残りの確認事項が解消され次第、月次レポートを共有します。</p></article></section>";
-  html += '<aside class="settings-card">';
-  html += '<div class="setting-row"><div><strong>自動リマインド</strong><p>締切2日前に再依頼</p></div><span class="switch on"></span></div>';
-  html += '<div class="setting-row"><div><strong>担当者CC</strong><p>社内担当者を自動追加</p></div><span class="switch on"></span></div>';
-  html += '<div class="setting-row"><div><strong>顧問先ポータル</strong><p>資料アップロード画面を有効化</p></div><span class="switch"></span></div>';
-  html += "</aside></div>";
+  if (!appState.portalChannel) {
+    appState.portalChannel = client.contactPrimary || "email";
+  }
+  const ch = appState.portalChannel;
+  const channels = ["email", "slack", "chatwork", "line_works"];
+  const channelLabels = { email: "メール", slack: "Slack", chatwork: "Chatwork", line_works: "LINE WORKS", messenger: "Messenger" };
+  const endpoints = client.contactEndpoints || {};
+
+  let html = '<div class="portal-3col">';
+
+  // Left: edit
+  html += '<section>';
+  html += '<p class="eyebrow">お客さまに連絡</p>';
+  html += '<div class="channel-tabs">';
+  for (const c of channels) {
+    html += '<button class="channel-tab' + (c === ch ? " active" : "") + '" data-portal-channel="' + c + '">' + channelLabels[c] + '</button>';
+  }
+  html += '</div>';
+  html += '<textarea id="portalDraft">' + escapeHtml(formatBodyForChannel(client.message || "", ch)) + '</textarea>';
+  html += '<div class="row-actions" style="margin-top:8px">';
+  html += '<button class="primary-action compact" data-action="portal-send-now">いま送る</button>';
+  html += '<button class="row-action" data-action="portal-schedule">予約送信</button>';
+  html += '</div>';
+  html += '</section>';
+
+  // Middle: thread history
+  html += '<section>';
+  html += '<p class="eyebrow">これまでのやり取り</p>';
+  html += '<div id="portalThreads" style="border:1px solid #e3e7ee;border-radius:8px;background:#fff;max-height:520px;overflow:auto">';
+  html += '<div class="thread-item out"><span class="thread-header">読み込み中…</span></div>';
+  html += '</div>';
+  html += '</section>';
+
+  // Right: contact settings
+  html += '<aside>';
+  html += '<p class="eyebrow">連絡先の設定</p>';
+  html += '<div class="settings-card">';
+  for (const c of channels) {
+    html += '<div class="setting-row"><div><strong>' + channelLabels[c] + '</strong>';
+    html += '<input class="endpoint-input" data-endpoint-channel="' + c + '" value="' + (endpoints[c] || "") + '" placeholder="' + (c === "email" ? "メールアドレス" : c === "slack" ? "Channel ID" : c === "chatwork" ? "Room ID" : "Channel ID") + '" /></div>';
+    html += '</div>';
+  }
+  html += '<div class="setting-row"><div><strong>優先チャンネル</strong>';
+  html += '<select class="endpoint-input" id="primaryChannelSelect">';
+  for (const c of channels) {
+    html += '<option value="' + c + '"' + (c === client.contactPrimary ? " selected" : "") + '>' + channelLabels[c] + '</option>';
+  }
+  html += '</select></div></div>';
+  html += '<div class="row-actions" style="margin-top:8px"><button class="primary-action compact" data-action="portal-save-contact">保存</button></div>';
+  html += '</div>';
+  html += '</aside>';
+
+  html += '</div>';
   return html;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// Mirror of server-side formatForChannel (kept simple)
+function formatBodyForChannel(text, channel) {
+  if (!text) return "";
+  if (channel === "slack") {
+    const lines = text.split("\n").filter(Boolean);
+    return ["@channel"].concat(lines.map((l) => "• " + l.trim())).join("\n");
+  }
+  if (channel === "chatwork") return "[To:userid]\n" + text;
+  if (channel === "line_works") return text.replace(/\n+/g, " ").slice(0, 280);
+  if (channel === "messenger") return text.split("\n")[0] + " 📩";
+  return text;
 }
 
 function renderRules() {
@@ -837,6 +947,16 @@ function renderView() {
       render();
     });
   });
+  // Spec 03 F2: portal channel tab handlers + initial threads load
+  viewContent.querySelectorAll("[data-portal-channel]").forEach((button) => {
+    button.addEventListener("click", () => {
+      appState.portalChannel = button.dataset.portalChannel;
+      renderView();
+    });
+  });
+  if (appState.activeView === "portal") {
+    loadAndRenderThreads();
+  }
   viewContent.querySelectorAll("[data-action]").forEach((button) => {
     button.addEventListener("click", () => {
       const action = button.dataset.action;
@@ -886,6 +1006,58 @@ function renderView() {
         const vendor = button.dataset.vendor;
         const label = vendor === "mf" ? "マネーフォワード" : "freee";
         showToast(label + " の該当画面を別タブで開きます (PoCではモック)");
+      }
+      if (action === "portal-send-now") {
+        const draft = $("#portalDraft").value;
+        const client = currentClient();
+        fetch("/api/messages", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            clientId: client.id,
+            channel: appState.portalChannel,
+            subject: appState.portalChannel === "email" ? "月次のご確認のお願い" : undefined,
+            body: draft,
+          }),
+        }).then(async (r) => {
+          const t = await r.json();
+          if (t.status === "sent") {
+            showToast("送信しました");
+          } else {
+            showToast("送信に失敗しました: " + (t.errorMsg || t.error?.message || ""));
+          }
+          loadAndRenderThreads();
+        }).catch(() => showToast("通信に失敗しました"));
+      }
+      if (action === "portal-schedule") {
+        showToast("予約送信は未対応です（Bull導入後に有効化）");
+      }
+      if (action === "portal-save-contact") {
+        const client = currentClient();
+        const endpoints = {};
+        document.querySelectorAll("[data-endpoint-channel]").forEach((inp) => {
+          endpoints[inp.dataset.endpointChannel] = inp.value || null;
+        });
+        const primary = $("#primaryChannelSelect").value;
+        fetch("/api/clients/" + encodeURIComponent(client.id) + "/contact", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ primary, endpoints }),
+        }).then(() => {
+          client.contactPrimary = primary;
+          client.contactEndpoints = endpoints;
+          showToast("連絡先を更新しました");
+          render();
+        });
+      }
+      if (action === "resend-thread") {
+        const id = button.dataset.threadId;
+        fetch("/api/messages/" + encodeURIComponent(id) + "/send", { method: "POST" })
+          .then(async (r) => {
+            const t = await r.json();
+            showToast(t.status === "sent" ? "再送しました" : "失敗: " + (t.errorMsg || ""));
+            loadAndRenderThreads();
+          });
       }
     });
   });

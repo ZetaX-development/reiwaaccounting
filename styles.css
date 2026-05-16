@@ -918,6 +918,93 @@ td:last-child {
   background: #d8f0e0;
 }
 
+/* Channel badges (spec 03) */
+.pill.channel-email { color: #1c3680; background: #dde6f7; font-size: 10px; padding: 2px 6px; }
+.pill.channel-slack { color: #4a154b; background: #f0e3f0; font-size: 10px; padding: 2px 6px; }
+.pill.channel-chatwork { color: #1f6e3a; background: #d6efe0; font-size: 10px; padding: 2px 6px; }
+.pill.channel-line_works { color: #0f7a3e; background: #d8eed8; font-size: 10px; padding: 2px 6px; }
+.pill.channel-messenger { color: #0e3a8b; background: #d8e3f5; font-size: 10px; padding: 2px 6px; }
+
+/* Thread status badges */
+.pill.thread-queued { color: #5c6675; background: #eceff4; font-size: 10px; padding: 2px 6px; }
+.pill.thread-sent { color: #1f6e3a; background: #d6efe0; font-size: 10px; padding: 2px 6px; }
+.pill.thread-failed { color: #9a3040; background: #fde9ec; font-size: 10px; padding: 2px 6px; }
+
+/* Portal 3-column layout (spec 03 F2) */
+.portal-3col {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 0.9fr;
+  gap: 16px;
+}
+@media (max-width: 1100px) {
+  .portal-3col { grid-template-columns: 1fr; }
+}
+
+.channel-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.channel-tab {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid #d8dee7;
+  background: #fff;
+  font-size: 11px;
+  cursor: pointer;
+  color: #2b3950;
+}
+.channel-tab.active {
+  background: #2b3950;
+  color: #fff;
+  border-color: #2b3950;
+}
+
+.thread-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #eef0f3;
+  font-size: 12px;
+}
+.thread-item.in { background: #fafafa; }
+.thread-item.out { background: #fff; }
+.thread-item .thread-header {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 11px;
+  color: #5c6675;
+}
+.thread-item .thread-preview {
+  color: #202936;
+  white-space: pre-line;
+  font-size: 12.5px;
+}
+
+.endpoint-input {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #d8dee7;
+  border-radius: 6px;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+#portalDraft {
+  width: 100%;
+  min-height: 220px;
+  padding: 10px;
+  border: 1px solid #d8dee7;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: inherit;
+  margin-top: 8px;
+}
+
 
 .confidence {
   display: grid;
