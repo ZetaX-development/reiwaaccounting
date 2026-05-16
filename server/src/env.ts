@@ -1,0 +1,53 @@
+import { z } from 'zod';
+
+// Note: dotenv loading is done in src/bootstrap.ts so tests can manipulate
+// process.env without .env contents leaking back in.
+
+const schema = z.object({
+  DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
+  PORT: z.coerce.number().int().positive().default(3000),
+  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  STALE_THRESHOLD_SEC: z.coerce.number().int().positive().default(3600),
+  MAX_AGE_SEC: z.coerce.number().int().positive().default(21600),
+  MF_CLIENT_ID: z.string().default(''),
+  MF_CLIENT_SECRET: z.string().default(''),
+  MF_REDIRECT_URI: z.string().default(''),
+  MF_BASE_URL: z.string().default(''),
+  SENDGRID_API_KEY: z.string().default(''),
+  EMAIL_FROM: z.string().default(''),
+  SLACK_BOT_TOKEN: z.string().default(''),
+  CHATWORK_API_TOKEN: z.string().default(''),
+  LINEWORKS_BOT_ID: z.string().default(''),
+  LINEWORKS_CLIENT_ID: z.string().default(''),
+  LINEWORKS_CLIENT_SECRET: z.string().default(''),
+  LINEWORKS_SERVICE_ACCOUNT: z.string().default(''),
+  LINEWORKS_PRIVATE_KEY: z.string().default(''),
+});
+
+export type Env = z.infer<typeof schema>;
+
+export function loadEnv(): Env {
+  const result = schema.safeParse(process.env);
+  if (!result.success) {
+    const issues = result.error.issues
+      .map((i) => `${i.path.join('.')}: ${i.message}`)
+      .join('; ');
+    throw new Error(`Invalid environment: ${issues}`);
+  }
+  return result.data;
+}
+
+// Lazy singleton: only validated on first read, so tests can manipulate
+// process.env before any consumer touches `env`.
+let _cached: Env | undefined;
+export const env = new Proxy({} as Env, {
+  get(_target, prop) {
+    if (!_cached) _cached = loadEnv();
+    return _cached[prop as keyof Env];
+  },
+});
+
+// Test-only helper to reset the cached env (used between tests if needed).
+export function __resetEnvCache(): void {
+  _cached = undefined;
+}
