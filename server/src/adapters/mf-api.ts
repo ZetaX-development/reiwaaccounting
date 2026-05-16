@@ -112,23 +112,23 @@ interface ClientTokenRecord {
   mfTokenExpiresAt: Date | null;
 }
 
-// Spec 09 keeps the externalId conventionally as `mock-<clientId>` for the
-// freee mock. For MF we *don't* need an external ID — the access token is
-// already scoped to one MF Office. So this resolver just looks up the Client
-// row by id (stripping the mock- prefix if present).
+// sync-service.ts passes either:
+//   - "mock-<clientId>"          (before OAuth — Client.mfExternalId is null)
+//   - <office code from MF>      (after OAuth — saved in Client.mfExternalId)
+// We resolve back to the Client row in either case so we can read its tokens.
 async function loadClientToken(externalId: string): Promise<ClientTokenRecord | null> {
-  const id = externalId.startsWith('mock-')
-    ? externalId.slice('mock-'.length)
-    : externalId;
-  return prisma.client.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      mfAccessToken: true,
-      mfRefreshToken: true,
-      mfTokenExpiresAt: true,
-    },
-  });
+  const select = {
+    id: true,
+    mfAccessToken: true,
+    mfRefreshToken: true,
+    mfTokenExpiresAt: true,
+  } as const;
+  if (externalId.startsWith('mock-')) {
+    const id = externalId.slice('mock-'.length);
+    return prisma.client.findUnique({ where: { id }, select });
+  }
+  // Post-OAuth: externalId is the MF office code stored on Client.mfExternalId.
+  return prisma.client.findFirst({ where: { mfExternalId: externalId }, select });
 }
 
 async function ensureToken(client: ClientTokenRecord): Promise<string | null> {
