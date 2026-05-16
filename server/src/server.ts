@@ -13,6 +13,7 @@ import { syncStatusRoutes } from './routes/sync-status.js';
 import { summaryRoutes } from './routes/summary.js';
 import { mfOauthRoutes } from './routes/mf-oauth.js';
 import { messageRoutes } from './routes/messages.js';
+import { taskRoutes } from './routes/tasks.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ loggerInstance: logger });
@@ -36,6 +37,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(summaryRoutes);
   await app.register(mfOauthRoutes);
   await app.register(messageRoutes);
+  await app.register(taskRoutes);
 
   app.setErrorHandler((err, _req, reply) => {
     logger.error({ err }, 'unhandled');

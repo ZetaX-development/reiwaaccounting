@@ -1005,6 +1005,40 @@ td:last-child {
   margin-top: 8px;
 }
 
+/* Role selector (spec 02) */
+.role-selector {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid #d8dee7;
+  background: #fff;
+  font-size: 12px;
+  color: #2b3950;
+  cursor: pointer;
+}
+
+/* Task history list (spec 02 F5) */
+.task-history {
+  margin-top: 6px;
+  padding: 8px 10px;
+  background: #f7f8fb;
+  border-radius: 6px;
+  font-size: 11.5px;
+  list-style: none;
+}
+.task-history li {
+  padding: 3px 0;
+  display: flex;
+  gap: 6px;
+  color: #2b3950;
+}
+.task-history li .ts { color: #5c6675; }
+
+/* Stage pill (spec 02) */
+.pill.stage-staff_doing { color: #5c6675; background: #eceff4; font-size: 10px; padding: 2px 6px; }
+.pill.stage-awaiting_approval { color: #8a5a0a; background: #fff0cf; font-size: 10px; padding: 2px 6px; }
+.pill.stage-approved { color: #1f6e3a; background: #d6efe0; font-size: 10px; padding: 2px 6px; }
+.pill.stage-rejected { color: #9a3040; background: #fde9ec; font-size: 10px; padding: 2px 6px; }
+
 
 .confidence {
   display: grid;

@@ -3,6 +3,8 @@ const appState = {
   activeView: "dashboard",
   activeFilter: "all",
   search: "",
+  currentRole: (typeof localStorage !== "undefined" && localStorage.getItem("zeimee.role")) || "tax_accountant",
+  expandedHistory: {}, // taskId -> bool
 };
 
 // Loaded from /api/clients on startup. The inline array below is kept as a
@@ -281,6 +283,8 @@ async function loadClientsFromApi() {
 }
 
 function adaptApiClient(d) {
+  // Save raw tasks (with stage etc.) so spec 02 can render workflow buttons.
+  const rawTasks = (d.tasks ?? []);
   // Map the API detail payload (Prisma schema) onto the legacy shape the
   // existing render functions read from `clients[i]`.
   return {
@@ -303,13 +307,14 @@ function adaptApiClient(d) {
     contactPrimary: d.contactPrimary,
     contactEndpoints: d.contactEndpoints ?? {},
     vendorSyncs: d.vendorSyncs ?? [],
-    tasks: (d.tasks ?? []).map((t) => [
+    tasks: rawTasks.map((t) => [
       t.title,
       t.note,
       t.category,
       t.status,
       t.score,
     ]),
+    rawTasks: rawTasks,
     entries: (d.entries ?? []).map((e) => [
       e.account,
       e.description,
@@ -580,43 +585,79 @@ function renderTable(rows, columns) {
 function renderDashboard() {
   const client = currentClient();
   const [stage, stageClass] = progressStatus(client);
-  const reviewTasks = client.tasks
-    .map((task, index) => ({ task, index }))
-    .filter(({ task }) => task[3] !== "done")
-    .filter(({ task }) => matchesSearch(task))
-    .sort((a, b) => b.task[4] - a.task[4]);
+  const role = appState.currentRole;
+  const rawTasks = client.rawTasks || [];
+
+  // Spec 02 F2: filter tasks by role + stage
+  const filtered = rawTasks
+    .map((t, index) => ({ task: t, index }))
+    .filter(({ task }) => {
+      if (role === "tax_accountant") return task.stage === "awaiting_approval";
+      // staff sees their own work-in-progress + things sent back
+      return task.stage === "staff_doing" || task.stage === "rejected";
+    })
+    .filter(({ task }) => matchesSearch([task.title, task.note, task.category]))
+    .sort((a, b) => b.task.score - a.task.score);
+
+  const heroTitle = role === "tax_accountant"
+    ? "今日確認すべきレビュー"
+    : "あなたが今やる作業";
+  const heroDesc = role === "tax_accountant"
+    ? "スタッフが完了して所長確認待ちになった件だけを表示しています。"
+    : "あなたが進行中の作業と、所長から戻ってきた差戻しが見えます。";
+
   let html = '<div class="review-hero">';
-  html += '<div><p class="eyebrow">記帳完了後レビュー</p><h3>担当者の作業結果をAIが先に点検済み</h3>';
-  html += '<p>所長は異常点、根拠、次アクションだけを確認します。承認・差戻し・顧問先依頼までここで完結します。</p></div>';
-  html += '<div class="review-run-card"><span class="pill ' + stageClass + '">' + stage + '</span><strong>' + reviewTasks.length + '件</strong><small>今すぐ確認すべきレビュー</small></div>';
+  html += '<div><p class="eyebrow">' + (role === "tax_accountant" ? "所長確認" : "あなたの作業") + '</p><h3>' + heroTitle + '</h3>';
+  html += '<p>' + heroDesc + '</p></div>';
+  html += '<div class="review-run-card"><span class="pill ' + stageClass + '">' + stage + '</span><strong>' + filtered.length + '件</strong><small>あなたに来ている件数</small></div>';
   html += "</div>";
 
   html += '<div class="review-list">';
-  if (!reviewTasks.length) {
-    html += '<div class="empty-state">所長確認待ちのレビューはありません。</div>';
+  if (!filtered.length) {
+    html += '<div class="empty-state">' + (role === "tax_accountant" ? "今日はありません。スタッフからの確認依頼を待ちましょう。" : "あなたの作業はありません。お疲れさまでした！") + '</div>';
   }
-  for (let i = 0; i < reviewTasks.length; i++) {
-    const item = reviewTasks[i];
-    const task = item.task;
-    html += '<article class="review-card ' + task[3] + '">';
+  for (const item of filtered) {
+    const t = item.task;
+    html += '<article class="review-card ' + t.status + '">';
     html += '<div class="review-main"><div class="review-title-row">';
-    html += '<span class="pill ' + task[3] + '">' + task[2] + '</span>';
-    html += '<strong>' + task[0] + '</strong></div>';
-    html += '<p>' + task[1] + '</p>';
+    html += '<span class="pill ' + t.status + '">' + t.category + '</span>';
+    html += '<span class="pill stage-' + t.stage + '">' + stageJpLabel(t.stage) + '</span>';
+    html += '<strong>' + escapeHtml(t.title) + '</strong></div>';
+    html += '<p>' + escapeHtml(t.note) + '</p>';
     html += '<div class="review-evidence">';
-    html += '<span><b>担当</b>' + taskOwner(item.index) + '</span>';
-    html += '<span><b>AI根拠</b>' + taskReason(task) + '</span>';
-    html += '<span><b>推奨</b>' + taskActionText(task) + '</span>';
-    html += '</div></div>';
-    html += '<div class="review-score">' + makeConfidence(task[4]) + '</div>';
+    html += '<span><b>担当</b>' + (t.assignee || "—") + '</span>';
+    html += '<span><b>承認者</b>' + (t.approver || "—") + '</span>';
+    html += '<span><b>優先度</b>' + t.score + '%</span>';
+    html += '</div>';
+    if (appState.expandedHistory[t.id]) {
+      html += '<div data-history-for="' + t.id + '"><ol class="task-history"><li>読み込み中…</li></ol></div>';
+    } else {
+      html += '<button class="vendor-link" data-action="toggle-history" data-task-id="' + t.id + '" style="margin-top:6px">履歴を見る</button>';
+    }
+    html += '</div>';
+    html += '<div class="review-score">' + makeConfidence(t.score) + '</div>';
     html += '<div class="review-actions">';
-    html += '<button class="row-action" data-action="approve" data-task="' + item.index + '">承認</button>';
-    html += '<button class="row-action reject" data-action="reject" data-task="' + item.index + '">差戻し</button>';
-    html += '<button class="row-action" data-action="ask" data-task="' + item.index + '">依頼文</button>';
+    if (role === "staff") {
+      html += '<button class="row-action" data-action="task-transition" data-task-id="' + t.id + '" data-task-action="staff_complete">記帳完了 → 確認依頼</button>';
+    } else {
+      html += '<button class="row-action" data-action="task-transition" data-task-id="' + t.id + '" data-task-action="approve">承認</button>';
+      html += '<button class="row-action reject" data-action="task-transition" data-task-id="' + t.id + '" data-task-action="reject">差戻し</button>';
+      html += '<button class="row-action" data-action="ask-thread" data-task-id="' + t.id + '">依頼文</button>';
+    }
     html += '</div></article>';
   }
   html += "</div>";
   return html;
+}
+
+function stageJpLabel(stage) {
+  const labels = {
+    staff_doing: "担当者が作業中",
+    awaiting_approval: "所長に見てもらい待ち",
+    approved: "所長OK",
+    rejected: "やり直し依頼中",
+  };
+  return labels[stage] || stage;
 }
 
 // ===== 新機能: 試算表増減・傾向分析 =====
@@ -745,27 +786,39 @@ function renderProgress() {
   return html;
 }
 
+// Spec 02 F4: differ for staff vs tax_accountant
 function renderFeedback() {
   const client = currentClient();
-  const feedbackTasks = client.tasks
-    .map((task, index) => ({ task, index }))
-    .filter(({ task }) => task[3] !== "done")
-    .filter(({ task }) => matchesSearch(task));
-  let html = '<div class="feedback-layout">';
-  html += '<section class="message-list">';
-  if (!feedbackTasks.length) html += '<div class="empty-state">差戻し対象はありません。</div>';
-  for (let i = 0; i < feedbackTasks.length; i++) {
-    const item = feedbackTasks[i];
-    const task = item.task;
+  const role = appState.currentRole;
+  const rawTasks = client.rawTasks || [];
+  const targets = rawTasks.filter((t) => t.stage === "rejected");
+
+  let html = '<div class="feedback-layout"><section class="message-list">';
+  const headline = role === "staff"
+    ? "あなた宛のやり直し依頼"
+    : "差戻し中の件 (誰に戻したか)";
+  html += '<p class="eyebrow">' + headline + '</p>';
+
+  if (!targets.length) {
+    html += '<div class="empty-state">' + (role === "staff" ? "戻ってきた件はありません。" : "差戻し中の件はありません。") + '</div>';
+  }
+
+  for (const t of targets) {
     html += '<article class="message-card feedback-card">';
-    html += '<span class="pill ' + task[3] + '">' + statusLabel(task[3]) + '</span>';
-    html += '<h3>' + taskOwner(item.index) + 'さんへの差戻し</h3>';
-    html += '<p>' + task[0] + 'について、' + task[1] + '。' + taskReason(task) + 'の結果を確認し、修正後に再度「記帳完了」を押してください。</p>';
-    html += '<div class="feedback-meta"><span>対象: ' + task[2] + '</span><span>優先度: ' + task[4] + '%</span></div>';
-    html += '<div class="row-actions"><button class="row-action" data-action="send-feedback" data-task="' + item.index + '">担当者に送る</button>';
-    html += '<button class="row-action reject" data-action="approve" data-task="' + item.index + '">所長承認</button></div>';
+    html += '<span class="pill stage-rejected">やり直し依頼中</span>';
+    html += '<h3>' + escapeHtml(t.assignee || "担当") + ' さんへの差戻し</h3>';
+    html += '<p>' + escapeHtml(t.title) + 'について、' + escapeHtml(t.note) + '。修正後に「再提出」を押してください。</p>';
+    html += '<div class="feedback-meta"><span>対象: ' + escapeHtml(t.category) + '</span><span>優先度: ' + t.score + '%</span></div>';
+    html += '<div class="row-actions">';
+    if (role === "staff") {
+      html += '<button class="row-action" data-action="task-transition" data-task-id="' + t.id + '" data-task-action="resubmit">再提出する</button>';
+    } else {
+      html += '<button class="vendor-link" data-action="toggle-history" data-task-id="' + t.id + '">履歴を見る</button>';
+    }
+    html += '</div>';
     html += '</article>';
   }
+
   html += '</section><aside class="settings-card">';
   html += '<div class="setting-row"><div><strong>差戻しテンプレート</strong><p>根拠、修正内容、再提出条件を自動挿入</p></div><span class="switch on"></span></div>';
   html += '<div class="setting-row"><div><strong>Slack通知</strong><p>担当者別にメンション付き通知</p></div><span class="switch on"></span></div>';
@@ -1059,6 +1112,66 @@ function renderView() {
             loadAndRenderThreads();
           });
       }
+      // Spec 02 F3: task workflow transitions
+      if (action === "task-transition") {
+        const id = button.dataset.taskId;
+        const a = button.dataset.taskAction;
+        let comment;
+        if (a === "reject") {
+          comment = window.prompt("差戻しの理由（スタッフに伝わります）", "");
+          if (comment === null) return;
+        }
+        const by = appState.currentRole === "staff" ? "鈴木" : "畠山";
+        fetch("/api/tasks/" + encodeURIComponent(id) + "/transition", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ action: a, by, comment }),
+        }).then(async (r) => {
+          if (!r.ok) {
+            const err = await r.json();
+            showToast("失敗: " + (err.error?.message || r.status));
+            return;
+          }
+          const labels = { staff_complete: "確認依頼に出しました", approve: "承認しました", reject: "差戻しを記録しました", resubmit: "再提出しました" };
+          showToast(labels[a] || "更新しました");
+          loadClientsFromApi().finally(render);
+        });
+      }
+      if (action === "toggle-history") {
+        const id = button.dataset.taskId;
+        appState.expandedHistory[id] = !appState.expandedHistory[id];
+        render();
+        if (appState.expandedHistory[id]) {
+          fetch("/api/tasks/" + encodeURIComponent(id) + "/history")
+            .then((r) => r.json())
+            .then((rows) => {
+              const slot = document.querySelector('[data-history-for="' + id + '"] ol');
+              if (!slot) return;
+              if (!Array.isArray(rows) || rows.length === 0) {
+                slot.innerHTML = '<li>履歴はありません</li>';
+                return;
+              }
+              const labelMap = { staff_complete: "記帳完了", approve: "承認", reject: "差戻し", resubmit: "再提出" };
+              slot.innerHTML = rows.map((h) => '<li><span class="ts">' + new Date(h.at).toLocaleString("ja-JP") + '</span> ' + escapeHtml(h.by) + ' が ' + (labelMap[h.action] || h.action) + (h.comment ? ' — ' + escapeHtml(h.comment) : '') + '</li>').join('');
+            });
+        }
+      }
+      if (action === "ask-thread") {
+        const id = button.dataset.taskId;
+        const client = currentClient();
+        const t = (client.rawTasks || []).find((x) => x.id === id);
+        if (!t) return;
+        const draft = client.name + " ご担当者様\n\n" +
+          "下記の件についてご確認ください。\n\n・" + t.title + "\n  " + t.note + "\n\n" +
+          "確認後、月次処理を進めます。よろしくお願いいたします。";
+        $("#messageDraft").value = draft;
+        appState.activeView = "portal";
+        appState.portalChannel = client.contactPrimary || "email";
+        render();
+        const portalDraft = $("#portalDraft");
+        if (portalDraft) portalDraft.value = formatBodyForChannel(draft, appState.portalChannel);
+        showToast("顧問先連絡に依頼文を作成しました");
+      }
     });
   });
 }
@@ -1128,6 +1241,19 @@ $("#searchInput").addEventListener("input", (event) => {
   appState.search = event.target.value.trim();
   renderView();
 });
+
+// Spec 02 F1: role selector
+const roleSel = $("#roleSelector");
+if (roleSel) {
+  roleSel.value = appState.currentRole;
+  roleSel.addEventListener("change", () => {
+    appState.currentRole = roleSel.value;
+    if (typeof localStorage !== "undefined") {
+      localStorage.setItem("zeimee.role", appState.currentRole);
+    }
+    render();
+  });
+}
 
 $("#runAiButton").addEventListener("click", () => {
   const client = currentClient();
