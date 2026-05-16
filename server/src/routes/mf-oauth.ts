@@ -90,14 +90,17 @@ export async function mfOauthRoutes(app: FastifyInstance) {
           },
         });
 
-        // Confirm connection by reading the office name.
+        // Confirm connection by reading the office name. We also adopt the
+        // MF office name as the zeimee Client.name so the dashboard shows
+        // the real customer instead of the seeded placeholder.
         const office = await fetchOffice(tokens.access_token);
-        if (office?.name) {
-          await prisma.client.update({
-            where: { id: client.id },
-            data: { mfExternalId: office.code ?? null },
-          });
-        }
+        const updated = await prisma.client.update({
+          where: { id: client.id },
+          data: {
+            mfExternalId: office?.code ?? null,
+            name: office?.name ?? client.name,
+          },
+        });
 
         const officeLine = office?.name
           ? `<p>連携先 MF 事業者: <strong>${escapeHtml(office.name)}</strong></p>`
@@ -107,7 +110,7 @@ export async function mfOauthRoutes(app: FastifyInstance) {
           .send(
             `<!doctype html><meta charset="utf-8"><title>MF 連携完了</title>` +
               `<h1>MF 連携完了</h1>` +
-              `<p>顧問先 ${escapeHtml(client.name)} のアクセストークンを保存しました。</p>` +
+              `<p>顧問先 ${escapeHtml(updated.name)} のアクセストークンを保存しました。</p>` +
               officeLine +
               `<p><a href="/">ダッシュボードへ戻る</a></p>`,
           );
