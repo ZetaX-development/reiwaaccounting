@@ -33,11 +33,9 @@
           <button class="nav-item" data-view="settings">運用設定</button>
         </nav>
 
-        <div class="integration-card">
+        <div class="integration-card" id="integrationCard">
           <p>連携ステータス</p>
-          <span>freee</span>
-          <span>Money Forward</span>
-          <span>Drive証憑</span>
+          <span>読み込み中…</span>
         </div>
       </aside>
 
@@ -78,6 +76,11 @@
             <span>差戻し中</span>
             <strong id="diffValue">2</strong>
             <small>自動作成 <b id="matchValue">24</b> 件</small>
+          </article>
+          <article class="summary-card">
+            <span>ベンダー横断同期</span>
+            <strong id="vendorSyncValue">—</strong>
+            <small>freee と MF の取り込み OK 率</small>
           </article>
         </section>
 

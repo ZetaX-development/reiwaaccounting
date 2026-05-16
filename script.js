@@ -408,12 +408,22 @@ function renderClients() {
     const client = clients[i];
     html += '<button class="client-card ' + (i === appState.activeClient ? "active" : "") + '" data-client="' + i + '">';
     html += "<strong>" + client.name + "</strong><span>" + client.owner + "</span>";
+    html += vendorBadgeHtml(client.vendor);
     html += '<div class="mini-progress"><i style="width:' + client.progress + '%"></i></div></button>';
   }
   clientStrip.innerHTML = html;
   clientStrip.querySelectorAll(".client-card").forEach((button) => {
     button.addEventListener("click", () => { appState.activeClient = Number(button.dataset.client); render(); });
   });
+}
+
+function vendorBadgeHtml(vendor) {
+  if (vendor === "both") {
+    return '<span class="pill vendor-mf">MF</span> <span class="pill vendor-freee">freee</span>';
+  }
+  if (vendor === "mf") return '<span class="pill vendor-mf">MF</span>';
+  if (vendor === "freee") return '<span class="pill vendor-freee">freee</span>';
+  return "";
 }
 
 function renderSummary() {
@@ -429,14 +439,66 @@ function renderSummary() {
   $("#panelTitle").textContent = client.name;
   $("#currentViewLabel").textContent = labels[appState.activeView];
   $("#aiSubtitle").textContent = client.name + " の月次処理を支援中";
+
+  // Spec 01 F5: 5th summary card "ベンダー横断同期"
+  const vendorEl = $("#vendorSyncValue");
+  if (vendorEl) {
+    fetch("/api/sync-status")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!data) return;
+        vendorEl.textContent = data.okRate + "%";
+      })
+      .catch(() => {});
+  }
+}
+
+// Spec 01 F4: Sidebar integration card with sync status
+function renderIntegrationCard() {
+  const card = $("#integrationCard");
+  if (!card) return;
+  fetch("/api/sync-status")
+    .then((r) => (r.ok ? r.json() : null))
+    .then((data) => {
+      if (!data) {
+        card.innerHTML = "<p>連携ステータス</p><span>取得できませんでした</span>";
+        return;
+      }
+      let html = "<p>連携ステータス</p>";
+      for (const v of data.vendors) {
+        const dotClass = v.error > 0 ? "error" : v.warn > 0 ? "warn" : v.total > 0 ? "ok" : "warn";
+        const label = v.vendor === "mf" ? "マネーフォワード" : "freee";
+        const lastSyncLabel = v.lastSync ? formatRelative(new Date(v.lastSync)) : "未取得";
+        html += '<div class="sync-row">';
+        html += '<span class="status-dot ' + dotClass + '"></span>';
+        html += '<span class="vendor-name">' + label + "</span>";
+        html += '<span class="sync-detail">' + v.ok + "/" + v.total + " OK・" + lastSyncLabel + "</span>";
+        html += "</div>";
+      }
+      card.innerHTML = html;
+    })
+    .catch(() => {});
+}
+
+function formatRelative(d) {
+  const diffMin = Math.floor((Date.now() - d.getTime()) / 60000);
+  if (diffMin < 1) return "今すぐ";
+  if (diffMin < 60) return diffMin + "分前";
+  const h = Math.floor(diffMin / 60);
+  if (h < 24) return h + "時間前";
+  const days = Math.floor(h / 24);
+  return days + "日前";
 }
 
 function renderTable(rows, columns) {
   const visible = rows.filter(matchesFilter).filter(matchesSearch);
   if (!visible.length) return '<div class="empty-state">条件に合うデータがありません。</div>';
+  // Spec 01 F3: append source column. Spec 08 O1: append vendor jump link.
+  const client = currentClient();
+  const vendorSource = client.vendor === "freee" ? "freee" : "mf";
   let html = '<div class="table-wrap"><table><thead><tr>';
   for (let i = 0; i < columns.length; i++) html += "<th>" + columns[i] + "</th>";
-  html += "<th>状態</th><th>確認優先度</th><th>操作</th></tr></thead><tbody>";
+  html += "<th>状態</th><th>出所</th><th>確認優先度</th><th>操作</th></tr></thead><tbody>";
   for (let i = 0; i < visible.length; i++) {
     const row = visible[i];
     const hasNote = row.length === 6;
@@ -446,13 +508,20 @@ function renderTable(rows, columns) {
     html += "<td>" + row[2] + "</td>";
     html += "<td>" + (hasNote ? row[3] : row[2]) + "</td>";
     html += '<td><span class="pill ' + status + '">' + statusLabel(status) + "</span></td>";
+    html += '<td><span class="pill source-' + vendorSource + '">' + (vendorSource === "mf" ? "MF" : "freee") + '</span></td>';
     html += "<td>" + makeConfidence(score) + "</td>";
     html += '<td><div class="row-actions">';
     html += '<button class="row-action" data-action="approve" data-index="' + i + '">承認</button>';
     html += '<button class="row-action reject" data-action="reject" data-index="' + i + '">差戻し</button>';
+    html += '<button class="vendor-link" data-action="open-vendor" data-vendor="' + vendorSource + '">' + (vendorSource === "mf" ? "MFで開く" : "freeeで開く") + '</button>';
     html += "</div></td></tr>";
   }
   html += "</tbody></table></div>";
+  // Spec 08 O3: sync freshness label
+  const sync = (client.vendorSyncs || []).find((s) => s.vendor === vendorSource);
+  if (sync && sync.lastSync) {
+    html += '<small class="sync-fresh">最終同期: ' + formatRelative(new Date(sync.lastSync)) + '</small>';
+  }
   return html;
 }
 
@@ -557,26 +626,66 @@ function renderTrends() {
 }
 
 function renderProgress() {
+  // Spec 01 F2: vendor filter tab
+  const filter = appState.progressFilter || "deadline";
   let html = '<div class="progress-board">';
-  html += '<div class="work-tabs"><button class="work-tab active">締切順</button><button class="work-tab">担当者別</button><button class="work-tab">回収待ち</button><button class="work-tab">所長確認</button></div>';
-  html += '<div class="progress-table-wrap"><table class="progress-table"><thead><tr>';
-  html += '<th>顧問先</th><th>担当</th><th>状態</th><th>進捗</th><th>所長確認</th><th>未回収</th><th>次アクション</th></tr></thead><tbody>';
-  for (let i = 0; i < clients.length; i++) {
-    const client = clients[i];
-    const [stage, stageClass] = progressStatus(client);
-    const owner = client.owner.split(" / ")[0].replace("担当: ", "");
-    const nextTask = client.tasks.find((task) => task[3] !== "done") || client.tasks[0];
-    html += '<tr class="' + (i === appState.activeClient ? "selected-row" : "") + '">';
-    html += '<td><div class="item-title"><strong>' + client.name + '</strong><small>' + client.owner + '</small></div></td>';
-    html += '<td>' + owner + '</td>';
-    html += '<td><span class="pill ' + stageClass + '">' + stage + '</span></td>';
-    html += '<td><div class="progress-cell"><span>' + client.progress + '%</span><div class="mini-progress"><i style="width:' + client.progress + '%"></i></div></div></td>';
-    html += '<td>' + client.risk + '件</td>';
-    html += '<td>' + client.missing + '件</td>';
-    html += '<td><button class="row-action" data-action="open-client" data-client-target="' + i + '">' + nextTask[0] + '</button></td>';
-    html += '</tr>';
+  html += '<div class="work-tabs">';
+  html += '<button class="work-tab' + (filter === "deadline" ? " active" : "") + '" data-progress-filter="deadline">締切順</button>';
+  html += '<button class="work-tab' + (filter === "owner" ? " active" : "") + '" data-progress-filter="owner">担当者別</button>';
+  html += '<button class="work-tab' + (filter === "missing" ? " active" : "") + '" data-progress-filter="missing">回収待ち</button>';
+  html += '<button class="work-tab' + (filter === "vendor" ? " active vendor-tab" : "") + '" data-progress-filter="vendor">ベンダー別</button>';
+  html += '</div>';
+
+  if (filter === "vendor") {
+    // Group by vendor
+    const groups = { freee: [], mf: [], both: [] };
+    clients.forEach((c, i) => { (groups[c.vendor] || groups.mf).push({ client: c, index: i }); });
+    const order = [
+      { key: "mf", label: "マネーフォワード" },
+      { key: "freee", label: "freee" },
+      { key: "both", label: "freee と MF 両方" },
+    ];
+    html += '<div class="progress-table-wrap">';
+    for (const g of order) {
+      const rows = groups[g.key];
+      if (!rows.length) continue;
+      html += '<h4 style="margin:14px 0 6px;font-size:13px;color:#5c6675;">' + g.label + ' (' + rows.length + ')</h4>';
+      html += '<table class="progress-table"><thead><tr>';
+      html += '<th>顧問先</th><th>担当</th><th>進捗</th><th>所長確認</th><th>未回収</th></tr></thead><tbody>';
+      for (const r of rows) {
+        const owner = r.client.owner.split(" / ")[0].replace("担当: ", "");
+        html += '<tr class="' + (r.index === appState.activeClient ? "selected-row" : "") + '">';
+        html += '<td><div class="item-title"><strong>' + r.client.name + '</strong><small>' + r.client.owner + '</small></div></td>';
+        html += '<td>' + owner + '</td>';
+        html += '<td>' + r.client.progress + '%</td>';
+        html += '<td>' + r.client.risk + '件</td>';
+        html += '<td>' + r.client.missing + '件</td>';
+        html += '</tr>';
+      }
+      html += '</tbody></table>';
+    }
+    html += '</div>';
+  } else {
+    html += '<div class="progress-table-wrap"><table class="progress-table"><thead><tr>';
+    html += '<th>顧問先</th><th>担当</th><th>状態</th><th>進捗</th><th>所長確認</th><th>未回収</th><th>次アクション</th></tr></thead><tbody>';
+    for (let i = 0; i < clients.length; i++) {
+      const client = clients[i];
+      const [stage, stageClass] = progressStatus(client);
+      const owner = client.owner.split(" / ")[0].replace("担当: ", "");
+      const nextTask = client.tasks.find((task) => task[3] !== "done") || client.tasks[0];
+      html += '<tr class="' + (i === appState.activeClient ? "selected-row" : "") + '">';
+      html += '<td><div class="item-title"><strong>' + client.name + '</strong><small>' + client.owner + '</small></div></td>';
+      html += '<td>' + owner + '</td>';
+      html += '<td><span class="pill ' + stageClass + '">' + stage + '</span></td>';
+      html += '<td><div class="progress-cell"><span>' + client.progress + '%</span><div class="mini-progress"><i style="width:' + client.progress + '%"></i></div></div></td>';
+      html += '<td>' + client.risk + '件</td>';
+      html += '<td>' + client.missing + '件</td>';
+      html += '<td><button class="row-action" data-action="open-client" data-client-target="' + i + '">' + (nextTask ? nextTask[0] : "—") + '</button></td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table></div>';
   }
-  html += '</tbody></table></div>';
+
   html += '<div class="dashboard-notes">';
   html += '<article><strong>所長向けに並び替え</strong><p>締切、リスク、未回収資料数をもとに、今日見る顧問先を自動で上位表示します。</p></article>';
   html += '<article><strong>担当者の作業待ちを可視化</strong><p>記帳担当・レビュー担当・顧問先待ちのどこで止まっているかを一画面で把握できます。</p></article>';
@@ -721,6 +830,13 @@ function renderView() {
     settings: () => renderSettings(),
   };
   viewContent.innerHTML = views[appState.activeView]();
+  // Spec 01 F2: progress filter tab handlers
+  viewContent.querySelectorAll("[data-progress-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      appState.progressFilter = button.dataset.progressFilter;
+      render();
+    });
+  });
   viewContent.querySelectorAll("[data-action]").forEach((button) => {
     button.addEventListener("click", () => {
       const action = button.dataset.action;
@@ -766,6 +882,11 @@ function renderView() {
       if (action === "reject") showToast("差戻しメモを作成しました。担当者ToDoに戻します。");
       if (action === "send") showToast("顧問先への依頼を送信予約しました。");
       if (action === "edit") showToast("右側の依頼文エリアで編集できます。");
+      if (action === "open-vendor") {
+        const vendor = button.dataset.vendor;
+        const label = vendor === "mf" ? "マネーフォワード" : "freee";
+        showToast(label + " の該当画面を別タブで開きます (PoCではモック)");
+      }
     });
   });
 }
@@ -816,6 +937,7 @@ function render() {
   renderNav();
   renderView();
   renderAiPanel();
+  renderIntegrationCard();
 }
 
 document.querySelectorAll(".nav-item").forEach((button) => {
