@@ -10,6 +10,28 @@ import { env } from '../env.js';
 import { prisma } from '../lib/prisma.js';
 import { logger } from '../lib/logger.js';
 
+// ---------------------------------------------------------------------------
+// OAuth helpers
+// Auth server: https://api.biz.moneyforward.com/{authorize,token}
+// Data API:    https://api-accounting.moneyforward.com/api/v3/...
+// Spec source: https://developers.api-accounting.moneyforward.com/v3/openapi.yaml
+// ---------------------------------------------------------------------------
+
+// Scopes required by the read paths zeimee uses today (spec 01 + future 04/07).
+// Write scopes are intentionally NOT included — zeimee is read-only against
+// Money Forward (spec 08 O2: never edit vendor-owned data from zeimee).
+export const MF_SCOPES = [
+  'mfc/accounting/journal.read',
+  'mfc/accounting/accounts.read',
+  'mfc/accounting/sub_accounts.read',
+  'mfc/accounting/departments.read',
+  'mfc/accounting/taxes.read',
+  'mfc/accounting/trade_partners.read',
+  'mfc/accounting/offices.read',
+  'mfc/accounting/report.read',
+  'mfc/accounting/connected_account.read',
+] as const;
+
 interface AuthorizeOptions {
   clientId: string;
   redirectUri: string;
@@ -18,6 +40,7 @@ interface AuthorizeOptions {
 }
 
 export function buildMfAuthorizeUrl(opts: AuthorizeOptions): string {
+  // GET https://api.biz.moneyforward.com/authorize?response_type=code&...
   const params = new URLSearchParams({
     client_id: opts.clientId,
     redirect_uri: opts.redirectUri,
@@ -25,119 +48,142 @@ export function buildMfAuthorizeUrl(opts: AuthorizeOptions): string {
     scope: opts.scope,
     response_type: 'code',
   });
-  const base = env.MF_BASE_URL || 'https://api.biz.moneyforward.com';
-  return `${base}/authorize?${params.toString()}`;
+  return `${env.MF_AUTH_BASE_URL}/authorize?${params.toString()}`;
 }
 
-const empty = <T>(): FetchResult<T> => ({ items: [], fetchedAt: new Date() });
+export interface MfTokenResponse {
+  access_token: string;
+  refresh_token?: string;
+  expires_in?: number; // seconds; auth server returns 3600 (1h)
+  scope?: string;
+  token_type?: string;
+}
 
-interface ZeimeeClientRecord {
+export async function exchangeAuthorizationCode(opts: {
+  code: string;
+  redirectUri: string;
+}): Promise<MfTokenResponse> {
+  const body = new URLSearchParams({
+    grant_type: 'authorization_code',
+    code: opts.code,
+    redirect_uri: opts.redirectUri,
+    client_id: env.MF_CLIENT_ID,
+    client_secret: env.MF_CLIENT_SECRET,
+  });
+  const res = await request(`${env.MF_AUTH_BASE_URL}/token`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  });
+  if (res.statusCode !== 200) {
+    const text = await res.body.text();
+    throw new Error(`MF token exchange failed: ${res.statusCode} ${text.slice(0, 200)}`);
+  }
+  return (await res.body.json()) as MfTokenResponse;
+}
+
+async function refreshAccessToken(refreshToken: string): Promise<MfTokenResponse> {
+  const body = new URLSearchParams({
+    grant_type: 'refresh_token',
+    refresh_token: refreshToken,
+    client_id: env.MF_CLIENT_ID,
+    client_secret: env.MF_CLIENT_SECRET,
+  });
+  const res = await request(`${env.MF_AUTH_BASE_URL}/token`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  });
+  if (res.statusCode !== 200) {
+    const text = await res.body.text();
+    throw new Error(`MF refresh failed: ${res.statusCode} ${text.slice(0, 200)}`);
+  }
+  return (await res.body.json()) as MfTokenResponse;
+}
+
+// ---------------------------------------------------------------------------
+// Token storage (Client.mfAccessToken / mfRefreshToken / mfTokenExpiresAt)
+// ---------------------------------------------------------------------------
+
+interface ClientTokenRecord {
   id: string;
   mfAccessToken: string | null;
   mfRefreshToken: string | null;
   mfTokenExpiresAt: Date | null;
-  mfExternalId: string | null;
 }
 
-async function loadClientToken(externalId: string): Promise<ZeimeeClientRecord | null> {
-  // externalId is conventionally `mock-<clientId>` or the real `mfExternalId`.
-  // We try both: first look up by Client.id if externalId starts with 'mock-',
-  // otherwise look up by mfExternalId.
-  if (externalId.startsWith('mock-')) {
-    const id = externalId.slice('mock-'.length);
-    return prisma.client.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        mfAccessToken: true,
-        mfRefreshToken: true,
-        mfTokenExpiresAt: true,
-        mfExternalId: true,
-      },
-    });
-  }
-  return prisma.client.findFirst({
-    where: { mfExternalId: externalId },
+// Spec 09 keeps the externalId conventionally as `mock-<clientId>` for the
+// freee mock. For MF we *don't* need an external ID — the access token is
+// already scoped to one MF Office. So this resolver just looks up the Client
+// row by id (stripping the mock- prefix if present).
+async function loadClientToken(externalId: string): Promise<ClientTokenRecord | null> {
+  const id = externalId.startsWith('mock-')
+    ? externalId.slice('mock-'.length)
+    : externalId;
+  return prisma.client.findUnique({
+    where: { id },
     select: {
       id: true,
       mfAccessToken: true,
       mfRefreshToken: true,
       mfTokenExpiresAt: true,
-      mfExternalId: true,
     },
   });
 }
 
-async function ensureToken(client: ZeimeeClientRecord): Promise<string | null> {
+async function ensureToken(client: ClientTokenRecord): Promise<string | null> {
   if (!client.mfAccessToken) return null;
-  // Refresh if expired or expiring within the next 60s.
   const expiringSoon =
-    client.mfTokenExpiresAt &&
+    !client.mfTokenExpiresAt ||
     client.mfTokenExpiresAt.getTime() - Date.now() < 60_000;
   if (!expiringSoon) return client.mfAccessToken;
-  if (!client.mfRefreshToken) return client.mfAccessToken;
-  if (!env.MF_CLIENT_ID || !env.MF_CLIENT_SECRET || !env.MF_BASE_URL) {
-    return client.mfAccessToken;
+  if (!client.mfRefreshToken || !env.MF_CLIENT_ID || !env.MF_CLIENT_SECRET) {
+    return client.mfAccessToken; // best-effort with stale token
   }
   try {
-    const body = new URLSearchParams({
-      grant_type: 'refresh_token',
-      refresh_token: client.mfRefreshToken,
-      client_id: env.MF_CLIENT_ID,
-      client_secret: env.MF_CLIENT_SECRET,
-    });
-    const res = await request(`${env.MF_BASE_URL}/token`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/x-www-form-urlencoded' },
-      body: body.toString(),
-    });
-    if (res.statusCode !== 200) {
-      logger.warn({ status: res.statusCode }, 'mf token refresh failed; using stale');
-      return client.mfAccessToken;
-    }
-    const json = (await res.body.json()) as {
-      access_token: string;
-      refresh_token?: string;
-      expires_in?: number;
-    };
+    const refreshed = await refreshAccessToken(client.mfRefreshToken);
     await prisma.client.update({
       where: { id: client.id },
       data: {
-        mfAccessToken: json.access_token,
-        mfRefreshToken: json.refresh_token ?? client.mfRefreshToken,
-        mfTokenExpiresAt: json.expires_in
-          ? new Date(Date.now() + json.expires_in * 1000)
+        mfAccessToken: refreshed.access_token,
+        mfRefreshToken: refreshed.refresh_token ?? client.mfRefreshToken,
+        mfTokenExpiresAt: refreshed.expires_in
+          ? new Date(Date.now() + refreshed.expires_in * 1000)
           : null,
       },
     });
-    return json.access_token;
+    return refreshed.access_token;
   } catch (err) {
-    logger.error({ err }, 'mf refresh exception; using stale token');
+    logger.warn({ err, clientId: client.id }, 'mf token refresh failed');
     return client.mfAccessToken;
   }
 }
 
-interface MfTransactionList {
-  data?: Array<{
-    id: string;
-    account_item_name?: string;
-    description?: string;
-    amount?: number;
-    tax_class?: string;
-    occurred_on?: string;
-    has_receipt?: boolean;
-  }>;
-}
+// ---------------------------------------------------------------------------
+// Generic GET against the accounting API
+// ---------------------------------------------------------------------------
 
 async function mfGet<T>(token: string, path: string): Promise<T | null> {
-  if (!env.MF_BASE_URL) return null;
   try {
-    const res = await request(`${env.MF_BASE_URL}${path}`, {
+    const res = await request(`${env.MF_ACCOUNTING_BASE_URL}${path}`, {
       method: 'GET',
-      headers: { authorization: `Bearer ${token}`, accept: 'application/json' },
+      headers: {
+        authorization: `Bearer ${token}`,
+        accept: 'application/json',
+      },
     });
+    if (res.statusCode === 401) {
+      logger.warn({ path }, 'mf returned 401; token likely expired');
+      return null;
+    }
+    if (res.statusCode === 429) {
+      const retryAfter = res.headers['retry-after'];
+      logger.warn({ path, retryAfter }, 'mf rate limit hit');
+      return null;
+    }
     if (res.statusCode !== 200) {
-      logger.warn({ status: res.statusCode, path }, 'mf API non-200');
+      const text = await res.body.text();
+      logger.warn({ status: res.statusCode, path, text: text.slice(0, 200) }, 'mf API non-200');
       return null;
     }
     return (await res.body.json()) as T;
@@ -147,73 +193,144 @@ async function mfGet<T>(token: string, path: string): Promise<T | null> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// API response shapes (subset — only fields zeimee actually consumes)
+// Source of truth: https://developers.api-accounting.moneyforward.com/v3/openapi.yaml
+// ---------------------------------------------------------------------------
+
+interface MfBranchSide {
+  value: number;
+  tax_value?: number;
+  account_id?: string;
+  account_name?: string;
+  tax_name?: string;
+  trade_partner_name?: string;
+}
+
+interface MfJournalBranch {
+  remark?: string;
+  debitor?: MfBranchSide;
+  creditor?: MfBranchSide;
+}
+
+interface MfJournal {
+  id: string;
+  number?: number;
+  transaction_date: string; // 'YYYY-MM-DD'
+  is_realized?: boolean;
+  journal_type?: string;
+  memo?: string;
+  voucher_file_ids?: string[];
+  branches?: MfJournalBranch[];
+}
+
+interface MfJournalsResponse {
+  metadata?: { total_count?: number; total_pages?: number };
+  journals?: MfJournal[];
+}
+
+interface MfOfficeAccountingPeriod {
+  start_date: string;
+  end_date: string;
+  fiscal_year: number;
+}
+
+interface MfOfficeResponse {
+  name?: string;
+  code?: string;
+  type?: 'INDIVIDUAL' | 'CORPORATE';
+  accounting_periods?: MfOfficeAccountingPeriod[];
+}
+
+// ---------------------------------------------------------------------------
+// VendorAdapter implementation
+// ---------------------------------------------------------------------------
+
+const empty = <T>(): FetchResult<T> => ({ items: [], fetchedAt: new Date() });
+
 export const mfApiAdapter: VendorAdapter = {
   source: 'mf',
-  async fetchEntries(externalId): Promise<FetchResult<RawEntry>> {
-    const client = await loadClientToken(externalId);
-    if (!client) return empty();
-    const token = await ensureToken(client);
-    if (!token) return empty(); // not connected yet — defer to spec 01 OAuth flow
 
-    const json = await mfGet<MfTransactionList>(token, '/api/v1/transactions');
-    if (!json?.data) return empty();
-    return {
-      items: json.data.map((row) => ({
-        sourceEntryId: row.id,
-        account: row.account_item_name ?? '不明',
-        description: row.description ?? '',
-        amount: row.amount ?? 0,
-        taxClass: row.tax_class,
-        occurredAt: row.occurred_on ? new Date(row.occurred_on) : new Date(),
-        receiptStatus: row.has_receipt ? 'matched' : 'missing',
-        raw: row,
-      })),
-      fetchedAt: new Date(),
-    };
-  },
-  async fetchReceipts(externalId): Promise<FetchResult<RawReceipt>> {
+  /**
+   * Map MF journals → zeimee RawEntry rows.
+   * Each journal has `branches[]`, each branch is a debit/credit pair.
+   * For zeimee we surface the debit side as the "expense entry" the
+   * accountant reviews. (Money side / 現金 / 預金 is on the credit side.)
+   */
+  async fetchEntries(externalId, since): Promise<FetchResult<RawEntry>> {
     const client = await loadClientToken(externalId);
     if (!client) return empty();
     const token = await ensureToken(client);
     if (!token) return empty();
-    const json = await mfGet<{ data?: Array<{ id: string; status: string; vendor_name?: string; amount?: number; occurred_on?: string }> }>(
+
+    // start_date or end_date is required by the API.
+    const startDate = (since ?? new Date(Date.now() - 90 * 24 * 60 * 60 * 1000))
+      .toISOString()
+      .slice(0, 10);
+    const endDate = new Date().toISOString().slice(0, 10);
+    const params = new URLSearchParams({
+      start_date: startDate,
+      end_date: endDate,
+      per_page: '200',
+    });
+    const json = await mfGet<MfJournalsResponse>(
       token,
-      '/api/v1/receipts',
+      `/api/v3/journals?${params.toString()}`,
     );
-    if (!json?.data) return empty();
-    return {
-      items: json.data.map((row) => ({
-        sourceReceiptId: row.id,
-        status: row.status === 'attached' ? 'attached' : row.status === 'candidate' ? 'candidate' : 'missing',
-        vendorRef: row.vendor_name,
-        amount: row.amount,
-        occurredAt: row.occurred_on ? new Date(row.occurred_on) : new Date(),
-        raw: row,
-      })),
-      fetchedAt: new Date(),
-    };
+    if (!json?.journals) return empty();
+
+    const items: RawEntry[] = [];
+    for (const j of json.journals) {
+      const occurredAt = new Date(j.transaction_date);
+      const branches = j.branches ?? [];
+      const hasReceipt = (j.voucher_file_ids?.length ?? 0) > 0;
+      // Each branch contributes one entry on the debit side
+      for (let i = 0; i < branches.length; i++) {
+        const debit = branches[i].debitor;
+        if (!debit) continue;
+        items.push({
+          sourceEntryId: branches.length === 1 ? j.id : `${j.id}#${i}`,
+          account: debit.account_name ?? '不明',
+          description:
+            j.memo?.trim() ||
+            debit.trade_partner_name ||
+            branches[i].creditor?.trade_partner_name ||
+            '',
+          amount: debit.value,
+          taxClass: debit.tax_name,
+          occurredAt,
+          receiptStatus: hasReceipt ? 'matched' : 'missing',
+          raw: j,
+        });
+      }
+    }
+    return { items, fetchedAt: new Date() };
   },
-  async fetchMatchings(externalId): Promise<FetchResult<RawMatching>> {
-    const client = await loadClientToken(externalId);
-    if (!client) return empty();
-    const token = await ensureToken(client);
-    if (!token) return empty();
-    const json = await mfGet<{ data?: Array<{ id: string; invoice_amount?: number; paid_amount?: number; diff_note?: string; status?: string; occurred_on?: string }> }>(
-      token,
-      '/api/v1/matchings',
-    );
-    if (!json?.data) return empty();
-    return {
-      items: json.data.map((row) => ({
-        invoiceRef: row.id,
-        invoiceAmount: row.invoice_amount ?? 0,
-        paidAmount: row.paid_amount ?? 0,
-        diffNote: row.diff_note,
-        status: row.status === 'matched' ? 'matched' : row.status === 'urgent' ? 'urgent' : row.status === 'done' ? 'done' : 'open',
-        occurredAt: row.occurred_on ? new Date(row.occurred_on) : new Date(),
-        raw: row,
-      })),
-      fetchedAt: new Date(),
-    };
+
+  /**
+   * MF Cloud Accounting does not expose a list-all-vouchers endpoint
+   * (POST/DELETE only on /vouchers). Receipt presence per journal is
+   * already reflected in `Entry.receiptStatus` derived above. Returning
+   * empty here keeps the SWR contract honest.
+   */
+  async fetchReceipts(): Promise<FetchResult<RawReceipt>> {
+    return empty<RawReceipt>();
+  },
+
+  /**
+   * No "matchings" endpoint in the MF accounting API surface — the
+   * concept lives upstream in MF クラウド請求書 (a separate product).
+   * Spec 01 will add a request adapter when that product is in scope.
+   */
+  async fetchMatchings(): Promise<FetchResult<RawMatching>> {
+    return empty<RawMatching>();
   },
 };
+
+/**
+ * Returns the connected MF Office for diagnostics (used by the OAuth
+ * callback to confirm the connection is alive). Does not affect data sync.
+ */
+export async function fetchOffice(token: string): Promise<MfOfficeResponse | null> {
+  return mfGet<MfOfficeResponse>(token, '/api/v3/offices');
+}

@@ -12,6 +12,13 @@ const schema = z.object({
   MF_CLIENT_ID: z.string().default(''),
   MF_CLIENT_SECRET: z.string().default(''),
   MF_REDIRECT_URI: z.string().default(''),
+  // OAuth authorize/token endpoints (Money Forward Cloud common auth server v2)
+  MF_AUTH_BASE_URL: z.string().default('https://api.biz.moneyforward.com'),
+  // Cloud Accounting data API base
+  MF_ACCOUNTING_BASE_URL: z
+    .string()
+    .default('https://api-accounting.moneyforward.com'),
+  // Deprecated alias kept so existing .env files don't break the loader.
   MF_BASE_URL: z.string().default(''),
   SENDGRID_API_KEY: z.string().default(''),
   EMAIL_FROM: z.string().default(''),
