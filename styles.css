@@ -1123,6 +1123,14 @@ td:last-child {
   gap: 6px;
 }
 
+/* Spec 06 C4: helper line shown under each view's panel header */
+.helper-line {
+  font-size: 12px;
+  color: #5c6675;
+  margin: 4px 0 12px;
+  padding: 0 4px;
+}
+
 /* Mode toggle (spec 05) */
 .mode-toggle {
   display: inline-flex;

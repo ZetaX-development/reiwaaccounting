@@ -202,17 +202,64 @@ let clients = [
   },
 ];
 
+// Spec 06 C1: central labels (Japanese, no jargon).
+// Server returns English codes (e.g. "awaiting_approval"); the UI should
+// always render via these label maps, never the raw code.
 const labels = {
-  dashboard: "Review Center",
-  progress: "Progress",
-  feedback: "Staff Feedback",
-  portal: "Client Messages",
-  trends: "Trial Balance",
-  receipts: "Documents / Matching",
-  rules: "AI Rules",
-  validation: "Notion Findings",
-  settings: "Operations",
+  // View titles (eyebrow)
+  dashboard: "今日見るところ",
+  progress: "顧問先いちらん",
+  feedback: "やり直し依頼",
+  portal: "お客さまに連絡",
+  trends: "数字の動き",
+  receipts: "領収書とお金の照合",
+  rules: "顧問先ごとのチェック",
+  validation: "議事録メモ",
+  settings: "全体の設定",
+
+  status: { urgent: "要確認", open: "作業中", done: "終わった" },
+  stage: {
+    staff_doing: "担当者が作業中",
+    awaiting_approval: "所長に見てもらい待ち",
+    approved: "所長OK",
+    rejected: "やり直し依頼中",
+  },
+  channel: {
+    email: "メール",
+    slack: "Slack",
+    chatwork: "Chatwork",
+    line_works: "LINE WORKS",
+    messenger: "Messenger",
+  },
+  vendor: { freee: "freee", mf: "マネーフォワード", both: "freeeとMF両方" },
+  mode: { monthly: "毎月のチェック", yearend: "決算のチェック" },
+  syncStatus: { ok: "取り込み済み", warn: "一部失敗", error: "取り込めず" },
+  threadStatus: {
+    queued: "送信待ち",
+    sent: "送信済み",
+    failed: "うまく届かず",
+    received: "受信",
+  },
+  helper: {
+    dashboard: "AIが先にチェックした件のうち、あなたが今日触る分だけ表示しています。",
+    progress: "顧問先全体の進み具合と止まっている件を1画面で見えます。",
+    feedback: "差戻しの状況。お互いに対応待ちの件をここで管理します。",
+    portal: "お客さまにメールやSlackなどで連絡できます。届かなかったら再送できます。",
+    trends: "勘定科目ごとの3ヶ月推移と要確認のサインを表示します。",
+    receipts: "領収書が足りていない取引と、入出金の差異を確認できます。",
+    rules: "この顧問先で過去にミスしやすかった点を、企業ごとのチェック項目として保存します。",
+    validation: "議事録から抽出した方針メモです。",
+    settings: "事務所全体の運用設定。",
+  },
 };
+
+function friendlyError(err) {
+  if (!err) return "うまくいきませんでした。";
+  const msg = String(err.message || err);
+  if (/network|fetch/i.test(msg)) return "ネットがつながっていないかもしれません。";
+  if (/timeout/i.test(msg)) return "通信が時間切れになりました。もう一度お試しください。";
+  return "うまくいきませんでした。";
+}
 
 const validationNotes = [
   {
@@ -356,11 +403,15 @@ function showToast(message) {
   showToast.timer = setTimeout(() => toast.classList.remove("show"), 2200);
 }
 
+function stageLabel(stage) { return labels.stage[stage] || stage; }
+function channelLabel(ch) { return labels.channel[ch] || ch; }
+function vendorLabel(v) { return labels.vendor[v] || v; }
+function modeLabel(m) { return labels.mode[m] || m; }
+function syncStatusLabel(s) { return labels.syncStatus[s] || s; }
+function threadStatusLabel(s) { return labels.threadStatus[s] || s; }
+
 function statusLabel(status) {
-  if (status === "urgent") return "要確認";
-  if (status === "done") return "完了";
-  if (status === "open") return "差戻し中";
-  return "確認待ち";
+  return labels.status[status] || status;
 }
 
 function taskOwner(index) {
@@ -451,6 +502,16 @@ function renderSummary() {
   $("#panelTitle").textContent = client.name;
   $("#currentViewLabel").textContent = labels[appState.activeView];
   $("#aiSubtitle").textContent = client.name + " の月次処理を支援中";
+  // Spec 06 C4: helper line under the eyebrow on each view
+  let helperEl = $("#viewHelper");
+  if (!helperEl) {
+    helperEl = document.createElement("div");
+    helperEl.id = "viewHelper";
+    helperEl.className = "helper-line";
+    const panelHeader = document.querySelector(".panel-header");
+    if (panelHeader) panelHeader.insertAdjacentElement("afterend", helperEl);
+  }
+  helperEl.textContent = labels.helper[appState.activeView] || "";
 
   // Spec 01 F5: 5th summary card "ベンダー横断同期"
   const vendorEl = $("#vendorSyncValue");
