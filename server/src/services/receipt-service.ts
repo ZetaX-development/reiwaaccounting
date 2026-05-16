@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { getLiveMfEntries } from './client-service.js';
 
 export interface MissingReceipt {
   entryId: string;
@@ -54,16 +55,17 @@ export async function updateClientReceiptOverrides(
 }
 
 export async function computeMissingReceipts(clientId: string): Promise<MissingReceipt[]> {
-  const [client, entries, policies] = await Promise.all([
+  const [client, dbEntries, policies, liveMf] = await Promise.all([
     prisma.client.findUnique({
       where: { id: clientId },
-      select: { receiptPolicyOverrides: true },
+      select: { receiptPolicyOverrides: true, mfAccessToken: true },
     }),
     prisma.entry.findMany({
       where: { clientId },
       orderBy: { occurredAt: 'desc' },
     }),
     prisma.receiptPolicy.findMany(),
+    getLiveMfEntries(clientId),
   ]);
   if (!client) return [];
   const policyByAccount: Record<string, { requiresReceipt: boolean; requiresApproval: boolean; exemptUnder: number | null }> = {};
@@ -76,25 +78,68 @@ export async function computeMissingReceipts(clientId: string): Promise<MissingR
   }
   const overrides = (client.receiptPolicyOverrides ?? {}) as Record<string, Partial<PolicyMerged>>;
 
-  const missing: MissingReceipt[] = [];
-  for (const e of entries) {
-    if (e.requestedAt) continue; // already requested → hide
-    const policy = mergePolicy(policyByAccount[e.account], overrides[e.account]);
-    if (!policy.requiresReceipt) continue;
-    if (policy.exemptUnder && e.amount < policy.exemptUnder) continue;
-    if (e.receiptStatus === 'matched') continue;
-    if (e.receiptStatus === 'na') continue;
-    const reason =
-      e.receiptStatus === 'partial' ? '一部のみ添付' : '領収書未添付';
-    missing.push({
+  // Normalise both sources (DB Entry rows + live MF RawEntry items) to a
+  // single shape so the policy filter logic stays simple.
+  type Candidate = {
+    entryId: string;
+    account: string;
+    amount: number;
+    description: string;
+    occurredAt: Date;
+    receiptStatus: string;
+    score: number | null;
+    source: string;
+    requested: boolean;
+  };
+
+  const liveCandidates: Candidate[] = liveMf.map((e) => ({
+    entryId: `live-mf-${e.sourceEntryId}`,
+    account: e.account,
+    amount: e.amount,
+    description: e.description,
+    occurredAt: e.occurredAt,
+    receiptStatus: e.receiptStatus ?? 'na',
+    score: null,
+    source: 'mf',
+    requested: false,
+  }));
+
+  // DB rows: for MF-connected clients drop DB rows whose source is 'mf'
+  // (they would duplicate the live data). Keep freee / other sources.
+  const dbCandidates: Candidate[] = dbEntries
+    .filter((e) => !(client.mfAccessToken && e.source === 'mf'))
+    .map((e) => ({
       entryId: e.id,
       account: e.account,
       amount: e.amount,
-      vendor: extractVendor(e.description),
+      description: e.description,
       occurredAt: e.occurredAt,
-      reason,
-      priority: e.score ?? 50,
+      receiptStatus: e.receiptStatus,
+      score: e.score,
       source: e.source,
+      requested: !!e.requestedAt,
+    }));
+
+  const all = [...liveCandidates, ...dbCandidates];
+  const missing: MissingReceipt[] = [];
+  for (const c of all) {
+    if (c.requested) continue;
+    const policy = mergePolicy(policyByAccount[c.account], overrides[c.account]);
+    if (!policy.requiresReceipt) continue;
+    if (policy.exemptUnder && c.amount < policy.exemptUnder) continue;
+    if (c.receiptStatus === 'matched') continue;
+    if (c.receiptStatus === 'na') continue;
+    const reason =
+      c.receiptStatus === 'partial' ? '一部のみ添付' : '領収書未添付';
+    missing.push({
+      entryId: c.entryId,
+      account: c.account,
+      amount: c.amount,
+      vendor: extractVendor(c.description),
+      occurredAt: c.occurredAt,
+      reason,
+      priority: c.score ?? 50,
+      source: c.source,
     });
   }
   return missing.sort((a, b) => b.priority - a.priority);
