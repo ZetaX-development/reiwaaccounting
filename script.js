@@ -963,20 +963,163 @@ function formatBodyForChannel(text, channel) {
   return text;
 }
 
+// Spec 04 F1: AIルールビュー 2-column redesign
 function renderRules() {
   const client = currentClient();
-  let html = '<div class="rules-layout"><section class="rules-list">';
-  for (let i = 0; i < client.rules.length; i++) {
-    html += '<article class="message-card"><span class="pill ai">AIチェックルール</span>';
-    html += "<h3>" + client.rules[i] + "</h3>";
-    html += "<p>顧問先の過去処理、勘定科目、金額、摘要、証憑状態を見て自動判定します。</p></article>";
-  }
-  html += '</section><aside class="settings-card">';
-  html += '<div class="setting-row"><div><strong>仕訳候補提示</strong><p>一致度90%以上の取引を確認候補化</p></div><span class="switch on"></span></div>';
-  html += '<div class="setting-row"><div><strong>確認者承認</strong><p>AI候補は担当者または税理士の確認後に反映</p></div><span class="switch"></span></div>';
-  html += '<div class="setting-row"><div><strong>差異検知</strong><p>前月比15%以上を通知</p></div><span class="switch on"></span></div>';
-  html += "</aside></div>";
+  let html = '<div class="rules-2col">';
+
+  // Left: rule list (loaded async)
+  html += '<section>';
+  html += '<p class="eyebrow">' + escapeHtml(client.industry || "業種未設定") + ' のルール</p>';
+  html += '<div id="rulesList"><div class="empty-state">読み込み中…</div></div>';
+  html += '</section>';
+
+  // Right: add panel
+  html += '<aside>';
+  html += '<p class="eyebrow">ルールを追加</p>';
+
+  // Templates
+  html += '<div class="rule-form">';
+  html += '<strong style="font-size:12px">業種テンプレから追加</strong>';
+  html += '<div id="ruleTemplates" class="template-list" style="margin-top:6px"><div class="empty-state">読み込み中…</div></div>';
+  html += '</div>';
+
+  // Custom
+  html += '<div class="rule-form">';
+  html += '<strong style="font-size:12px">カスタムルール</strong>';
+  html += '<label>タイトル</label><input id="ruleNewTitle" placeholder="例: 広告費は領収書必須" />';
+  html += '<label>詳細</label><textarea id="ruleNewDetail" rows="3" placeholder="判定の根拠を自由記述"></textarea>';
+  html += '<label>重要度</label><select id="ruleNewSeverity"><option value="high">高</option><option value="mid" selected>中</option><option value="low">低</option></select>';
+  html += '<div class="form-actions"><button class="primary-action compact" data-action="rule-add-custom">追加</button></div>';
+  html += '</div>';
+  html += '</aside>';
+
+  html += '</div>';
   return html;
+}
+
+function loadAndRenderRules() {
+  const client = currentClient();
+  if (!client?.id) return;
+  Promise.all([
+    fetch("/api/clients/" + encodeURIComponent(client.id) + "/rules").then((r) => r.json()),
+    fetch("/api/rule-templates?industry=" + encodeURIComponent(client.industry || "")).then((r) => r.json()),
+  ]).then(([rules, templates]) => {
+    const listEl = $("#rulesList");
+    if (listEl) {
+      if (!Array.isArray(rules) || rules.length === 0) {
+        listEl.innerHTML = '<div class="empty-state">まだルールがありません。右側から追加できます。</div>';
+      } else {
+        let h = "";
+        for (const r of rules) {
+          h += '<div class="rule-row ' + (r.active ? "" : "inactive") + '">';
+          h += '<div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start">';
+          h += '<div><span class="pill severity-' + r.severity + '">' + (r.severity === "high" ? "高" : r.severity === "mid" ? "中" : "低") + '</span> ';
+          h += '<strong>' + escapeHtml(r.title) + '</strong></div>';
+          h += '<label style="font-size:11px;display:flex;align-items:center;gap:4px"><input type="checkbox" data-action="rule-toggle" data-rule-id="' + r.id + '"' + (r.active ? " checked" : "") + ' /> 有効</label>';
+          h += '</div>';
+          if (r.detail) h += '<p style="font-size:12px;margin:6px 0 0">' + escapeHtml(r.detail) + '</p>';
+          h += '<div class="rule-meta">ヒット ' + r.hitCount + ' 件' + (r.lastHit ? ' · 最終 ' + formatRelative(new Date(r.lastHit)) : "") + ' · 作成: ' + escapeHtml(r.createdBy) + '</div>';
+          h += '<div class="rule-actions">';
+          h += '<button class="vendor-link" data-action="rule-history" data-rule-id="' + r.id + '">履歴</button>';
+          h += '<button class="vendor-link" data-action="rule-delete" data-rule-id="' + r.id + '" style="color:#9a3040">削除</button>';
+          h += '</div>';
+          h += '</div>';
+        }
+        listEl.innerHTML = h;
+      }
+    }
+    const tplEl = $("#ruleTemplates");
+    if (tplEl) {
+      if (!Array.isArray(templates) || templates.length === 0) {
+        tplEl.innerHTML = '<div class="empty-state">テンプレなし</div>';
+      } else {
+        let h = "";
+        for (const t of templates) {
+          h += '<div class="template-item">';
+          h += '<div><span class="pill severity-' + t.severity + '">' + (t.severity === "high" ? "高" : t.severity === "mid" ? "中" : "低") + '</span> ' + escapeHtml(t.title) + '</div>';
+          h += '<button class="row-action" data-action="rule-add-template" data-title="' + escapeHtml(t.title) + '" data-detail="' + escapeHtml(t.detail) + '" data-severity="' + t.severity + '">+</button>';
+          h += '</div>';
+        }
+        tplEl.innerHTML = h;
+      }
+    }
+    // Bind handlers (event delegation re-bind)
+    bindRuleHandlers();
+  });
+}
+
+function bindRuleHandlers() {
+  document.querySelectorAll('[data-action="rule-add-template"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const client = currentClient();
+      fetch("/api/clients/" + encodeURIComponent(client.id) + "/rules", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          type: "template",
+          industry: client.industry,
+          title: btn.dataset.title,
+          detail: btn.dataset.detail,
+          severity: btn.dataset.severity,
+          createdBy: appState.currentRole === "staff" ? "鈴木" : "畠山",
+        }),
+      }).then(() => { showToast("ルールを追加しました"); loadAndRenderRules(); loadClientsFromApi().finally(render); });
+    });
+  });
+  document.querySelectorAll('[data-action="rule-add-custom"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const client = currentClient();
+      const title = $("#ruleNewTitle").value.trim();
+      if (!title) { showToast("タイトルを入力してください"); return; }
+      fetch("/api/clients/" + encodeURIComponent(client.id) + "/rules", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          type: "custom",
+          title,
+          detail: $("#ruleNewDetail").value,
+          severity: $("#ruleNewSeverity").value,
+          createdBy: appState.currentRole === "staff" ? "鈴木" : "畠山",
+        }),
+      }).then(() => { showToast("ルールを追加しました"); loadAndRenderRules(); loadClientsFromApi().finally(render); });
+    });
+  });
+  document.querySelectorAll('[data-action="rule-toggle"]').forEach((cb) => {
+    cb.addEventListener("change", () => {
+      fetch("/api/rules/" + encodeURIComponent(cb.dataset.ruleId), {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ active: cb.checked }),
+      }).then(() => { showToast(cb.checked ? "ルールを有効にしました" : "ルールを停止しました"); loadAndRenderRules(); });
+    });
+  });
+  document.querySelectorAll('[data-action="rule-delete"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (!confirm("このルールを削除しますか？")) return;
+      fetch("/api/rules/" + encodeURIComponent(btn.dataset.ruleId), { method: "DELETE" })
+        .then(() => { showToast("削除しました"); loadAndRenderRules(); });
+    });
+  });
+  document.querySelectorAll('[data-action="rule-history"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      fetch("/api/rules/" + encodeURIComponent(btn.dataset.ruleId) + "/hits")
+        .then((r) => r.json())
+        .then((hits) => {
+          const parent = btn.closest(".rule-row");
+          let existing = parent.querySelector(".rule-history");
+          if (existing) { existing.remove(); return; }
+          const ul = document.createElement("ul");
+          ul.className = "rule-history";
+          if (!Array.isArray(hits) || hits.length === 0) {
+            ul.innerHTML = "<li>ヒット履歴なし</li>";
+          } else {
+            ul.innerHTML = hits.slice(0, 20).map((h) => "<li>" + new Date(h.at).toLocaleString("ja-JP") + " — " + escapeHtml(h.target) + " (" + h.outcome + ")</li>").join("");
+          }
+          parent.appendChild(ul);
+        });
+    });
+  });
 }
 
 function renderView() {
@@ -1009,6 +1152,9 @@ function renderView() {
   });
   if (appState.activeView === "portal") {
     loadAndRenderThreads();
+  }
+  if (appState.activeView === "rules") {
+    loadAndRenderRules();
   }
   viewContent.querySelectorAll("[data-action]").forEach((button) => {
     button.addEventListener("click", () => {

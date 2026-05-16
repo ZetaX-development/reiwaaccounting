@@ -1039,6 +1039,90 @@ td:last-child {
 .pill.stage-approved { color: #1f6e3a; background: #d6efe0; font-size: 10px; padding: 2px 6px; }
 .pill.stage-rejected { color: #9a3040; background: #fde9ec; font-size: 10px; padding: 2px 6px; }
 
+/* Severity pills (spec 04) */
+.pill.severity-high { color: #8a2035; background: #fde2e7; }
+.pill.severity-mid { color: #7a5400; background: #fff4d6; }
+.pill.severity-low { color: #1d4f80; background: #e3f1ff; }
+
+/* Rules 2-column layout (spec 04 F1) */
+.rules-2col {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 16px;
+}
+@media (max-width: 1100px) {
+  .rules-2col { grid-template-columns: 1fr; }
+}
+
+.rule-row {
+  background: #fff;
+  border: 1px solid #e3e7ee;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+}
+.rule-row.inactive { opacity: 0.5; }
+.rule-row .rule-meta {
+  font-size: 11px;
+  color: #5c6675;
+  margin-top: 4px;
+}
+.rule-row .rule-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.rule-row .rule-history {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: #f7f8fb;
+  border-radius: 6px;
+  font-size: 11.5px;
+  list-style: none;
+}
+.rule-row .rule-history li { padding: 2px 0; }
+
+.rule-form {
+  background: #fff;
+  border: 1px solid #e3e7ee;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+.rule-form label {
+  display: block;
+  font-size: 11px;
+  color: #5c6675;
+  margin-top: 8px;
+  margin-bottom: 4px;
+}
+.rule-form input, .rule-form textarea, .rule-form select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #d8dee7;
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: inherit;
+}
+.rule-form .form-actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 6px;
+}
+
+.template-list { max-height: 220px; overflow: auto; padding-right: 4px; }
+.template-item {
+  padding: 8px;
+  border: 1px solid #e3e7ee;
+  border-radius: 6px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+}
+
 
 .confidence {
   display: grid;
