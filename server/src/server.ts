@@ -4,11 +4,15 @@ import cors from '@fastify/cors';
 import { env } from './env.js';
 import { logger } from './lib/logger.js';
 import { healthRoutes } from './routes/health.js';
+import { clientRoutes } from './routes/clients.js';
+import { syncRoutes } from './routes/sync.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ loggerInstance: logger });
   await app.register(cors, { origin: true });
   await app.register(healthRoutes);
+  await app.register(clientRoutes);
+  await app.register(syncRoutes);
 
   app.setErrorHandler((err, _req, reply) => {
     logger.error({ err }, 'unhandled');
