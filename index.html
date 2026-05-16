@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Zeimee | AI月次レビューSaaS for 税理士事務所</title>
+    <meta
+      name="description"
+      content="税理士事務所向けに、記帳完了後のレビュー・差戻し・進捗管理・顧問先連絡をAIで支援するSaaS。"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <a class="brand" href="#">
+          <span class="brand-mark">Z</span>
+          <span>
+            <strong>Zeimee</strong>
+            <small>Review Command</small>
+          </span>
+        </a>
+
+        <nav class="main-nav" aria-label="メイン">
+          <button class="nav-item active" data-view="dashboard">レビューセンター</button>
+          <button class="nav-item" data-view="progress">進捗ダッシュボード</button>
+          <button class="nav-item" data-view="feedback">スタッフ差戻し</button>
+          <button class="nav-item" data-view="portal">顧問先連絡</button>
+          <button class="nav-item" data-view="trends">試算表増減</button>
+          <button class="nav-item" data-view="receipts">証憑・消込</button>
+          <button class="nav-item" data-view="rules">AIルール</button>
+          <button class="nav-item" data-view="validation">検証メモ</button>
+          <button class="nav-item" data-view="settings">運用設定</button>
+        </nav>
+
+        <div class="integration-card">
+          <p>連携ステータス</p>
+          <span>freee</span>
+          <span>Money Forward</span>
+          <span>Drive証憑</span>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">2026年5月 月次レビュー</p>
+            <h1>所長が見るべき異常点だけを確認する</h1>
+          </div>
+          <div class="topbar-actions">
+            <label class="search-box">
+              <span>検索</span>
+              <input id="searchInput" type="search" placeholder="顧問先・担当者・確認事項を検索" />
+            </label>
+            <button class="primary-action" id="runAiButton">記帳完了をAIレビュー</button>
+          </div>
+        </header>
+
+        <section class="client-strip" aria-label="顧問先一覧" id="clientStrip"></section>
+
+        <section class="summary-grid">
+          <article class="summary-card">
+            <span>レビュー完了率</span>
+            <strong id="progressValue">87%</strong>
+            <div class="progress"><i id="progressBar"></i></div>
+          </article>
+          <article class="summary-card">
+            <span>所長確認待ち</span>
+            <strong id="openTaskValue">6</strong>
+            <small>高優先度 <b id="riskValue">2</b> 件</small>
+          </article>
+          <article class="summary-card">
+            <span>証憑回収率</span>
+            <strong id="receiptValue">91%</strong>
+            <small>不足 <b id="missingValue">3</b> 件</small>
+          </article>
+          <article class="summary-card">
+            <span>差戻し中</span>
+            <strong id="diffValue">2</strong>
+            <small>自動作成 <b id="matchValue">24</b> 件</small>
+          </article>
+        </section>
+
+        <div class="content-grid">
+          <section class="main-panel">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow" id="currentViewLabel">Dashboard</p>
+                <h2 id="panelTitle">青山デザイン株式会社</h2>
+              </div>
+              <div class="segmented" role="tablist" aria-label="表示切替">
+                <button class="segment active" data-filter="all">すべて</button>
+                <button class="segment" data-filter="urgent">要確認</button>
+                <button class="segment" data-filter="done">完了</button>
+              </div>
+            </div>
+
+            <div id="viewContent"></div>
+          </section>
+
+          <aside class="ai-panel">
+            <div class="ai-header">
+              <span class="zeimee-avatar">AI</span>
+              <div>
+                <h2>zeimeeくん</h2>
+                <p id="aiSubtitle">選択中の顧問先をもとに提案します。</p>
+              </div>
+            </div>
+
+            <section class="insight-card chat-card-z">
+              <div id="zeimeeChat" class="chat-messages-z"></div>
+            </section>
+
+            <section class="insight-card">
+              <h3>今日見るべき順番</h3>
+              <ol id="priorityList"></ol>
+            </section>
+
+            <section class="insight-card">
+              <h3>顧問先への依頼文</h3>
+              <textarea id="messageDraft" rows="8"></textarea>
+              <div class="button-row">
+                <button class="ghost-action" id="rewriteMessage">整える</button>
+                <button class="primary-action compact" id="copyMessage">コピー</button>
+              </div>
+            </section>
+
+            <section class="insight-card">
+              <h3>AIルール一致</h3>
+              <div id="ruleHits" class="rule-list"></div>
+            </section>
+          </aside>
+        </div>
+      </main>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="./script.js"></script>
+  </body>
+</html>

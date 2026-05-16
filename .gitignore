@@ -1,0 +1,6 @@
+.vercel
+.DS_Store
+.server*.log
+.server*.pid
+.tunnel*.log
+.tunnel*.pid
