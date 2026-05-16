@@ -5,7 +5,9 @@ const appState = {
   search: "",
 };
 
-const clients = [
+// Loaded from /api/clients on startup. The inline array below is kept as a
+// fallback so the page still renders if the API is unreachable.
+let clients = [
   {
     name: "青山デザイン株式会社",
     owner: "担当: 鈴木 / 締切 5月10日",
@@ -255,6 +257,92 @@ const viewContent = $("#viewContent");
 const toast = $("#toast");
 
 function currentClient() { return clients[appState.activeClient]; }
+
+async function loadClientsFromApi() {
+  try {
+    const listRes = await fetch("/api/clients");
+    if (!listRes.ok) throw new Error("HTTP " + listRes.status);
+    const summaries = await listRes.json();
+    if (!Array.isArray(summaries) || summaries.length === 0) return;
+
+    const detailed = await Promise.all(
+      summaries.map(async (s) => {
+        const detailRes = await fetch("/api/clients/" + encodeURIComponent(s.id));
+        if (!detailRes.ok) return null;
+        const detail = await detailRes.json();
+        return adaptApiClient(detail);
+      })
+    );
+    const filtered = detailed.filter(Boolean);
+    if (filtered.length > 0) clients = filtered;
+  } catch (err) {
+    console.warn("Failed to load clients from API; using inline fallback", err);
+  }
+}
+
+function adaptApiClient(d) {
+  // Map the API detail payload (Prisma schema) onto the legacy shape the
+  // existing render functions read from `clients[i]`.
+  return {
+    id: d.id,
+    name: d.name,
+    industry: d.industry,
+    vendor: d.vendor,
+    mode: d.mode,
+    owner: d.ownerLabel ?? "",
+    progress: d.progress,
+    tasksOpen: d.tasksOpen,
+    risk: d.risk,
+    receipt: d.receipt,
+    missing: d.missing,
+    diff: d.diff,
+    matches: d.matches,
+    chatMessage: d.chatMessage ?? "",
+    rules: (d.rules ?? []).map((r) => r.title),
+    message: d.messageDraft ?? "",
+    contactPrimary: d.contactPrimary,
+    contactEndpoints: d.contactEndpoints ?? {},
+    vendorSyncs: d.vendorSyncs ?? [],
+    tasks: (d.tasks ?? []).map((t) => [
+      t.title,
+      t.note,
+      t.category,
+      t.status,
+      t.score,
+    ]),
+    entries: (d.entries ?? []).map((e) => [
+      e.account,
+      e.description,
+      e.taxClass ?? "",
+      e.receiptStatus === "matched" ? "証憑一致" : e.receiptStatus === "missing" ? "証憑不足" : "確認",
+      e.receiptStatus === "matched" ? "done" : e.receiptStatus === "missing" ? "urgent" : "open",
+      e.score ?? 50,
+    ]),
+    receipts: (d.receipts ?? []).map((r) => [
+      r.vendorRef ?? "(未設定)",
+      r.status === "attached" ? "紐付け済み" : r.status === "missing" ? "領収書不足" : "候補あり",
+      r.status === "missing" ? "顧問先依頼待ち" : "—",
+      r.status === "attached" ? "done" : r.status === "missing" ? "urgent" : "open",
+      80,
+    ]),
+    matching: (d.matchings ?? []).map((m) => [
+      m.invoiceRef,
+      "¥" + m.invoiceAmount.toLocaleString(),
+      "¥" + m.paidAmount.toLocaleString(),
+      m.diffNote ?? "",
+      m.status === "matched" || m.status === "done" ? "done" : m.status === "urgent" ? "urgent" : "open",
+      80,
+    ]),
+    checks: (d.monthlyChecks ?? []).map((c) => [
+      c.title,
+      c.note ?? "",
+      c.detail ?? "",
+      c.status,
+      c.score,
+    ]),
+    trendData: d.trendData ?? [],
+  };
+}
 
 function showToast(message) {
   toast.textContent = message;
@@ -771,4 +859,4 @@ $("#copyMessage").addEventListener("click", async () => {
   }
 });
 
-render();
+loadClientsFromApi().finally(render);

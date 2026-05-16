@@ -1,6 +1,9 @@
 import './bootstrap.js';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
+import staticPlugin from '@fastify/static';
 import { env } from './env.js';
 import { logger } from './lib/logger.js';
 import { healthRoutes } from './routes/health.js';
@@ -10,6 +13,18 @@ import { syncRoutes } from './routes/sync.js';
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ loggerInstance: logger });
   await app.register(cors, { origin: true });
+
+  // Serve the existing Vanilla frontend from the repo root.
+  // server/src/server.ts -> server/src -> server -> repo root
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const repoRoot = path.resolve(here, '../..');
+  await app.register(staticPlugin, {
+    root: repoRoot,
+    prefix: '/',
+    index: ['index.html'],
+    decorateReply: false,
+  });
+
   await app.register(healthRoutes);
   await app.register(clientRoutes);
   await app.register(syncRoutes);
