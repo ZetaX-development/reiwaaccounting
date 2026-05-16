@@ -202,20 +202,18 @@ let clients = [
   },
 ];
 
-// Spec 06 C1: central labels (Japanese, no jargon).
-// Server returns English codes (e.g. "awaiting_approval"); the UI should
-// always render via these label maps, never the raw code.
+// 中央集約 labels: API は英語コード (e.g. "awaiting_approval") を返す。
+// UI は常に labels.* を経由して日本語化する。
 const labels = {
   // View titles (eyebrow)
-  dashboard: "今日見るところ",
-  progress: "顧問先いちらん",
-  feedback: "やり直し依頼",
-  portal: "お客さまに連絡",
-  trends: "数字の動き",
-  receipts: "領収書とお金の照合",
-  rules: "顧問先ごとのチェック",
-  validation: "議事録メモ",
-  settings: "全体の設定",
+  dashboard: "ToDo",
+  company: "顧問先",
+  "jobs-journal": "月次業務 / 仕訳",
+  "jobs-vouchers": "月次業務 / 証憑",
+  "jobs-monthly-check": "月次業務 / 月次チェック",
+  portal: "メッセージ",
+  rules: "学習",
+  settings: "設定",
 
   status: { urgent: "要確認", open: "作業中", done: "終わった" },
   stage: {
@@ -242,13 +240,12 @@ const labels = {
   },
   helper: {
     dashboard: "AIが先にチェックした件のうち、あなたが今日触る分だけ表示しています。",
-    progress: "顧問先全体の進み具合と止まっている件を1画面で見えます。",
-    feedback: "差戻しの状況。お互いに対応待ちの件をここで管理します。",
+    company: "選んだ顧問先の会社情報・連携状況・過去の取引履歴を確認できます。",
+    "jobs-journal": "マネーフォワードから取り込んだ仕訳一覧です。",
+    "jobs-vouchers": "領収書が足りていない取引と、依頼文の作成。",
+    "jobs-monthly-check": "前月比や残高チェックなど月次レビューの観点。",
     portal: "お客さまにメールやSlackなどで連絡できます。届かなかったら再送できます。",
-    trends: "勘定科目ごとの3ヶ月推移と要確認のサインを表示します。",
-    receipts: "領収書が足りていない取引と、入出金の差異を確認できます。",
     rules: "この顧問先で過去にミスしやすかった点を、企業ごとのチェック項目として保存します。",
-    validation: "議事録から抽出した方針メモです。",
     settings: "事務所全体の運用設定。",
   },
 };
@@ -301,7 +298,7 @@ const buildRoadmap = [
 ];
 
 const $ = (selector) => document.querySelector(selector);
-const clientStrip = $("#clientStrip");
+const clientChips = $("#clientChips");
 const viewContent = $("#viewContent");
 const toast = $("#toast");
 
@@ -332,6 +329,7 @@ async function loadClientsFromApi() {
 function adaptApiClient(d) {
   // Save raw tasks (with stage etc.) so spec 02 can render workflow buttons.
   const rawTasks = (d.tasks ?? []);
+  const mfConnected = !!d.mfConnected;
   // Map the API detail payload (Prisma schema) onto the legacy shape the
   // existing render functions read from `clients[i]`.
   return {
@@ -362,6 +360,7 @@ function adaptApiClient(d) {
       t.score,
     ]),
     rawTasks: rawTasks,
+    mfConnected: mfConnected,
     entries: (d.entries ?? []).map((e) => [
       e.account,
       e.description,
@@ -458,19 +457,25 @@ function makeConfidence(score) {
   return '<div class="confidence"><b>' + score + '%</b><span><i style="width:' + score + '%"></i></span></div>';
 }
 
+// Render the client filter chips (replaces the former full-detail strip).
+// Each chip is a pill showing the company name + vendor + channel.
+// Click → switch the active client and re-render every view bound to it.
 function renderClients() {
   let html = "";
   for (let i = 0; i < clients.length; i++) {
-    const client = clients[i];
-    html += '<button class="client-card ' + (i === appState.activeClient ? "active" : "") + '" data-client="' + i + '">';
-    html += "<strong>" + client.name + "</strong><span>" + client.owner + "</span>";
-    html += vendorBadgeHtml(client.vendor);
-    html += channelBadgeHtml(client.contactPrimary);
-    html += '<div class="mini-progress"><i style="width:' + client.progress + '%"></i></div></button>';
+    const c = clients[i];
+    const active = i === appState.activeClient ? " active" : "";
+    html += '<button class="chip' + active + '" data-client="' + i + '">';
+    html += escapeHtml(c.name);
+    html += " " + vendorBadgeHtml(c.vendor);
+    html += "</button>";
   }
-  clientStrip.innerHTML = html;
-  clientStrip.querySelectorAll(".client-card").forEach((button) => {
-    button.addEventListener("click", () => { appState.activeClient = Number(button.dataset.client); render(); });
+  clientChips.innerHTML = html;
+  clientChips.querySelectorAll("[data-client]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      appState.activeClient = Number(btn.dataset.client);
+      render();
+    });
   });
 }
 
@@ -491,6 +496,7 @@ function channelBadgeHtml(channel) {
 
 function renderSummary() {
   const client = currentClient();
+  if (!client) return;
   $("#progressValue").textContent = client.progress + "%";
   $("#progressBar").style.width = client.progress + "%";
   $("#openTaskValue").textContent = client.tasksOpen;
@@ -501,8 +507,7 @@ function renderSummary() {
   $("#matchValue").textContent = client.matches;
   $("#panelTitle").textContent = client.name;
   $("#currentViewLabel").textContent = labels[appState.activeView];
-  $("#aiSubtitle").textContent = client.name + " の月次処理を支援中";
-  // Spec 06 C4: helper line under the eyebrow on each view
+  // Helper line under the panel header
   let helperEl = $("#viewHelper");
   if (!helperEl) {
     helperEl = document.createElement("div");
@@ -513,7 +518,7 @@ function renderSummary() {
   }
   helperEl.textContent = labels.helper[appState.activeView] || "";
 
-  // Spec 01 F5: 5th summary card "ベンダー横断同期"
+  // 5th summary card "ベンダー横断同期"
   const vendorEl = $("#vendorSyncValue");
   if (vendorEl) {
     fetch("/api/sync-status")
@@ -716,7 +721,6 @@ function renderDashboard() {
 }
 
 function renderYearendDashboard() {
-  const client = currentClient();
   let html = '<div class="review-hero">';
   html += '<div><p class="eyebrow">期末クローズモード</p><h3>申告期限までに残しておくべき手続き</h3>';
   html += '<p>月次決算ではなく、期末調整・税務調整・申告書草案の準備状況を見せています。</p></div>';
@@ -1335,20 +1339,431 @@ function bindRuleHandlers() {
   });
 }
 
+// ===== 業務 > 顧問先 (会社情報・履歴閲覧) =====
+// ===== 業務 > 顧問先 (会社情報 + MF 会計帳簿閲覧) =====
+function renderCompany() {
+  const c = currentClient();
+  if (!c) return '<div class="empty-state">顧問先を選んでください。</div>';
+  const tab = appState.companyTab || "info";
+  const tabs = [
+    { key: "info", label: "基本情報" },
+    { key: "journal", label: "仕訳帳" },
+    { key: "cash", label: "現金出納帳" },
+    { key: "general-ledger", label: "総勘定元帳" },
+    { key: "sub-ledger", label: "補助元帳" },
+    { key: "trial-bs", label: "残高試算表 BS" },
+    { key: "trial-pl", label: "残高試算表 PL" },
+  ];
+  let html = '<div class="company-tabs">';
+  for (const t of tabs) {
+    html += '<button class="company-tab' + (t.key === tab ? " active" : "") + '" data-company-tab="' + t.key + '">' + t.label + '</button>';
+  }
+  html += '</div>';
+
+  if (tab === "info") {
+    html += renderCompanyInfo(c);
+  } else if (!c.mfConnected) {
+    html += '<div class="empty-state">MF クラウド会計と連携してください。<br><small>OAuth 開始: <code>/api/mf/oauth/start?clientId=' + escapeHtml(c.id) + '</code></small></div>';
+  } else {
+    html += '<div id="companyTabBody"><div class="empty-state">読み込み中…</div></div>';
+  }
+  return html;
+}
+
+function renderCompanyInfo(c) {
+  let html = '<section class="company-info-card">';
+  html += '<p class="eyebrow">基本情報</p>';
+  html += '<h3>' + escapeHtml(c.name) + '</h3>';
+  html += '<dl class="info-grid">';
+  html += '<dt>業種</dt><dd>' + escapeHtml(c.industry || "未設定") + '</dd>';
+  html += '<dt>会計ソフト</dt><dd>' + vendorBadgeHtml(c.vendor) + '</dd>';
+  html += '<dt>連絡手段</dt><dd>' + (c.contactPrimary ? channelBadgeHtml(c.contactPrimary) : "未設定") + '</dd>';
+  html += '<dt>モード</dt><dd>' + (c.mode === "yearend" ? "決算のチェック" : "毎月のチェック") + '</dd>';
+  if (c.vendorSyncs && c.vendorSyncs.length) {
+    for (const s of c.vendorSyncs) {
+      const label = s.vendor === "mf" ? "MF 最終取込" : "freee 最終取込";
+      html += '<dt>' + label + '</dt><dd>' + (s.lastSync ? new Date(s.lastSync).toLocaleString("ja-JP") + '（' + s.count + '件）' : "未取得") + '</dd>';
+    }
+  }
+  html += '</dl>';
+  html += '</section>';
+  return html;
+}
+
+function loadAndRenderCompanyTab() {
+  const tab = appState.companyTab || "info";
+  if (tab === "info") return;
+  const c = currentClient();
+  const body = $("#companyTabBody");
+  if (!c?.mfConnected || !body) return;
+  const cid = encodeURIComponent(c.id);
+
+  if (tab === "journal") {
+    fetch("/api/clients/" + cid + "/mf/journal-book")
+      .then((r) => r.json())
+      .then((d) => { body.innerHTML = renderJournalBook(d.journals || []); });
+    return;
+  }
+  if (tab === "cash") {
+    fetch("/api/clients/" + cid + "/mf/accounts")
+      .then((r) => r.json())
+      .then(async (acc) => {
+        const cashAccounts = (acc.accounts || []).filter((a) => a.category === "CASH_AND_DEPOSITS");
+        body.innerHTML = '<div class="empty-state">' + cashAccounts.length + ' 件の現預金科目を確認中…</div>';
+        const all = [];
+        for (const a of cashAccounts) {
+          const r = await fetch("/api/clients/" + cid + "/mf/journal-book?account_id=" + encodeURIComponent(a.id));
+          const d = await r.json();
+          for (const j of (d.journals || [])) all.push(j);
+        }
+        const seen = new Set();
+        const unique = all.filter((j) => seen.has(j.id) ? false : (seen.add(j.id), true));
+        unique.sort((x, y) => new Date(x.transaction_date).getTime() - new Date(y.transaction_date).getTime());
+        body.innerHTML = renderCashBook(unique, cashAccounts);
+      });
+    return;
+  }
+  if (tab === "general-ledger") {
+    const selected = appState.companyAccountId || "";
+    fetch("/api/clients/" + cid + "/mf/accounts")
+      .then((r) => r.json())
+      .then(async (acc) => {
+        const accounts = acc.accounts || [];
+        let html = '<div class="book-picker">';
+        html += '<label>勘定科目:</label>';
+        html += '<select id="generalLedgerPicker"><option value="">選択してください…</option>';
+        for (const a of accounts) {
+          html += '<option value="' + a.id + '"' + (a.id === selected ? " selected" : "") + '>' + escapeHtml(a.name) + '</option>';
+        }
+        html += '</select></div>';
+        if (selected) {
+          const r = await fetch("/api/clients/" + cid + "/mf/journal-book?account_id=" + encodeURIComponent(selected));
+          const d = await r.json();
+          const accountName = accounts.find((a) => a.id === selected)?.name || "";
+          html += '<p class="eyebrow">' + escapeHtml(accountName) + ' の元帳</p>';
+          html += renderLedger((d.journals || []), selected, null);
+        } else {
+          html += '<div class="empty-state">勘定科目を選んでください。</div>';
+        }
+        body.innerHTML = html;
+        const picker = $("#generalLedgerPicker");
+        if (picker) picker.addEventListener("change", () => {
+          appState.companyAccountId = picker.value;
+          loadAndRenderCompanyTab();
+        });
+      });
+    return;
+  }
+  if (tab === "sub-ledger") {
+    const selected = appState.companySubAccountId || "";
+    fetch("/api/clients/" + cid + "/mf/sub-accounts")
+      .then((r) => r.json())
+      .then(async (acc) => {
+        const subs = acc.sub_accounts || [];
+        let html = '<div class="book-picker">';
+        html += '<label>補助科目:</label>';
+        html += '<select id="subLedgerPicker"><option value="">選択してください…</option>';
+        for (const s of subs) {
+          html += '<option value="' + s.id + '"' + (s.id === selected ? " selected" : "") + '>' + escapeHtml(s.name) + '</option>';
+        }
+        html += '</select></div>';
+        if (selected) {
+          const r = await fetch("/api/clients/" + cid + "/mf/journal-book?sub_account_id=" + encodeURIComponent(selected));
+          const d = await r.json();
+          const subName = subs.find((s) => s.id === selected)?.name || "";
+          html += '<p class="eyebrow">' + escapeHtml(subName) + ' の補助元帳</p>';
+          html += renderLedger((d.journals || []), null, selected);
+        } else {
+          html += '<div class="empty-state">補助科目を選んでください。</div>';
+        }
+        body.innerHTML = html;
+        const picker = $("#subLedgerPicker");
+        if (picker) picker.addEventListener("change", () => {
+          appState.companySubAccountId = picker.value;
+          loadAndRenderCompanyTab();
+        });
+      });
+    return;
+  }
+  if (tab === "trial-bs" || tab === "trial-pl") {
+    const type = tab === "trial-bs" ? "bs" : "pl";
+    fetch("/api/clients/" + cid + "/mf/trial-balance/" + type)
+      .then((r) => r.json())
+      .then((d) => { body.innerHTML = renderTrialBalance(d, type); });
+    return;
+  }
+}
+
+function renderJournalBook(journals) {
+  if (!journals.length) return '<div class="empty-state">この会計期間に仕訳はありません。</div>';
+  journals.sort((a, b) => new Date(a.transaction_date).getTime() - new Date(b.transaction_date).getTime());
+  let html = '<div class="table-wrap"><table><thead><tr>';
+  html += '<th>日付</th><th>借方科目</th><th>借方金額</th><th>貸方科目</th><th>貸方金額</th><th>摘要</th>';
+  html += '</tr></thead><tbody>';
+  for (const j of journals) {
+    for (const b of (j.branches || [])) {
+      html += '<tr>';
+      html += '<td>' + j.transaction_date + '</td>';
+      html += '<td>' + escapeHtml(b.debitor?.account_name || "-") + '</td>';
+      html += '<td style="text-align:right">¥' + (b.debitor?.value || 0).toLocaleString("ja-JP") + '</td>';
+      html += '<td>' + escapeHtml(b.creditor?.account_name || "-") + '</td>';
+      html += '<td style="text-align:right">¥' + (b.creditor?.value || 0).toLocaleString("ja-JP") + '</td>';
+      html += '<td>' + escapeHtml(j.memo || b.remark || "") + '</td>';
+      html += '</tr>';
+    }
+  }
+  html += '</tbody></table></div>';
+  return html;
+}
+
+function renderCashBook(journals, cashAccounts) {
+  if (!journals.length) return '<div class="empty-state">現預金関連の仕訳がありません。</div>';
+  const cashIds = new Set(cashAccounts.map((a) => a.id));
+
+  // まずは行を平坦化して並び替え (同日の仕訳番号順)
+  const rows = [];
+  for (const j of journals) {
+    for (const b of (j.branches || [])) {
+      const d = b.debitor;
+      const cr = b.creditor;
+      const debitIsCash = d && cashIds.has(d.account_id);
+      const creditIsCash = cr && cashIds.has(cr.account_id);
+      const memo = j.memo || b.remark || "";
+      // 借方・貸方の両方が現預金 (例: 現金 / 普通預金 引出) → 2 行に展開
+      if (debitIsCash) {
+        rows.push({
+          date: j.transaction_date,
+          number: j.number,
+          account: d.account_name,
+          income: d.value,
+          outgo: 0,
+          memo,
+          other: cr?.account_name || "",
+        });
+      }
+      if (creditIsCash) {
+        rows.push({
+          date: j.transaction_date,
+          number: j.number,
+          account: cr.account_name,
+          income: 0,
+          outgo: cr.value,
+          memo,
+          other: d?.account_name || "",
+        });
+      }
+    }
+  }
+  rows.sort((a, b) => {
+    const t = new Date(a.date).getTime() - new Date(b.date).getTime();
+    if (t !== 0) return t;
+    return (a.number || 0) - (b.number || 0);
+  });
+
+  // 科目別の累計残高
+  const balances = {};
+  let html = '<div class="table-wrap"><table><thead><tr>';
+  html += '<th>日付</th><th>科目</th><th>摘要</th><th>入金</th><th>出金</th><th>科目残高</th>';
+  html += '</tr></thead><tbody>';
+  for (const r of rows) {
+    balances[r.account] = (balances[r.account] || 0) + r.income - r.outgo;
+    html += '<tr>';
+    html += '<td>' + r.date + '</td>';
+    html += '<td>' + escapeHtml(r.account) + '</td>';
+    html += '<td>' + escapeHtml(r.memo + (r.other ? " (相手: " + r.other + ")" : "")) + '</td>';
+    html += '<td style="text-align:right">' + (r.income ? '¥' + r.income.toLocaleString("ja-JP") : "") + '</td>';
+    html += '<td style="text-align:right">' + (r.outgo ? '¥' + r.outgo.toLocaleString("ja-JP") : "") + '</td>';
+    html += '<td style="text-align:right">¥' + balances[r.account].toLocaleString("ja-JP") + '</td>';
+    html += '</tr>';
+  }
+  html += '</tbody></table></div>';
+  html += '<small class="sync-fresh">残高は科目ごとに集計しています。期首残高は試算表で確認してください。</small>';
+  return html;
+}
+
+function renderLedger(journals, accountId, subAccountId) {
+  if (!journals.length) return '<div class="empty-state">該当する仕訳がありません。</div>';
+  let balance = 0;
+  let html = '<div class="table-wrap"><table><thead><tr>';
+  html += '<th>日付</th><th>相手科目</th><th>摘要</th><th>借方</th><th>貸方</th><th>残高</th>';
+  html += '</tr></thead><tbody>';
+  for (const j of journals) {
+    for (const b of (j.branches || [])) {
+      const d = b.debitor;
+      const cr = b.creditor;
+      let debit = 0, credit = 0, other = "";
+      if (accountId) {
+        if (d?.account_id === accountId) { debit = d.value; other = cr?.account_name || ""; }
+        else if (cr?.account_id === accountId) { credit = cr.value; other = d?.account_name || ""; }
+        else continue;
+      } else if (subAccountId) {
+        if (d?.sub_account_id === subAccountId) { debit = d.value; other = cr?.account_name || ""; }
+        else if (cr?.sub_account_id === subAccountId) { credit = cr.value; other = d?.account_name || ""; }
+        else continue;
+      }
+      balance += debit - credit;
+      html += '<tr>';
+      html += '<td>' + j.transaction_date + '</td>';
+      html += '<td>' + escapeHtml(other) + '</td>';
+      html += '<td>' + escapeHtml(j.memo || "") + '</td>';
+      html += '<td style="text-align:right">' + (debit ? '¥' + debit.toLocaleString("ja-JP") : "") + '</td>';
+      html += '<td style="text-align:right">' + (credit ? '¥' + credit.toLocaleString("ja-JP") : "") + '</td>';
+      html += '<td style="text-align:right">¥' + balance.toLocaleString("ja-JP") + '</td>';
+      html += '</tr>';
+    }
+  }
+  html += '</tbody></table></div>';
+  return html;
+}
+
+function renderTrialBalance(data, type) {
+  const rows = data?.rows;
+  if (!rows || !rows.length) {
+    return '<div class="empty-state">試算表が空です（取引が無い、または会計期間外）。</div>';
+  }
+  const cols = data.columns || ["opening_balance", "debit_amount", "credit_amount", "closing_balance", "ratio"];
+  const colLabels = {
+    opening_balance: "前期残高",
+    debit_amount: "借方金額",
+    credit_amount: "貸方金額",
+    closing_balance: "期末残高",
+    ratio: "構成比",
+  };
+  let html = '';
+  html += '<p class="eyebrow">' + (type === "bs" ? "貸借対照表" : "損益計算書") + ' (' + (data.end_date || "") + '時点)</p>';
+  html += '<div class="table-wrap"><table class="trial-balance-table"><thead><tr>';
+  html += '<th>科目</th>';
+  for (const k of cols) html += '<th>' + (colLabels[k] || k) + '</th>';
+  html += '</tr></thead><tbody>';
+  const walk = (nodes, depth = 0) => {
+    for (const n of (nodes || [])) {
+      const cls = n.type === "account" ? "tb-row-account" : "tb-row-section";
+      html += '<tr class="' + cls + '">';
+      html += '<td style="padding-left:' + (12 + depth * 14) + 'px">' + escapeHtml(n.name) + '</td>';
+      for (let i = 0; i < cols.length; i++) {
+        const v = n.values?.[i];
+        if (cols[i] === "ratio") {
+          html += '<td>' + (v == null ? "—" : v + "%") + '</td>';
+        } else {
+          html += '<td>' + (v == null ? "—" : "¥" + Number(v).toLocaleString("ja-JP")) + '</td>';
+        }
+      }
+      html += '</tr>';
+      if (n.rows && n.rows.length) walk(n.rows, depth + 1);
+    }
+  };
+  walk(rows);
+  html += '</tbody></table></div>';
+  html += '<small class="sync-fresh">マネーフォワード クラウド会計から取得 (' + (data.created_at ? new Date(data.created_at).toLocaleString("ja-JP") : "") + ')</small>';
+  return html;
+}
+
+// ===== 業務 > 月次業務 > 仕訳 (live MF journals list) =====
+function renderJobsJournal() {
+  const c = currentClient();
+  if (!c) return '<div class="empty-state">顧問先を選んでください。</div>';
+  const entries = (c.entries || []).filter((e) => {
+    // live MF entries or DB MF/freee entries depending on connection
+    if (c.mfConnected) return (e.id || "").toString().startsWith("live-");
+    return true;
+  });
+  let html = '<section>';
+  html += '<p class="eyebrow">仕訳一覧</p>';
+  if (entries.length === 0) {
+    html += '<div class="empty-state">仕訳がありません。マネフォと連携すると自動で取り込まれます。</div>';
+  } else {
+    html += '<div class="table-wrap"><table><thead><tr>';
+    html += '<th>日付</th><th>科目</th><th>摘要</th><th>金額</th><th>税区分</th><th>証憑</th><th>操作</th>';
+    html += '</tr></thead><tbody>';
+    for (const e of entries) {
+      const dateStr = new Date(e.occurredAt).toISOString().slice(0, 10);
+      const receiptLabel = e.receiptStatus === "matched" ? "✓ 添付済" : e.receiptStatus === "missing" ? '<span style="color:#9a3040">未添付</span>' : e.receiptStatus === "partial" ? "一部" : "-";
+      html += '<tr>';
+      html += '<td>' + dateStr + '</td>';
+      html += '<td><strong>' + escapeHtml(e.account) + '</strong></td>';
+      html += '<td>' + escapeHtml((e.description || "").slice(0, 50)) + '</td>';
+      html += '<td style="text-align:right">¥' + e.amount.toLocaleString("ja-JP") + '</td>';
+      html += '<td>' + escapeHtml(e.taxClass || "-") + '</td>';
+      html += '<td>' + receiptLabel + '</td>';
+      html += '<td><button class="vendor-link" data-action="open-vendor" data-vendor="' + e.source + '">' + (e.source === "mf" ? "MFで開く" : "freeeで開く") + '</button></td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table></div>';
+  }
+  html += '<small class="sync-fresh">マネーフォワード クラウド会計からライブ取得</small>';
+  html += '</section>';
+  return html;
+}
+
+// ===== 業務 > 月次業務 > 証憑 (=旧 receipts) =====
+function renderJobsVouchers() {
+  let html = '';
+  html += '<div id="missingAlertSlot"></div>';
+  html += '<div id="missingTableSlot"></div>';
+  return html;
+}
+
+// ===== 業務 > 月次業務 > 月次チェック =====
+function renderJobsMonthlyCheck() {
+  const c = currentClient();
+  if (!c) return '<div class="empty-state">顧問先を選んでください。</div>';
+
+  // 簡易な月次チェック観点:
+  //   - 高額仕訳 (¥1,000,000 以上)
+  //   - 証憑未添付
+  //   - 月次の取引総額
+  const entries = c.entries || [];
+  const liveOnly = c.mfConnected ? entries.filter((e) => (e.id || "").toString().startsWith("live-")) : entries;
+
+  const highValue = liveOnly.filter((e) => e.amount >= 1000000);
+  const missingReceipt = liveOnly.filter((e) => e.receiptStatus === "missing");
+  const totalAmount = liveOnly.reduce((sum, e) => sum + e.amount, 0);
+
+  let html = '<div class="check-summary">';
+  html += '<article class="check-card"><span>当月仕訳件数</span><strong>' + liveOnly.length + '件</strong></article>';
+  html += '<article class="check-card alert"><span>高額仕訳 (100万円超)</span><strong>' + highValue.length + '件</strong></article>';
+  html += '<article class="check-card alert"><span>証憑未添付</span><strong>' + missingReceipt.length + '件</strong></article>';
+  html += '<article class="check-card"><span>合計取引金額</span><strong>¥' + totalAmount.toLocaleString("ja-JP") + '</strong></article>';
+  html += '</div>';
+
+  if (highValue.length > 0) {
+    html += '<section style="margin-top:14px"><p class="eyebrow">高額仕訳の確認</p>';
+    html += '<div class="table-wrap"><table><thead><tr>';
+    html += '<th>日付</th><th>科目</th><th>金額</th><th>摘要</th>';
+    html += '</tr></thead><tbody>';
+    for (const e of highValue) {
+      html += '<tr>';
+      html += '<td>' + new Date(e.occurredAt).toISOString().slice(0, 10) + '</td>';
+      html += '<td>' + escapeHtml(e.account) + '</td>';
+      html += '<td style="text-align:right">¥' + e.amount.toLocaleString("ja-JP") + '</td>';
+      html += '<td>' + escapeHtml((e.description || "").slice(0, 40)) + '</td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table></div></section>';
+  }
+
+  if (liveOnly.length === 0) {
+    html += '<div class="empty-state" style="margin-top:14px">取引データがありません。マネフォと連携すると自動でチェックされます。</div>';
+  }
+  return html;
+}
+
 function renderView() {
   const client = currentClient();
+  // ToDo は role 切替で 税理士=所長確認待ち / スタッフ=作業中+差戻し が並ぶ。
+  // 月次業務 は 仕訳 / 証憑 / 月次チェック の 3 サブビューに展開する。
   const views = {
-    dashboard: () => renderDashboard(),
-    progress: () => renderProgress(),
-    feedback: () => renderFeedback(),
-    portal: () => renderPortal(),
-    trends: () => renderTrends(),
-    receipts: () => renderReceipts(),
-    rules: () => renderRules(),
-    validation: () => renderValidation(),
-    settings: () => renderSettings(),
+    dashboard: () => renderDashboard(),            // 今日 > ToDo
+    company: () => renderCompany(),                // 業務 > 顧問先
+    "jobs-journal": () => renderJobsJournal(),     // 業務 > 月次業務 > 仕訳
+    "jobs-vouchers": () => renderJobsVouchers(),   // 業務 > 月次業務 > 証憑
+    "jobs-monthly-check": () => renderJobsMonthlyCheck(), // 業務 > 月次業務 > 月次チェック
+    portal: () => renderPortal(),                  // 業務 > メッセージ
+    rules: () => renderRules(),                    // 学習・設定 > 学習
+    settings: () => renderSettings(),              // 学習・設定 > 設定
   };
-  viewContent.innerHTML = views[appState.activeView]();
+  const renderer = views[appState.activeView] ?? views.dashboard;
+  viewContent.innerHTML = renderer();
   // Spec 01 F2: progress filter tab handlers
   viewContent.querySelectorAll("[data-progress-filter]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -1356,6 +1771,26 @@ function renderView() {
       render();
     });
   });
+  // 仕訳ビューの実現/未実現フィルタ
+  viewContent.querySelectorAll("[data-journal-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      appState.journalRealizedFilter = button.dataset.journalFilter;
+      renderView();
+    });
+  });
+  // 顧問先ビュー: サブタブ切替
+  viewContent.querySelectorAll("[data-company-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      appState.companyTab = button.dataset.companyTab;
+      // 元帳ピッカーの選択はタブを変えたらリセット
+      if (appState.companyTab !== "general-ledger") appState.companyAccountId = "";
+      if (appState.companyTab !== "sub-ledger") appState.companySubAccountId = "";
+      renderView();
+    });
+  });
+  if (appState.activeView === "company") {
+    loadAndRenderCompanyTab();
+  }
   // Spec 03 F2: portal channel tab handlers + initial threads load
   viewContent.querySelectorAll("[data-portal-channel]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -1369,7 +1804,7 @@ function renderView() {
   if (appState.activeView === "rules") {
     loadAndRenderRules();
   }
-  if (appState.activeView === "receipts") {
+  if (appState.activeView === "jobs-vouchers") {
     loadAndRenderMissing();
   }
   if (appState.activeView === "dashboard") {
@@ -1405,8 +1840,13 @@ function renderView() {
       }
       if (action === "ask" && taskIndex !== null) {
         const task = client.tasks[taskIndex];
-        $("#messageDraft").value = client.name + " ご担当者様\n\nいつもお世話になっております。月次確認のため、以下の件について資料または補足をご共有ください。\n\n・" + task[0] + "\n\n確認後、月次処理を進めます。よろしくお願いいたします。";
-        showToast("顧問先への依頼文を作成しました。");
+        const draft = client.name + " ご担当者様\n\nいつもお世話になっております。月次確認のため、以下の件について資料または補足をご共有ください。\n\n・" + task[0] + "\n\n確認後、月次処理を進めます。よろしくお願いいたします。";
+        appState.activeView = "portal";
+        appState.portalChannel = client.contactPrimary || "email";
+        render();
+        const portalDraft = $("#portalDraft");
+        if (portalDraft) portalDraft.value = formatBodyForChannel(draft, appState.portalChannel);
+        showToast("メッセージ画面に依頼文を作成しました。");
         return;
       }
       if (action === "send-feedback") showToast("担当者に差戻し内容を送信しました。");
@@ -1529,7 +1969,6 @@ function renderView() {
         const draft = client.name + " ご担当者様\n\n" +
           "下記の件についてご確認ください。\n\n・" + t.title + "\n  " + t.note + "\n\n" +
           "確認後、月次処理を進めます。よろしくお願いいたします。";
-        $("#messageDraft").value = draft;
         appState.activeView = "portal";
         appState.portalChannel = client.contactPrimary || "email";
         render();
@@ -1586,8 +2025,6 @@ function render() {
   renderSummary();
   renderNav();
   renderView();
-  renderAiPanel();
-  renderIntegrationCard();
   syncModeToggleActive();
 }
 
@@ -1646,28 +2083,25 @@ if (roleSel) {
   });
 }
 
-$("#runAiButton").addEventListener("click", () => {
-  const client = currentClient();
-  client.progress = Math.min(99, client.progress + 3);
-  client.tasksOpen = Math.max(0, client.tasksOpen - 1);
-  showToast("AI処理が完了しました。新しい候補と依頼文を更新しました。");
-  render();
-});
+// Logout (UI only — no auth implemented yet)
+const logoutBtn = $("#logoutButton");
+if (logoutBtn) {
+  logoutBtn.addEventListener("click", () => {
+    showToast("ログアウト機能はまだ未実装です。");
+  });
+}
 
-$("#rewriteMessage").addEventListener("click", () => {
-  const client = currentClient();
-  const lines = client.tasks.filter((t) => t[3] !== "done").slice(0, 3).map((t) => "・" + t[0]).join("\n");
-  $("#messageDraft").value = client.name + " ご担当者様\n\nいつもお世話になっております。月次処理の確認にあたり、不足資料と確認事項を整理しました。\n\n" + lines + "\n\nお手すきの際にご確認をお願いいたします。";
-  showToast("依頼文を顧問先向けに整えました。");
-});
-
-$("#copyMessage").addEventListener("click", async () => {
-  try {
-    await navigator.clipboard.writeText($("#messageDraft").value);
-    showToast("依頼文をコピーしました。");
-  } catch {
-    showToast("依頼文を選択してコピーできます。");
-  }
+// Sidebar accordion: 月次業務 parent toggles its sub-items, then jumps to 仕訳.
+const jobsSub = $("#jobsSub");
+document.querySelectorAll('[data-view-group="jobs"]').forEach((btn) => {
+  btn.addEventListener("click", () => {
+    if (jobsSub) jobsSub.classList.toggle("expanded");
+    btn.classList.toggle("expanded");
+    if (jobsSub?.classList.contains("expanded") && !appState.activeView.startsWith("jobs-")) {
+      appState.activeView = "jobs-journal";
+      render();
+    }
+  });
 });
 
 loadClientsFromApi().finally(render);

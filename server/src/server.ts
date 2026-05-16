@@ -17,6 +17,7 @@ import { taskRoutes } from './routes/tasks.js';
 import { ruleRoutes } from './routes/rules.js';
 import { receiptRoutes } from './routes/receipts.js';
 import { modeRoutes } from './routes/mode.js';
+import { mfBooksRoutes } from './routes/mf-books.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ loggerInstance: logger });
@@ -44,6 +45,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(ruleRoutes);
   await app.register(receiptRoutes);
   await app.register(modeRoutes);
+  await app.register(mfBooksRoutes);
 
   app.setErrorHandler((err, _req, reply) => {
     logger.error({ err }, 'unhandled');

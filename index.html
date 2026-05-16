@@ -22,28 +22,34 @@
         </a>
 
         <nav class="main-nav" aria-label="メイン">
-          <button class="nav-item active" data-view="dashboard">今日見るところ</button>
-          <button class="nav-item" data-view="progress">顧問先いちらん</button>
-          <button class="nav-item" data-view="feedback">やり直し依頼</button>
-          <button class="nav-item" data-view="portal">お客さまに連絡</button>
-          <button class="nav-item" data-view="trends">数字の動き</button>
-          <button class="nav-item" data-view="receipts">領収書とお金の照合</button>
-          <button class="nav-item" data-view="rules">顧問先ごとのチェック</button>
-          <button class="nav-item" data-view="validation">議事録メモ</button>
-          <button class="nav-item" data-view="settings">全体の設定</button>
+          <p class="nav-group-label">今日</p>
+          <button class="nav-item active" data-view="dashboard">ToDo</button>
+
+          <p class="nav-group-label">業務</p>
+          <button class="nav-item" data-view="company">顧問先</button>
+          <button class="nav-item nav-parent" data-view-group="jobs">
+            月次業務 <span class="nav-caret">▾</span>
+          </button>
+          <div class="nav-sub" id="jobsSub">
+            <button class="nav-item nav-sub-item" data-view="jobs-journal">仕訳</button>
+            <button class="nav-item nav-sub-item" data-view="jobs-vouchers">証憑</button>
+            <button class="nav-item nav-sub-item" data-view="jobs-monthly-check">月次チェック</button>
+          </div>
+          <button class="nav-item" data-view="portal">メッセージ</button>
+
+          <p class="nav-group-label">学習・設定</p>
+          <button class="nav-item" data-view="rules">学習</button>
+          <button class="nav-item" data-view="settings">設定</button>
         </nav>
 
-        <div class="integration-card" id="integrationCard">
-          <p>連携ステータス</p>
-          <span>読み込み中…</span>
-        </div>
+        <button class="nav-logout" id="logoutButton">ログアウト</button>
       </aside>
 
       <main class="workspace">
         <header class="topbar">
           <div>
             <p class="eyebrow">2026年5月 月次レビュー</p>
-            <h1>所長が見るべき異常点だけを確認する
+            <h1 id="topbarTitle">
               <span class="mode-toggle" id="modeToggle">
                 <button class="mode-btn active" data-mode="monthly">月次</button>
                 <button class="mode-btn" data-mode="yearend">期末</button>
@@ -59,32 +65,31 @@
               <option value="tax_accountant">税理士として見る</option>
               <option value="staff">スタッフとして見る</option>
             </select>
-            <button class="primary-action" id="runAiButton">記帳完了をAIレビュー</button>
           </div>
         </header>
 
-        <section class="client-strip" aria-label="顧問先一覧" id="clientStrip"></section>
+        <section class="client-chips" aria-label="顧問先フィルタ" id="clientChips"></section>
 
-        <section class="summary-grid">
+        <section class="summary-grid" id="summaryGrid">
           <article class="summary-card">
             <span>レビュー完了率</span>
-            <strong id="progressValue">87%</strong>
+            <strong id="progressValue">—</strong>
             <div class="progress"><i id="progressBar"></i></div>
           </article>
           <article class="summary-card">
             <span>所長確認待ち</span>
-            <strong id="openTaskValue">6</strong>
-            <small>高優先度 <b id="riskValue">2</b> 件</small>
+            <strong id="openTaskValue">—</strong>
+            <small>高優先度 <b id="riskValue">—</b> 件</small>
           </article>
           <article class="summary-card">
             <span>証憑回収率</span>
-            <strong id="receiptValue">91%</strong>
-            <small>不足 <b id="missingValue">3</b> 件</small>
+            <strong id="receiptValue">—</strong>
+            <small>不足 <b id="missingValue">—</b> 件</small>
           </article>
           <article class="summary-card">
             <span>差戻し中</span>
-            <strong id="diffValue">2</strong>
-            <small>自動作成 <b id="matchValue">24</b> 件</small>
+            <strong id="diffValue">—</strong>
+            <small>自動作成 <b id="matchValue">—</b> 件</small>
           </article>
           <article class="summary-card">
             <span>ベンダー横断同期</span>
@@ -93,56 +98,21 @@
           </article>
         </section>
 
-        <div class="content-grid">
-          <section class="main-panel">
-            <div class="panel-header">
-              <div>
-                <p class="eyebrow" id="currentViewLabel">Dashboard</p>
-                <h2 id="panelTitle">青山デザイン株式会社</h2>
-              </div>
-              <div class="segmented" role="tablist" aria-label="表示切替">
-                <button class="segment active" data-filter="all">すべて</button>
-                <button class="segment" data-filter="urgent">要確認</button>
-                <button class="segment" data-filter="done">完了</button>
-              </div>
+        <section class="main-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow" id="currentViewLabel">ToDo</p>
+              <h2 id="panelTitle">—</h2>
             </div>
-
-            <div id="viewContent"></div>
-          </section>
-
-          <aside class="ai-panel">
-            <div class="ai-header">
-              <span class="zeimee-avatar">AI</span>
-              <div>
-                <h2>zeimeeくん</h2>
-                <p id="aiSubtitle">選択中の顧問先をもとに提案します。</p>
-              </div>
+            <div class="segmented" role="tablist" aria-label="表示切替">
+              <button class="segment active" data-filter="all">すべて</button>
+              <button class="segment" data-filter="urgent">要確認</button>
+              <button class="segment" data-filter="done">完了</button>
             </div>
+          </div>
 
-            <section class="insight-card chat-card-z">
-              <div id="zeimeeChat" class="chat-messages-z"></div>
-            </section>
-
-            <section class="insight-card">
-              <h3>今日見るべき順番</h3>
-              <ol id="priorityList"></ol>
-            </section>
-
-            <section class="insight-card">
-              <h3>顧問先への依頼文</h3>
-              <textarea id="messageDraft" rows="8"></textarea>
-              <div class="button-row">
-                <button class="ghost-action" id="rewriteMessage">整える</button>
-                <button class="primary-action compact" id="copyMessage">コピー</button>
-              </div>
-            </section>
-
-            <section class="insight-card">
-              <h3>AIルール一致</h3>
-              <div id="ruleHits" class="rule-list"></div>
-            </section>
-          </aside>
-        </div>
+          <div id="viewContent"></div>
+        </section>
       </main>
     </div>
 

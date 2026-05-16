@@ -8,6 +8,8 @@ export interface RawEntry {
   taxClass?: string;
   occurredAt: Date;
   receiptStatus?: 'matched' | 'missing' | 'partial' | 'na';
+  // MF specific: false = 未実現 (繰延/取消等), true = 実現済。freee モックは true 固定。
+  isRealized?: boolean;
   raw?: unknown;
 }
 

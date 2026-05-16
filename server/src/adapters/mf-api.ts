@@ -268,6 +268,7 @@ export const mfApiAdapter: VendorAdapter = {
       .toISOString()
       .slice(0, 10);
     const endDate = new Date().toISOString().slice(0, 10);
+    // is_realized を指定しなければ実現 + 未実現の両方が返る (MF 仕様)
     const params = new URLSearchParams({
       start_date: startDate,
       end_date: endDate,
@@ -284,7 +285,7 @@ export const mfApiAdapter: VendorAdapter = {
       const occurredAt = new Date(j.transaction_date);
       const branches = j.branches ?? [];
       const hasReceipt = (j.voucher_file_ids?.length ?? 0) > 0;
-      // Each branch contributes one entry on the debit side
+      const isRealized = j.is_realized !== false; // default true if unspecified
       for (let i = 0; i < branches.length; i++) {
         const debit = branches[i].debitor;
         if (!debit) continue;
@@ -300,6 +301,7 @@ export const mfApiAdapter: VendorAdapter = {
           taxClass: debit.tax_name,
           occurredAt,
           receiptStatus: hasReceipt ? 'matched' : 'missing',
+          isRealized,
           raw: j,
         });
       }

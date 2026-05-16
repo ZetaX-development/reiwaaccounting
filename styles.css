@@ -88,19 +88,34 @@ button {
 }
 
 .main-nav {
-  display: grid;
-  gap: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nav-group-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #8a93a3;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin: 16px 12px 4px;
+}
+.nav-group-label:first-child {
+  margin-top: 0;
 }
 
 .nav-item {
-  min-height: 42px;
+  min-height: 38px;
   border: 0;
   border-radius: 8px;
   padding: 0 12px;
   color: var(--muted);
   background: transparent;
   text-align: left;
-  font-weight: 800;
+  font-weight: 700;
+  font-size: 13.5px;
+  cursor: pointer;
 }
 
 .nav-item:hover {
@@ -111,6 +126,174 @@ button {
 .nav-item.active {
   color: #fff;
   background: var(--green-dark);
+}
+
+.nav-logout {
+  margin-top: auto;
+  min-height: 38px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 12px;
+  background: transparent;
+  color: var(--muted);
+  text-align: left;
+  font-weight: 700;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+.nav-logout:hover {
+  color: #9a3040;
+  background: #fde9ec;
+}
+
+/* nav parent (accordion) */
+.nav-parent {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.nav-caret {
+  font-size: 10px;
+  transition: transform 0.15s ease;
+}
+.nav-parent.expanded .nav-caret { transform: rotate(180deg); }
+
+.nav-sub {
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0 2px 12px;
+  padding-left: 8px;
+  border-left: 2px solid #e3e7ee;
+}
+.nav-sub.expanded { display: flex; }
+.nav-sub-item {
+  min-height: 32px !important;
+  font-size: 12.5px !important;
+  font-weight: 600 !important;
+}
+
+/* 顧問先ビュー - サブタブ */
+.company-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid #e3e7ee;
+  margin-bottom: 16px;
+  overflow-x: auto;
+}
+.company-tab {
+  padding: 8px 14px;
+  border: 0;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+}
+.company-tab.active {
+  color: var(--ink);
+  border-bottom-color: var(--green-dark);
+}
+.company-tab:hover:not(.active) {
+  color: var(--ink);
+  background: #f7f8fb;
+}
+
+.company-info-card {
+  background: #fff;
+  border: 1px solid #e3e7ee;
+  border-radius: 10px;
+  padding: 16px 20px;
+}
+.info-grid {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 8px 12px;
+  margin: 12px 0 0;
+  font-size: 13px;
+}
+.info-grid dt {
+  color: var(--muted);
+  font-weight: 600;
+}
+.info-grid dd {
+  margin: 0;
+  color: var(--ink);
+}
+
+/* 試算表 (ネスト構造) */
+.trial-balance-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.trial-balance-table th,
+.trial-balance-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid #eef0f3;
+  text-align: right;
+}
+.trial-balance-table th:first-child,
+.trial-balance-table td:first-child {
+  text-align: left;
+}
+.trial-balance-table th {
+  background: #f7f8fb;
+  font-size: 11px;
+  color: var(--muted);
+}
+.tb-row-account td:first-child { padding-left: 24px; color: #2b3950; }
+.tb-row-summary td { background: #f7f8fb; font-weight: 700; }
+.tb-row-section td:first-child { padding-left: 12px; font-weight: 700; }
+
+/* 帳簿関連ピッカー */
+.book-picker {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.book-picker label {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.book-picker select,
+.book-picker input[type="date"] {
+  padding: 5px 8px;
+  border: 1px solid #d8dee7;
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: inherit;
+}
+
+/* Client filter chips (replace top client strip) */
+.client-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 0;
+}
+.client-chips button {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid #d8dee7;
+  background: #fff;
+  font-size: 12px;
+  color: #2b3950;
+  cursor: pointer;
+  font-weight: 600;
+}
+.client-chips button.active {
+  background: var(--green-dark);
+  color: #fff;
+  border-color: var(--green-dark);
+}
+.client-chips button:hover:not(.active) {
+  background: #eef5ef;
 }
 
 .integration-card {
@@ -298,7 +481,7 @@ textarea:focus {
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 16px;
 }

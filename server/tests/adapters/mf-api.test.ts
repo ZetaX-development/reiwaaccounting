@@ -15,18 +15,13 @@ describe('mfApiAdapter', () => {
     expect(mfApiAdapter.source).toBe('mf');
   });
 
-  it('returns empty arrays when the seeded client has no MF token', async () => {
-    // Seeded clients have no mfAccessToken set, so the adapter should bail
-    // out quietly rather than calling the real API.
-    const r = await mfApiAdapter.fetchEntries('mock-aoyama-design');
-    expect(r.items).toEqual([]);
-    const r2 = await mfApiAdapter.fetchReceipts('mock-aoyama-design');
-    expect(r2.items).toEqual([]);
-    const r3 = await mfApiAdapter.fetchMatchings('mock-aoyama-design');
-    expect(r3.items).toEqual([]);
-  });
-
   it('returns empty arrays for unknown ids without throwing', async () => {
+    // Receipts/matchings have no MF endpoints so always empty.
+    const r2 = await mfApiAdapter.fetchReceipts('mock-does-not-exist');
+    expect(r2.items).toEqual([]);
+    const r3 = await mfApiAdapter.fetchMatchings('mock-does-not-exist');
+    expect(r3.items).toEqual([]);
+    // fetchEntries: unknown id → no token → empty
     const r = await mfApiAdapter.fetchEntries('mock-does-not-exist');
     expect(r.items).toEqual([]);
   });

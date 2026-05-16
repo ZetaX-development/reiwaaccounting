@@ -70,6 +70,7 @@ export async function getClientById(id: string) {
         taxClass: e.taxClass ?? null,
         occurredAt: e.occurredAt,
         receiptStatus: e.receiptStatus ?? 'na',
+        isRealized: e.isRealized ?? true,
         score: null,
         requestedAt: null,
         raw: null,
@@ -121,7 +122,13 @@ export async function getClientById(id: string) {
     }
   }
 
-  return client;
+  // Strip secrets and add a derived boolean for the frontend.
+  const { mfAccessToken, mfRefreshToken, mfTokenExpiresAt, ...safe } = client;
+  return {
+    ...safe,
+    mfConnected: !!mfAccessToken,
+    mfTokenExpiresAt: mfTokenExpiresAt ?? null,
+  };
 }
 
 /**
