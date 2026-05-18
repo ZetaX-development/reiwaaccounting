@@ -50,6 +50,7 @@ model Client {
   yearendChecklist  YearendCheck[]
   trendData         TrendDatum[]
   monthlyChecks     MonthlyCheck[]
+  vouchers          Voucher[]
 
   updatedAt DateTime @updatedAt
   createdAt DateTime @default(now())
@@ -224,4 +225,25 @@ model MonthlyCheck {
   detail   String?
   status   String  @default("open")
   score    Int     @default(50)
+}
+
+model Voucher {
+  id         String   @id @default(cuid())
+  client     Client?  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId   String?
+  filename   String
+  mimeType   String
+  size       Int
+  imageData  Bytes
+  uploadedAt DateTime @default(now())
+  uploadedBy String?
+
+  ocrJson        Json?
+  ocrStatus      String   @default("pending")
+  ocrAt          DateTime?
+  matchedEntryId String?
+  matchStatus    String   @default("unmatched")
+
+  @@index([clientId, uploadedAt])
+  @@index([ocrStatus])
 }
