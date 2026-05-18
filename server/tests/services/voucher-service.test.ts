@@ -94,3 +94,46 @@ describe('listVouchers', () => {
     expect(rows).toHaveLength(3);
   });
 });
+
+describe('getVoucherImage', () => {
+  it('returns the raw bytes and mimeType', async () => {
+    const buffer = Buffer.from([0x47, 0x49, 0x46, 0x38]);
+    const meta = await createVoucher({
+      clientId: null,
+      filename: 'g.gif',
+      mimeType: 'image/gif',
+      buffer,
+      uploadedBy: null,
+    });
+    const image = await getVoucherImage(meta.id);
+    expect(image).not.toBeNull();
+    expect(image!.mimeType).toBe('image/gif');
+    expect(image!.data).toEqual(buffer);
+  });
+
+  it('returns null when id is unknown', async () => {
+    const image = await getVoucherImage('does-not-exist');
+    expect(image).toBeNull();
+  });
+});
+
+describe('deleteVoucher', () => {
+  it('removes the row and returns true', async () => {
+    const meta = await createVoucher({
+      clientId: null,
+      filename: 'd.png',
+      mimeType: 'image/png',
+      buffer: Buffer.from([0x89]),
+      uploadedBy: null,
+    });
+    const ok = await deleteVoucher(meta.id);
+    expect(ok).toBe(true);
+    const row = await prisma.voucher.findUnique({ where: { id: meta.id } });
+    expect(row).toBeNull();
+  });
+
+  it('returns false when id is unknown', async () => {
+    const ok = await deleteVoucher('does-not-exist');
+    expect(ok).toBe(false);
+  });
+});

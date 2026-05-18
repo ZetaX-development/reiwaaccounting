@@ -75,11 +75,17 @@ export async function listVouchers(filter: {
 }
 
 export async function getVoucherImage(
-  _id: string,
+  id: string,
 ): Promise<{ mimeType: string; data: Buffer } | null> {
-  throw new Error('not implemented');
+  const row = await prisma.voucher.findUnique({
+    where: { id },
+    select: { mimeType: true, imageData: true },
+  });
+  if (!row) return null;
+  return { mimeType: row.mimeType, data: Buffer.from(row.imageData) };
 }
 
-export async function deleteVoucher(_id: string): Promise<boolean> {
-  throw new Error('not implemented');
+export async function deleteVoucher(id: string): Promise<boolean> {
+  const result = await prisma.voucher.deleteMany({ where: { id } });
+  return result.count > 0;
 }
