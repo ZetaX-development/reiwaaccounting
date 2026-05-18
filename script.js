@@ -1925,6 +1925,11 @@ function renderVoucherRegister() {
         ${uploadingCards}
         ${cards}
       </div>
+      <div class="voucher-modal" id="voucherModal" hidden>
+        <div class="voucher-modal-backdrop"></div>
+        <img id="voucherModalImg" alt="" />
+        <button class="voucher-modal-close" id="voucherModalClose" aria-label="閉じる">×</button>
+      </div>
     </section>
   `;
 }
@@ -2030,6 +2035,26 @@ function renderView() {
         deleteVoucherById(btn.dataset.voucherDelete);
       });
     });
+    viewContent.querySelectorAll('[data-voucher-id]').forEach((card) => {
+      card.addEventListener('click', (e) => {
+        if (e.target.closest('[data-voucher-delete]')) return;
+        const id = card.dataset.voucherId;
+        const modal = document.querySelector('#voucherModal');
+        const img = document.querySelector('#voucherModalImg');
+        if (modal && img) {
+          img.src = `/api/vouchers/${id}/image`;
+          modal.hidden = false;
+        }
+      });
+    });
+    const closeBtn = document.querySelector('#voucherModalClose');
+    const backdrop = document.querySelector('.voucher-modal-backdrop');
+    const closeModal = () => {
+      const m = document.querySelector('#voucherModal');
+      if (m) m.hidden = true;
+    };
+    if (closeBtn) closeBtn.addEventListener('click', closeModal);
+    if (backdrop) backdrop.addEventListener('click', closeModal);
   }
   viewContent.querySelectorAll("[data-action]").forEach((button) => {
     button.addEventListener("click", () => {
