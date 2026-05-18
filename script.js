@@ -249,7 +249,7 @@ const labels = {
     "jobs-journal": "マネーフォワードから取り込んだ仕訳一覧です。",
     "jobs-vouchers": "領収書が足りていない取引と、依頼文の作成。",
     "jobs-monthly-check": "前月比や残高チェックなど月次レビューの観点。",
-    "vouchers-register": "証憑をアップロードして登録します。",
+    "vouchers-register": "領収書・請求書などの画像をまとめてアップロードします。未分類プールに入り、後で OCR で振り分けます。",
     portal: "お客さまにメールやSlackなどで連絡できます。届かなかったら再送できます。",
     rules: "この顧問先で過去にミスしやすかった点を、企業ごとのチェック項目として保存します。",
     settings: "事務所全体の運用設定。",
@@ -1840,6 +1840,95 @@ function renderJobsMonthlyCheck() {
   return html;
 }
 
+function renderVoucherRegister() {
+  const tab = appState.voucherTab;
+  const counts = appState.voucherCounts || {};
+  // `clients` is the module-level array populated from /api/clients on startup
+  const clientNameById = Object.fromEntries(
+    (clients || []).map((c) => [c.id, c.name]),
+  );
+
+  // Build a tab for every clientId that has at least one voucher, even when
+  // the client list hasn't loaded yet (fall back to cuid as the label).
+  const clientIdsWithVouchers = Object.keys(counts).filter(
+    (k) => k !== 'unassigned' && counts[k] > 0,
+  );
+  const tabClients = clientIdsWithVouchers.map((id) => ({
+    id,
+    name: clientNameById[id] || id,
+    count: counts[id],
+  }));
+
+  const tabs = [
+    {
+      id: 'unassigned',
+      label: '未分類',
+      count: counts.unassigned || 0,
+    },
+    ...tabClients.map((c) => ({
+      id: c.id,
+      label: c.name,
+      count: c.count,
+    })),
+  ];
+
+  const tabHtml = tabs
+    .map(
+      (t) => `
+      <button class="voucher-tab ${t.id === tab ? 'active' : ''}"
+              data-voucher-tab="${t.id}">
+        ${escapeHtml(t.label)} <span class="count">${t.count}</span>
+      </button>
+    `,
+    )
+    .join('');
+
+  const uploadingCards = appState.uploadQueue
+    .map(
+      (q) => `
+      <div class="voucher-card uploading">
+        <div class="spinner"></div>
+        <div class="voucher-filename">${escapeHtml(q.filename)}</div>
+        <div class="voucher-status">${q.status === 'failed' ? '失敗' : 'アップロード中'}</div>
+      </div>
+    `,
+    )
+    .join('');
+
+  const cards = (appState.vouchers || [])
+    .map(
+      (v) => `
+      <div class="voucher-card" data-voucher-id="${v.id}">
+        <img src="/api/vouchers/${v.id}/image" alt="${escapeHtml(v.filename)}" />
+        <button class="voucher-delete" data-voucher-delete="${v.id}" aria-label="削除">×</button>
+        <div class="voucher-meta">
+          <div class="voucher-filename">${escapeHtml(v.filename)}</div>
+          <div class="voucher-date">${new Date(v.uploadedAt).toLocaleString('ja-JP')}</div>
+        </div>
+      </div>
+    `,
+    )
+    .join('');
+
+  return `
+    <section class="voucher-register">
+      <div class="voucher-dropzone" id="voucherDropzone">
+        <p class="voucher-dropzone-label">画像をここにドロップ または</p>
+        <label class="voucher-pick-btn">
+          ファイルを選択
+          <input type="file" id="voucherFileInput" multiple
+                 accept="image/jpeg,image/png,image/gif,image/webp" hidden />
+        </label>
+      </div>
+      <div class="voucher-tabs">${tabHtml}</div>
+      <div class="voucher-grid">
+        ${uploadingCards}
+        ${cards}
+      </div>
+    </section>
+  `;
+}
+
 function renderView() {
   const client = currentClient();
   // ToDo は role 切替で 税理士=所長確認待ち / スタッフ=作業中+差戻し が並ぶ。
@@ -1850,7 +1939,7 @@ function renderView() {
     "jobs-journal": () => renderJobsJournal(),     // 業務 > 月次業務 > 仕訳
     "jobs-vouchers": () => renderJobsVouchers(),   // 業務 > 月次業務 > 証憑
     "jobs-monthly-check": () => renderJobsMonthlyCheck(), // 業務 > 月次業務 > 月次チェック
-    "vouchers-register": () => `<section class="empty-view"><p>証憑登録はまだ準備中です。</p></section>`,
+    "vouchers-register": () => renderVoucherRegister(),
     portal: () => renderPortal(),                  // 業務 > メッセージ
     rules: () => renderRules(),                    // 学習・設定 > 学習
     settings: () => renderSettings(),              // 学習・設定 > 設定
@@ -1902,6 +1991,45 @@ function renderView() {
   }
   if (appState.activeView === "dashboard") {
     loadAndRenderYearend();
+  }
+  if (appState.activeView === "vouchers-register") {
+    loadVouchers();
+    const dropzone = document.querySelector('#voucherDropzone');
+    const fileInput = document.querySelector('#voucherFileInput');
+    if (dropzone) {
+      dropzone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropzone.classList.add('dragover');
+      });
+      dropzone.addEventListener('dragleave', () => {
+        dropzone.classList.remove('dragover');
+      });
+      dropzone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropzone.classList.remove('dragover');
+        const files = Array.from(e.dataTransfer?.files || []);
+        if (files.length > 0) uploadVouchers(files);
+      });
+    }
+    if (fileInput) {
+      fileInput.addEventListener('change', () => {
+        const files = Array.from(fileInput.files || []);
+        if (files.length > 0) uploadVouchers(files);
+        fileInput.value = '';
+      });
+    }
+    viewContent.querySelectorAll('[data-voucher-tab]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        appState.voucherTab = btn.dataset.voucherTab;
+        loadVouchers();
+      });
+    });
+    viewContent.querySelectorAll('[data-voucher-delete]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteVoucherById(btn.dataset.voucherDelete);
+      });
+    });
   }
   viewContent.querySelectorAll("[data-action]").forEach((button) => {
     button.addEventListener("click", () => {
