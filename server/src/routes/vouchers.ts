@@ -4,6 +4,7 @@ import {
   listVouchers,
   getVoucherImage,
   deleteVoucher,
+  runOcrForVoucher,
 } from '../services/voucher-service.js';
 
 const ALLOWED_MIMES = new Set([
@@ -72,6 +73,11 @@ export async function voucherRoutes(app: FastifyInstance) {
       buffer,
       uploadedBy,
     });
+    if (process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY.length > 0) {
+      setImmediate(() => {
+        runOcrForVoucher(meta.id).catch(() => {});
+      });
+    }
     reply.code(201);
     return meta;
   });

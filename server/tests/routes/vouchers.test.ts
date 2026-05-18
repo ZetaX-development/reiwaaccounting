@@ -1,12 +1,26 @@
-import { describe, it, expect, beforeEach, afterAll } from 'vitest';
+import {
+  describe,
+  it,
+  expect,
+  beforeEach,
+  afterEach,
+  afterAll,
+  vi,
+} from 'vitest';
 import FormData from 'form-data';
 import { buildApp } from '../../src/server.js';
 import { prisma } from '../../src/lib/prisma.js';
+import * as voucherService from '../../src/services/voucher-service.js';
 
 const app = await buildApp();
 
 beforeEach(async () => {
   await prisma.voucher.deleteMany();
+});
+
+afterEach(() => {
+  delete process.env.OPENAI_API_KEY;
+  vi.restoreAllMocks();
 });
 
 afterAll(async () => {
@@ -179,5 +193,50 @@ describe('DELETE /api/vouchers/:id', () => {
     });
     expect(res.statusCode).toBe(404);
     expect(res.json().error.code).toBe('NOT_FOUND');
+  });
+});
+
+describe('POST /api/vouchers triggers OCR', () => {
+  it('schedules runOcrForVoucher when OPENAI_API_KEY is set', async () => {
+    process.env.OPENAI_API_KEY = 'sk-test';
+    const spy = vi
+      .spyOn(voucherService, 'runOcrForVoucher')
+      .mockResolvedValue(undefined);
+    const { payload, headers } = buildForm({
+      file: Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
+      filename: 'IMG.jpg',
+      contentType: 'image/jpeg',
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/vouchers',
+      payload,
+      headers,
+    });
+    expect(res.statusCode).toBe(201);
+    await new Promise((r) => setImmediate(r));
+    expect(spy).toHaveBeenCalledOnce();
+    expect(spy.mock.calls[0][0]).toBe(res.json().id);
+  });
+
+  it('does not schedule OCR when OPENAI_API_KEY is empty', async () => {
+    process.env.OPENAI_API_KEY = '';
+    const spy = vi
+      .spyOn(voucherService, 'runOcrForVoucher')
+      .mockResolvedValue(undefined);
+    const { payload, headers } = buildForm({
+      file: Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
+      filename: 'IMG.jpg',
+      contentType: 'image/jpeg',
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/vouchers',
+      payload,
+      headers,
+    });
+    expect(res.statusCode).toBe(201);
+    await new Promise((r) => setImmediate(r));
+    expect(spy).not.toHaveBeenCalled();
   });
 });
