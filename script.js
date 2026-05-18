@@ -342,6 +342,7 @@ async function loadVouchers() {
     const res = await fetch(url);
     if (!res.ok) throw new Error('list failed');
     appState.vouchers = await res.json();
+    appState.vouchersLoadedTab = tab;
     await refreshVoucherCounts();
     renderView();
   } catch (err) {
@@ -404,6 +405,7 @@ async function uploadVouchers(files) {
       showToast(`${file.name}: アップロードに失敗しました`);
     }
   }
+  appState.vouchersLoadedTab = null;
   await loadVouchers();
 }
 
@@ -412,6 +414,7 @@ async function deleteVoucherById(id) {
   try {
     const res = await fetch(`/api/vouchers/${id}`, { method: 'DELETE' });
     if (!res.ok) throw new Error('delete failed');
+    appState.vouchersLoadedTab = null;
     await loadVouchers();
   } catch (err) {
     showToast(friendlyError(err));
@@ -1998,7 +2001,9 @@ function renderView() {
     loadAndRenderYearend();
   }
   if (appState.activeView === "vouchers-register") {
-    loadVouchers();
+    if (appState.vouchersLoadedTab !== appState.voucherTab) {
+      loadVouchers();
+    }
     const dropzone = document.querySelector('#voucherDropzone');
     const fileInput = document.querySelector('#voucherFileInput');
     if (dropzone) {
@@ -2026,6 +2031,7 @@ function renderView() {
     viewContent.querySelectorAll('[data-voucher-tab]').forEach((btn) => {
       btn.addEventListener('click', () => {
         appState.voucherTab = btn.dataset.voucherTab;
+        appState.vouchersLoadedTab = null;
         loadVouchers();
       });
     });
