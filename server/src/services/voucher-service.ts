@@ -13,7 +13,7 @@ export interface VoucherMeta {
   matchStatus: string;
 }
 
-function toMeta(row: Voucher): VoucherMeta {
+function toMeta(row: Pick<Voucher, keyof VoucherMeta>): VoucherMeta {
   return {
     id: row.id,
     clientId: row.clientId,
@@ -59,6 +59,17 @@ export async function listVouchers(filter: {
   const rows = await prisma.voucher.findMany({
     where,
     orderBy: { uploadedAt: 'desc' },
+    select: {
+      id: true,
+      clientId: true,
+      filename: true,
+      mimeType: true,
+      size: true,
+      uploadedAt: true,
+      uploadedBy: true,
+      ocrStatus: true,
+      matchStatus: true,
+    },
   });
   return rows.map(toMeta);
 }
