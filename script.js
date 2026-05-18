@@ -5,6 +5,10 @@ const appState = {
   search: "",
   currentRole: (typeof localStorage !== "undefined" && localStorage.getItem("zeimee.role")) || "tax_accountant",
   expandedHistory: {}, // taskId -> bool
+  vouchers: [],
+  voucherTab: 'unassigned',
+  voucherCounts: {},
+  uploadQueue: [],
 };
 
 // Loaded from /api/clients on startup. The inline array below is kept as a
@@ -325,6 +329,92 @@ async function loadClientsFromApi() {
     if (filtered.length > 0) clients = filtered;
   } catch (err) {
     console.warn("Failed to load clients from API; using inline fallback", err);
+  }
+}
+
+async function loadVouchers() {
+  const tab = appState.voucherTab;
+  const url =
+    tab === 'unassigned'
+      ? '/api/vouchers?clientId=unassigned'
+      : `/api/vouchers?clientId=${encodeURIComponent(tab)}`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('list failed');
+    appState.vouchers = await res.json();
+    await refreshVoucherCounts();
+    renderView();
+  } catch (err) {
+    showToast(friendlyError(err));
+  }
+}
+
+async function refreshVoucherCounts() {
+  try {
+    const res = await fetch('/api/vouchers');
+    if (!res.ok) return;
+    const all = await res.json();
+    const counts = { unassigned: 0 };
+    for (const v of all) {
+      const key = v.clientId ?? 'unassigned';
+      counts[key] = (counts[key] || 0) + 1;
+    }
+    appState.voucherCounts = counts;
+  } catch (_err) {
+    // counts are best-effort
+  }
+}
+
+async function uploadVouchers(files) {
+  const role =
+    document.querySelector('#roleSelector')?.value || 'スタッフ';
+  for (const file of files) {
+    if (!/^image\/(jpeg|png|gif|webp)$/.test(file.type)) {
+      showToast(`${file.name}: 対応していない形式です`);
+      continue;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      showToast(`${file.name}: ファイルが大きすぎます (上限 10MB)`);
+      continue;
+    }
+    const tempId = 'tmp-' + Math.random().toString(36).slice(2);
+    appState.uploadQueue.push({
+      tempId,
+      filename: file.name,
+      status: 'uploading',
+    });
+    renderView();
+    const form = new FormData();
+    form.append('file', file);
+    if (appState.voucherTab !== 'unassigned') {
+      form.append('clientId', appState.voucherTab);
+    }
+    try {
+      const res = await fetch('/api/vouchers', {
+        method: 'POST',
+        body: form,
+        headers: { 'x-uploaded-by': role },
+      });
+      if (!res.ok) throw new Error('upload failed');
+      const idx = appState.uploadQueue.findIndex((q) => q.tempId === tempId);
+      if (idx >= 0) appState.uploadQueue.splice(idx, 1);
+    } catch (_err) {
+      const item = appState.uploadQueue.find((q) => q.tempId === tempId);
+      if (item) item.status = 'failed';
+      showToast(`${file.name}: アップロードに失敗しました`);
+    }
+  }
+  await loadVouchers();
+}
+
+async function deleteVoucherById(id) {
+  if (!confirm('この証憑を削除しますか？')) return;
+  try {
+    const res = await fetch(`/api/vouchers/${id}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('delete failed');
+    await loadVouchers();
+  } catch (err) {
+    showToast(friendlyError(err));
   }
 }
 
