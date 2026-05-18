@@ -9,6 +9,7 @@ const appState = {
   voucherTab: 'unassigned',
   voucherCounts: {},
   uploadQueue: [],
+  voucherPollTimer: null,
 };
 
 // Loaded from /api/clients on startup. The inline array below is kept as a
@@ -2094,6 +2095,25 @@ function renderView() {
     };
     if (closeBtn) closeBtn.addEventListener('click', closeModal);
     if (backdrop) backdrop.addEventListener('click', closeModal);
+
+    if (appState.voucherPollTimer) {
+      clearInterval(appState.voucherPollTimer);
+      appState.voucherPollTimer = null;
+    }
+    const hasPending = (appState.vouchers || []).some(
+      (v) => v.ocrStatus === 'pending' || v.ocrStatus === 'processing',
+    );
+    if (hasPending) {
+      appState.voucherPollTimer = setInterval(() => {
+        if (appState.activeView !== 'vouchers-register') {
+          clearInterval(appState.voucherPollTimer);
+          appState.voucherPollTimer = null;
+          return;
+        }
+        appState.vouchersLoadedTab = null;
+        loadVouchers();
+      }, 5000);
+    }
   }
   viewContent.querySelectorAll("[data-action]").forEach((button) => {
     button.addEventListener("click", () => {
