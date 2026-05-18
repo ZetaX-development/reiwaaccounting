@@ -1,11 +1,13 @@
-import { describe, it, expect, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
 import { prisma } from '../../src/lib/prisma.js';
 import {
   createVoucher,
   listVouchers,
   getVoucherImage,
   deleteVoucher,
+  runOcrForVoucher,
 } from '../../src/services/voucher-service.js';
+import * as ocrService from '../../src/services/ocr-service.js';
 
 beforeEach(async () => {
   await prisma.voucher.deleteMany();
@@ -135,5 +137,81 @@ describe('deleteVoucher', () => {
   it('returns false when id is unknown', async () => {
     const ok = await deleteVoucher('does-not-exist');
     expect(ok).toBe(false);
+  });
+});
+
+describe('runOcrForVoucher', () => {
+  it('sets ocrStatus=done and saves extracted JSON', async () => {
+    const meta = await createVoucher({
+      clientId: null,
+      filename: 'a.jpg',
+      mimeType: 'image/jpeg',
+      buffer: Buffer.from([0xff, 0xd8]),
+      uploadedBy: null,
+    });
+    const spy = vi.spyOn(ocrService, 'extractVoucherFields').mockResolvedValue({
+      issue_date: '2026-05-15',
+      vendor_name: '青山デザイン',
+      addressee: null,
+      amount: 3200,
+      invoice_number: null,
+    });
+    await runOcrForVoucher(meta.id);
+    const row = await prisma.voucher.findUnique({ where: { id: meta.id } });
+    expect(row?.ocrStatus).toBe('done');
+    expect(row?.ocrJson).toEqual({
+      issue_date: '2026-05-15',
+      vendor_name: '青山デザイン',
+      addressee: null,
+      amount: 3200,
+      invoice_number: null,
+    });
+    expect(row?.ocrError).toBeNull();
+    expect(spy).toHaveBeenCalledOnce();
+  });
+
+  it('sets ocrStatus=failed and saves ocrError on extraction error', async () => {
+    const meta = await createVoucher({
+      clientId: null,
+      filename: 'b.jpg',
+      mimeType: 'image/jpeg',
+      buffer: Buffer.from([0xff, 0xd8]),
+      uploadedBy: null,
+    });
+    vi.spyOn(ocrService, 'extractVoucherFields').mockRejectedValue(
+      new Error('OpenAI 503'),
+    );
+    await runOcrForVoucher(meta.id);
+    const row = await prisma.voucher.findUnique({ where: { id: meta.id } });
+    expect(row?.ocrStatus).toBe('failed');
+    expect(row?.ocrError).toBe('OpenAI 503');
+  });
+
+  it('is a no-op when voucher does not exist', async () => {
+    await expect(runOcrForVoucher('does-not-exist')).resolves.toBeUndefined();
+  });
+});
+
+describe('listVouchers ocr fields', () => {
+  it('returns ocrJson, ocrError, ocrAt in the meta', async () => {
+    const meta = await createVoucher({
+      clientId: null,
+      filename: 'c.jpg',
+      mimeType: 'image/jpeg',
+      buffer: Buffer.from([0xff]),
+      uploadedBy: null,
+    });
+    vi.spyOn(ocrService, 'extractVoucherFields').mockResolvedValue({
+      issue_date: '2026-05-15',
+      vendor_name: 'X',
+      addressee: null,
+      amount: 100,
+      invoice_number: null,
+    });
+    await runOcrForVoucher(meta.id);
+    const rows = await listVouchers({ clientId: null });
+    const row = rows.find((r) => r.id === meta.id);
+    expect(row?.ocrJson).toBeTruthy();
+    expect(row?.ocrAt).toBeInstanceOf(Date);
   });
 });

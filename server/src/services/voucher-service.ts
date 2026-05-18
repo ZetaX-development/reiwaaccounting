@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import type { Voucher } from '@prisma/client';
+import { extractVoucherFields } from './ocr-service.js';
 
 export interface VoucherMeta {
   id: string;
@@ -10,6 +11,9 @@ export interface VoucherMeta {
   uploadedAt: Date;
   uploadedBy: string | null;
   ocrStatus: string;
+  ocrJson: unknown;
+  ocrError: string | null;
+  ocrAt: Date | null;
   matchStatus: string;
 }
 
@@ -23,6 +27,9 @@ function toMeta(row: Pick<Voucher, keyof VoucherMeta>): VoucherMeta {
     uploadedAt: row.uploadedAt,
     uploadedBy: row.uploadedBy,
     ocrStatus: row.ocrStatus,
+    ocrJson: row.ocrJson as unknown,
+    ocrError: row.ocrError,
+    ocrAt: row.ocrAt,
     matchStatus: row.matchStatus,
   };
 }
@@ -68,6 +75,9 @@ export async function listVouchers(filter: {
       uploadedAt: true,
       uploadedBy: true,
       ocrStatus: true,
+      ocrJson: true,
+      ocrError: true,
+      ocrAt: true,
       matchStatus: true,
     },
   });
@@ -88,4 +98,37 @@ export async function getVoucherImage(
 export async function deleteVoucher(id: string): Promise<boolean> {
   const result = await prisma.voucher.deleteMany({ where: { id } });
   return result.count > 0;
+}
+
+export async function runOcrForVoucher(id: string): Promise<void> {
+  const row = await prisma.voucher.findUnique({
+    where: { id },
+    select: { id: true, imageData: true, mimeType: true },
+  });
+  if (!row) return;
+  await prisma.voucher.update({
+    where: { id },
+    data: { ocrStatus: 'processing' },
+  });
+  try {
+    const result = await extractVoucherFields(
+      Buffer.from(row.imageData),
+      row.mimeType,
+    );
+    await prisma.voucher.update({
+      where: { id },
+      data: {
+        ocrStatus: 'done',
+        ocrJson: result,
+        ocrAt: new Date(),
+        ocrError: null,
+      },
+    });
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    await prisma.voucher.update({
+      where: { id },
+      data: { ocrStatus: 'failed', ocrError: msg, ocrAt: new Date() },
+    });
+  }
 }
