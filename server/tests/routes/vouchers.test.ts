@@ -103,3 +103,50 @@ describe('POST /api/vouchers', () => {
     expect(res.json().error.code).toBe('INVALID_BODY');
   });
 });
+
+describe('GET /api/vouchers', () => {
+  it('returns rows filtered by clientId', async () => {
+    await prisma.voucher.create({
+      data: {
+        clientId: 'aoyama-design',
+        filename: 'x.png',
+        mimeType: 'image/png',
+        size: 3,
+        imageData: Buffer.from([0x89, 0x50, 0x4e]),
+      },
+    });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/vouchers?clientId=aoyama-design',
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(Array.isArray(body)).toBe(true);
+    expect(body).toHaveLength(1);
+    expect(body[0].filename).toBe('x.png');
+    expect(body[0].imageData).toBeUndefined();
+  });
+});
+
+describe('GET /api/vouchers/:id/image', () => {
+  it('streams the raw bytes with original Content-Type', async () => {
+    const created = await prisma.voucher.create({
+      data: {
+        clientId: null,
+        filename: 'p.png',
+        mimeType: 'image/png',
+        size: 4,
+        imageData: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+      },
+    });
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/vouchers/${created.id}/image`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toBe('image/png');
+    expect(res.rawPayload.equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]))).toBe(
+      true,
+    );
+  });
+});
