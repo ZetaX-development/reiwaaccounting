@@ -241,6 +241,7 @@ model Voucher {
   ocrJson        Json?
   ocrStatus      String   @default("pending")
   ocrAt          DateTime?
+  ocrError       String?
   matchedEntryId String?
   matchStatus    String   @default("unmatched")
 
