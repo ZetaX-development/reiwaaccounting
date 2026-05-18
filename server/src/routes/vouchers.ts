@@ -6,6 +6,7 @@ import {
   deleteVoucher,
   runOcrForVoucher,
 } from '../services/voucher-service.js';
+import { prisma } from '../lib/prisma.js';
 
 const ALLOWED_MIMES = new Set([
   'image/jpeg',
@@ -117,6 +118,25 @@ export async function voucherRoutes(app: FastifyInstance) {
         reply.code(404);
         return { error: { code: 'NOT_FOUND', message: 'voucher not found' } };
       }
+      return { ok: true };
+    },
+  );
+
+  app.post<{ Params: { id: string } }>(
+    '/api/vouchers/:id/ocr',
+    async (req, reply) => {
+      const row = await prisma.voucher.findUnique({
+        where: { id: req.params.id },
+        select: { id: true },
+      });
+      if (!row) {
+        reply.code(404);
+        return { error: { code: 'NOT_FOUND', message: 'voucher not found' } };
+      }
+      setImmediate(() => {
+        runOcrForVoucher(req.params.id).catch(() => {});
+      });
+      reply.code(202);
       return { ok: true };
     },
   );

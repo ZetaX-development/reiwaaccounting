@@ -240,3 +240,37 @@ describe('POST /api/vouchers triggers OCR', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 });
+
+describe('POST /api/vouchers/:id/ocr', () => {
+  it('returns 202 and schedules runOcrForVoucher', async () => {
+    const created = await prisma.voucher.create({
+      data: {
+        clientId: null,
+        filename: 'r.jpg',
+        mimeType: 'image/jpeg',
+        size: 1,
+        imageData: Buffer.from([0xff]),
+      },
+    });
+    const spy = vi
+      .spyOn(voucherService, 'runOcrForVoucher')
+      .mockResolvedValue(undefined);
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/vouchers/${created.id}/ocr`,
+    });
+    expect(res.statusCode).toBe(202);
+    expect(res.json()).toEqual({ ok: true });
+    await new Promise((r) => setImmediate(r));
+    expect(spy).toHaveBeenCalledWith(created.id);
+  });
+
+  it('returns 404 for unknown id', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/vouchers/does-not-exist/ocr',
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe('NOT_FOUND');
+  });
+});
