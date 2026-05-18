@@ -1899,8 +1899,26 @@ function renderVoucherRegister() {
     .join('');
 
   const cards = (appState.vouchers || [])
-    .map(
-      (v) => `
+    .map((v) => {
+      const ocr = v.ocrStatus || 'pending';
+      let ocrHtml = '';
+      if (ocr === 'pending' || ocr === 'processing') {
+        ocrHtml = `<div class="voucher-ocr ocr-running"><span class="spinner-sm"></span>OCR 中…</div>`;
+      } else if (ocr === 'failed') {
+        ocrHtml = `<div class="voucher-ocr ocr-failed"><span>OCR 失敗</span><button class="voucher-ocr-retry" data-voucher-retry-ocr="${v.id}">再試行</button></div>`;
+      } else if (ocr === 'done' && v.ocrJson) {
+        const j = v.ocrJson;
+        const amount = j.amount != null ? '¥' + j.amount.toLocaleString('ja-JP') : '—';
+        const vendor = j.vendor_name ? escapeHtml(j.vendor_name) : '—';
+        const date = j.issue_date ? escapeHtml(j.issue_date) : '—';
+        ocrHtml = `
+          <div class="voucher-ocr ocr-done">
+            <div class="voucher-ocr-amount">${amount}</div>
+            <div class="voucher-ocr-vendor">${vendor}</div>
+            <div class="voucher-ocr-date">${date}</div>
+          </div>`;
+      }
+      return `
       <div class="voucher-card" data-voucher-id="${v.id}">
         <img src="/api/vouchers/${v.id}/image" alt="${escapeHtml(v.filename)}" />
         <button class="voucher-delete" data-voucher-delete="${v.id}" aria-label="削除">×</button>
@@ -1908,9 +1926,10 @@ function renderVoucherRegister() {
           <div class="voucher-filename">${escapeHtml(v.filename)}</div>
           <div class="voucher-date">${new Date(v.uploadedAt).toLocaleString('ja-JP')}</div>
         </div>
+        ${ocrHtml}
       </div>
-    `,
-    )
+    `;
+    })
     .join('');
 
   return `
@@ -2039,6 +2058,20 @@ function renderView() {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         deleteVoucherById(btn.dataset.voucherDelete);
+      });
+    });
+    viewContent.querySelectorAll('[data-voucher-retry-ocr]').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const id = btn.dataset.voucherRetryOcr;
+        try {
+          const res = await fetch(`/api/vouchers/${id}/ocr`, { method: 'POST' });
+          if (!res.ok) throw new Error('retry failed');
+          appState.vouchersLoadedTab = null;
+          await loadVouchers();
+        } catch (err) {
+          showToast(friendlyError(err));
+        }
       });
     });
     viewContent.querySelectorAll('[data-voucher-id]').forEach((card) => {
