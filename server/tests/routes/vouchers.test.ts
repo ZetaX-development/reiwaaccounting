@@ -88,4 +88,18 @@ describe('POST /api/vouchers', () => {
     expect(res.statusCode).toBe(400);
     expect(res.json().error.code).toBe('FILE_TOO_LARGE');
   });
+
+  it('rejects request with no file field as 400 INVALID_BODY', async () => {
+    const form = new FormData();
+    // no 'file' field appended — only a non-file field
+    form.append('clientId', 'aoyama-design');
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/vouchers',
+      payload: form.getBuffer(),
+      headers: form.getHeaders() as Record<string, string>,
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe('INVALID_BODY');
+  });
 });
