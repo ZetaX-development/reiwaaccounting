@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import type { Voucher } from '@prisma/client';
 
 export interface VoucherMeta {
   id: string;
@@ -12,17 +13,7 @@ export interface VoucherMeta {
   matchStatus: string;
 }
 
-function toMeta(row: {
-  id: string;
-  clientId: string | null;
-  filename: string;
-  mimeType: string;
-  size: number;
-  uploadedAt: Date;
-  uploadedBy: string | null;
-  ocrStatus: string;
-  matchStatus: string;
-}): VoucherMeta {
+function toMeta(row: Voucher): VoucherMeta {
   return {
     id: row.id,
     clientId: row.clientId,
