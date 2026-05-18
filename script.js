@@ -211,6 +211,7 @@ const labels = {
   "jobs-journal": "月次業務 / 仕訳",
   "jobs-vouchers": "月次業務 / 証憑",
   "jobs-monthly-check": "月次業務 / 月次チェック",
+  "vouchers-register": "証憑登録",
   portal: "メッセージ",
   rules: "学習",
   settings: "設定",
@@ -244,6 +245,7 @@ const labels = {
     "jobs-journal": "マネーフォワードから取り込んだ仕訳一覧です。",
     "jobs-vouchers": "領収書が足りていない取引と、依頼文の作成。",
     "jobs-monthly-check": "前月比や残高チェックなど月次レビューの観点。",
+    "vouchers-register": "証憑をアップロードして登録します。",
     portal: "お客さまにメールやSlackなどで連絡できます。届かなかったら再送できます。",
     rules: "この顧問先で過去にミスしやすかった点を、企業ごとのチェック項目として保存します。",
     settings: "事務所全体の運用設定。",
@@ -1758,6 +1760,7 @@ function renderView() {
     "jobs-journal": () => renderJobsJournal(),     // 業務 > 月次業務 > 仕訳
     "jobs-vouchers": () => renderJobsVouchers(),   // 業務 > 月次業務 > 証憑
     "jobs-monthly-check": () => renderJobsMonthlyCheck(), // 業務 > 月次業務 > 月次チェック
+    "vouchers-register": () => `<section class="empty-view"><p>証憑登録はまだ準備中です。</p></section>`,
     portal: () => renderPortal(),                  // 業務 > メッセージ
     rules: () => renderRules(),                    // 学習・設定 > 学習
     settings: () => renderSettings(),              // 学習・設定 > 設定
