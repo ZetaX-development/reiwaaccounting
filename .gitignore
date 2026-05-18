@@ -10,3 +10,6 @@ server/node_modules
 server/dist
 server/.env
 
+# brainstorming visual companion
+.superpowers/
+
