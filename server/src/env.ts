@@ -29,6 +29,8 @@ const schema = z.object({
   LINEWORKS_CLIENT_SECRET: z.string().default(''),
   LINEWORKS_SERVICE_ACCOUNT: z.string().default(''),
   LINEWORKS_PRIVATE_KEY: z.string().default(''),
+  OPENAI_API_KEY: z.string().default(''),
+  OPENAI_VISION_MODEL: z.string().default('gpt-5'),
 });
 
 export type Env = z.infer<typeof schema>;
