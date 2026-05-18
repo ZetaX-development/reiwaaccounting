@@ -2163,14 +2163,24 @@ textarea {
 .voucher-ocr.ocr-done .voucher-ocr-amount {
   font-weight: 700;
   color: #111827;
+  font-size: 13px;
+  margin-bottom: 2px;
 }
 
-.voucher-ocr.ocr-done .voucher-ocr-vendor,
-.voucher-ocr.ocr-done .voucher-ocr-date {
+.voucher-ocr.ocr-done .voucher-ocr-row {
   color: #4b5563;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  display: flex;
+  gap: 4px;
+}
+
+.voucher-ocr.ocr-done .voucher-ocr-label {
+  color: #9ca3af;
+  flex-shrink: 0;
+  min-width: 48px;
+  font-size: 10px;
 }
 
 .spinner-sm {

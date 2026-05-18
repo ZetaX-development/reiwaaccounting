@@ -1912,11 +1912,15 @@ function renderVoucherRegister() {
         const amount = j.amount != null ? '¥' + j.amount.toLocaleString('ja-JP') : '—';
         const vendor = j.vendor_name ? escapeHtml(j.vendor_name) : '—';
         const date = j.issue_date ? escapeHtml(j.issue_date) : '—';
+        const addressee = j.addressee ? escapeHtml(j.addressee) : '—';
+        const invoice = j.invoice_number ? escapeHtml(j.invoice_number) : '—';
         ocrHtml = `
           <div class="voucher-ocr ocr-done">
             <div class="voucher-ocr-amount">${amount}</div>
-            <div class="voucher-ocr-vendor">${vendor}</div>
-            <div class="voucher-ocr-date">${date}</div>
+            <div class="voucher-ocr-row"><span class="voucher-ocr-label">発行</span>${vendor}</div>
+            <div class="voucher-ocr-row"><span class="voucher-ocr-label">宛名</span>${addressee}</div>
+            <div class="voucher-ocr-row"><span class="voucher-ocr-label">日付</span>${date}</div>
+            <div class="voucher-ocr-row"><span class="voucher-ocr-label">登録番号</span>${invoice}</div>
           </div>`;
       }
       return `
