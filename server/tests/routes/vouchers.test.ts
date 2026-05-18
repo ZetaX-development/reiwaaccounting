@@ -150,3 +150,34 @@ describe('GET /api/vouchers/:id/image', () => {
     );
   });
 });
+
+describe('DELETE /api/vouchers/:id', () => {
+  it('removes an existing voucher and returns ok: true', async () => {
+    const created = await prisma.voucher.create({
+      data: {
+        clientId: null,
+        filename: 'rm.jpg',
+        mimeType: 'image/jpeg',
+        size: 1,
+        imageData: Buffer.from([0xff]),
+      },
+    });
+    const res = await app.inject({
+      method: 'DELETE',
+      url: `/api/vouchers/${created.id}`,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true });
+    const row = await prisma.voucher.findUnique({ where: { id: created.id } });
+    expect(row).toBeNull();
+  });
+
+  it('returns 404 for unknown id', async () => {
+    const res = await app.inject({
+      method: 'DELETE',
+      url: '/api/vouchers/does-not-exist',
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe('NOT_FOUND');
+  });
+});

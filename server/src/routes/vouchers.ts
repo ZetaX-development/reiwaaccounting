@@ -3,6 +3,7 @@ import {
   createVoucher,
   listVouchers,
   getVoucherImage,
+  deleteVoucher,
 } from '../services/voucher-service.js';
 
 const ALLOWED_MIMES = new Set([
@@ -99,6 +100,18 @@ export async function voucherRoutes(app: FastifyInstance) {
         .header('content-type', image.mimeType)
         .header('cache-control', 'private, max-age=300');
       return image.data;
+    },
+  );
+
+  app.delete<{ Params: { id: string } }>(
+    '/api/vouchers/:id',
+    async (req, reply) => {
+      const ok = await deleteVoucher(req.params.id);
+      if (!ok) {
+        reply.code(404);
+        return { error: { code: 'NOT_FOUND', message: 'voucher not found' } };
+      }
+      return { ok: true };
     },
   );
 }
