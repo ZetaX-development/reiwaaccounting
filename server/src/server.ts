@@ -18,10 +18,14 @@ import { ruleRoutes } from './routes/rules.js';
 import { receiptRoutes } from './routes/receipts.js';
 import { modeRoutes } from './routes/mode.js';
 import { mfBooksRoutes } from './routes/mf-books.js';
+import multipart from '@fastify/multipart';
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ loggerInstance: logger });
   await app.register(cors, { origin: true });
+  await app.register(multipart, {
+    limits: { fileSize: 10 * 1024 * 1024 },
+  });
 
   // Serve the existing Vanilla frontend from the repo root.
   // server/src/server.ts -> server/src -> server -> repo root
