@@ -51,3 +51,46 @@ describe('createVoucher', () => {
     expect(meta.uploadedBy).toBeNull();
   });
 });
+
+describe('listVouchers', () => {
+  beforeEach(async () => {
+    await createVoucher({
+      clientId: 'aoyama-design',
+      filename: 'a.jpg',
+      mimeType: 'image/jpeg',
+      buffer: Buffer.from([0x01]),
+      uploadedBy: null,
+    });
+    await createVoucher({
+      clientId: 'shibuya-cafe',
+      filename: 'b.jpg',
+      mimeType: 'image/jpeg',
+      buffer: Buffer.from([0x02]),
+      uploadedBy: null,
+    });
+    await createVoucher({
+      clientId: null,
+      filename: 'c.jpg',
+      mimeType: 'image/jpeg',
+      buffer: Buffer.from([0x03]),
+      uploadedBy: null,
+    });
+  });
+
+  it('filters by clientId cuid', async () => {
+    const rows = await listVouchers({ clientId: 'aoyama-design' });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].filename).toBe('a.jpg');
+  });
+
+  it('returns unassigned (clientId IS NULL) when filter is "unassigned"', async () => {
+    const rows = await listVouchers({ clientId: 'unassigned' });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].filename).toBe('c.jpg');
+  });
+
+  it('returns all rows when filter is null', async () => {
+    const rows = await listVouchers({ clientId: null });
+    expect(rows).toHaveLength(3);
+  });
+});

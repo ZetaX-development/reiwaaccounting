@@ -47,10 +47,20 @@ export async function createVoucher(input: {
   return toMeta(row);
 }
 
-export async function listVouchers(_filter: {
+export async function listVouchers(filter: {
   clientId: string | 'unassigned' | null;
 }): Promise<VoucherMeta[]> {
-  throw new Error('not implemented');
+  const where =
+    filter.clientId === null
+      ? {}
+      : filter.clientId === 'unassigned'
+        ? { clientId: null }
+        : { clientId: filter.clientId };
+  const rows = await prisma.voucher.findMany({
+    where,
+    orderBy: { uploadedAt: 'desc' },
+  });
+  return rows.map(toMeta);
 }
 
 export async function getVoucherImage(
