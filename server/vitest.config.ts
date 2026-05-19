@@ -7,5 +7,8 @@ export default defineConfig({
     globals: false,
     testTimeout: 10000,
     setupFiles: ['tests/setup.ts'],
+    // Tests share the same Postgres tables (Voucher in particular) and
+    // wipe rows in beforeEach, so concurrent files step on each other.
+    fileParallelism: false,
   },
 });
