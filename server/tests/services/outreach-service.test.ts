@@ -83,8 +83,6 @@ describe('inquireAboutVoucher', () => {
     expect(inquiries).toHaveLength(1);
     expect(inquiries[0].channel).toBe('email');
     expect(inquiries[0].status).toBe('failed');
-    expect(inquiries[0].errorMessage).toBe(
-      'email adapter not configured (TODO: integrate SendGrid)',
-    );
+    expect(inquiries[0].errorMessage).toBe('SENDGRID_API_KEY is not set');
   });
 });
