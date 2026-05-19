@@ -15,7 +15,7 @@ async function runMatchAndPersist(id: string): Promise<void> {
   const m = await findMatchForVoucher(id);
   const exists = await prisma.voucher.findUnique({
     where: { id },
-    select: { id: true },
+    select: { id: true, journalStatus: true },
   });
   if (!exists) return;
   await prisma.voucher.update({
@@ -26,6 +26,16 @@ async function runMatchAndPersist(id: string): Promise<void> {
       matchedAt: new Date(),
     },
   });
+  // Spec 14: if the rematch didn't land and we don't already have a draft
+  // journal (or it bailed out as 'none'), generate one so the staff sees the
+  // suggestion immediately after manual reassignment.
+  if (
+    m.status !== 'matched' &&
+    process.env.OPENAI_API_KEY &&
+    (exists.journalStatus === 'none' || !exists.journalStatus)
+  ) {
+    await generateDraftJournal(id);
+  }
 }
 
 const ALLOWED_MIMES = new Set([

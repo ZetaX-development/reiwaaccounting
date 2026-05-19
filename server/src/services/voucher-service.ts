@@ -204,10 +204,11 @@ export async function assignAndMatchVoucher(id: string): Promise<void> {
     },
   });
 
-  // Spec 14: if the match did not land, generate a draft journal so the staff
-  // has something concrete to review. Stays fire-and-forget — failures are
-  // captured inside generateDraftJournal.
-  if (match.status === 'unmatched' && env.OPENAI_API_KEY) {
+  // Spec 14: whenever the voucher didn't land on a matched MF entry, generate
+  // a draft journal so the staff has something concrete to review — covers
+  // both 'unmatched' (no candidate found) and 'no_client' (AI couldn't pick a
+  // client, so the user will reassign manually) cases. Stays fire-and-forget.
+  if (match.status !== 'matched' && env.OPENAI_API_KEY) {
     await generateDraftJournal(id);
     if (env.OUTREACH_AUTO) {
       const after = await prisma.voucher.findUnique({
