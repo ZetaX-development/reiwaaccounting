@@ -1,6 +1,8 @@
-# GCP デプロイ手順 (Cloud Run + Cloud SQL)
+# デプロイ手順 (GCP Cloud Run + Supabase)
 
-zeimee をローカル WSL → Cloud Run に持っていく最短経路の手順。1 アカウントの個人プロト前提で、IaC は使わず `gcloud` コマンドベース。
+zeimee をローカル WSL → 本番に持っていく最短経路。1 アカウントの個人プロト前提で、IaC は使わず `gcloud` + Supabase ダッシュボードベース。
+
+**DB は Cloud SQL ではなく Supabase**（Cloud SQL の最小インスタンスでも月 $7+、Supabase は free tier で 500MB / 60 connections まで無料）。Postgres 16 互換なので Prisma と zeimee のコードは完全にそのまま動く。
 
 ## アーキテクチャ
 
@@ -9,16 +11,17 @@ zeimee をローカル WSL → Cloud Run に持っていく最短経路の手順
         │ HTTPS (Cloud Run が自動発行)
         ▼
 [Cloud Run service: zeimee]   ← コンテナは server/Dockerfile.prod でビルド (context=repo root)
-        │ /cloudsql/<conn> UNIX socket
+        │ Postgres over TLS (port 5432)
         ▼
-[Cloud SQL: PostgreSQL 16]
+[Supabase: managed PostgreSQL 16 (free tier)]
         ▲
-        └─ env / secret 値 ── Secret Manager
+        └─ env / secret 値 ── GCP Secret Manager
 ```
 
 - 静的フロント (`index.html` / `script.js` / `styles.css`) は同 image に同梱、Fastify が `staticPlugin` で配信
 - ローカル開発の `docker-compose.yml` + `server/Dockerfile` は本番デプロイには **使わない**（`.dockerignore` / `.gcloudignore` で除外済）
 - ビルドは `cloudbuild.yaml` で `server/Dockerfile.prod` を指定して走らせる
+- DB マイグレーションは Cloud Run の cold start で `prisma migrate deploy` が自動適用（冪等）
 
 ## 0. 事前準備
 
@@ -27,11 +30,10 @@ zeimee をローカル WSL → Cloud Run に持っていく最短経路の手順
 gcloud auth login
 gcloud config set project <PROJECT_ID>
 
-# 必要 API を有効化
+# 必要 API を有効化 (sqladmin は Supabase を使うので不要)
 gcloud services enable \
   run.googleapis.com \
   cloudbuild.googleapis.com \
-  sqladmin.googleapis.com \
   secretmanager.googleapis.com \
   artifactregistry.googleapis.com
 ```
@@ -44,33 +46,42 @@ export REGION=asia-northeast1
 export SERVICE=zeimee
 ```
 
-## 1. Cloud SQL (PostgreSQL 16) を立てる
+## 1. Supabase で Postgres を準備する
 
-```bash
-gcloud sql instances create zeimee-pg \
-  --database-version=POSTGRES_16 \
-  --region=$REGION \
-  --tier=db-f1-micro \
-  --storage-size=10GB \
-  --storage-type=SSD
+ブラウザで操作:
 
-# DB とユーザを作成
-gcloud sql databases create zeimee --instance=zeimee-pg
-gcloud sql users create zeimee --instance=zeimee-pg --password=<STRONG_PASSWORD>
+1. https://supabase.com にサインアップ / ログイン
+2. **New Project** で作成
+   - Name: `zeimee` (何でもよい)
+   - Database Password: **強いパスワードを生成してメモ**（後で使う）
+   - Region: `Northeast Asia (Tokyo)` を推奨（Cloud Run と近い region）
+   - Plan: Free
+3. プロジェクト立ち上げ完了まで 2-3 分待つ
 
-# インスタンス接続名を取得 (後で使う)
-gcloud sql instances describe zeimee-pg --format='value(connectionName)'
-# → 例: my-project:asia-northeast1:zeimee-pg
-export SQL_CONN=$(gcloud sql instances describe zeimee-pg --format='value(connectionName)')
+接続文字列を取得:
+
+1. **Settings → Database → Connection string** を開く
+2. **URI** タブを選ぶ（`Direct connection`、port 5432）
+3. パスワード欄に上で設定したパスワードを入れて、表示された URL をコピー
+   - 形は `postgresql://postgres.xxxxx:<PASSWORD>@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres`
+   - **`.pooler.supabase.com`** ではなく **直接接続 (port 5432)** を使う。Prisma のマイグレーションが prepared statements で衝突しないため
+4. 末尾に `?sslmode=require` を付ける
+
+最終的な DATABASE_URL の例:
+
 ```
+postgresql://postgres.xxxxxxxx:<PASSWORD>@db.xxxxxxxx.supabase.co:5432/postgres?sslmode=require
+```
+
+メモして `<SUPABASE_DB_URL>` として後の手順で使う。
 
 ## 2. Secret Manager に env を入れる
 
 機密値は `--set-env-vars` で渡すと履歴に残るので、Secret Manager に置いて Cloud Run から参照させる。
 
 ```bash
-# DATABASE_URL は Cloud SQL Auth Proxy 経由 (UNIX socket)
-echo -n "postgresql://zeimee:<STRONG_PASSWORD>@localhost/zeimee?host=/cloudsql/$SQL_CONN" \
+# DATABASE_URL は Supabase の direct connection (上の手順で取得した URL)
+echo -n "<SUPABASE_DB_URL>" \
   | gcloud secrets create zeimee-database-url --data-file=-
 
 # LINE
@@ -130,7 +141,6 @@ gcloud run deploy $SERVICE \
   --region=$REGION \
   --platform=managed \
   --allow-unauthenticated \
-  --add-cloudsql-instances=$SQL_CONN \
   --set-env-vars="NODE_ENV=production" \
   --set-secrets="DATABASE_URL=zeimee-database-url:latest" \
   --set-secrets="LINE_CHANNEL_ACCESS_TOKEN=zeimee-line-channel-access-token:latest" \
@@ -206,14 +216,15 @@ gcloud run services update $SERVICE --region=$REGION \
 
 ## 6. seed (初回 / 任意)
 
-開発時のダミー顧問先を本番に入れる必要は通常ない。**入れる場合のみ** Cloud SQL に一時接続して `npm run seed` を流す:
+本番に開発用のダミー顧問先 (`aoyama-design` 等) を入れる必要は通常ない。**入れる場合のみ** ローカルから Supabase に向けて `npm run seed` を流す:
 
 ```bash
-# ローカルに Cloud SQL Auth Proxy をダウンロードして起動
-gcloud sql connect zeimee-pg --user=zeimee
-# (パスワード入力後、SQL prompt で psql 操作するか、別 shell から DATABASE_URL を設定して
-#  cd server && npm run seed)
+cd server
+DATABASE_URL='<SUPABASE_DB_URL>' npm run seed
+# → "Seed complete. clients=4"
 ```
+
+Supabase ダッシュボードの **Table Editor** で `Client` テーブルに 4 行入っていることを確認できる。
 
 ## 7. 動作確認
 
@@ -278,8 +289,10 @@ docker run --rm --name zeimee-prod-test \
 ## 10. 既知の落とし穴
 
 - **Cloud Run の `PORT` は環境変数で渡されるので `process.env.PORT` を尊重**。本リポジトリの `env.ts` は `PORT` を読むので OK。
-- **Cloud SQL Auth Proxy は UNIX socket**。`DATABASE_URL` の `host=/cloudsql/<conn>` を忘れない。
+- **Supabase は TLS 必須**。DATABASE_URL の末尾に `?sslmode=require` を忘れない。Prisma は `sslmode=require` を素直に解釈する。
+- **Supabase の free tier は max_connections=60**。Cloud Run の `--max-instances=2` × 1 instance あたり Prisma の `connection_limit`（デフォルト 10）程度なら余裕。トラフィックが増えて足りなくなったら Supabase 側で Pro plan (max=200) に上げるか、Prisma の `?pgbouncer=true&connection_limit=1` で Pooler 経由に切り替える。
+- **Supabase は inactivity で `paused` になる**（free tier は 1 週間未使用で）。pause されると DB アクセスが失敗するので、ダッシュボードから resume するか cron で週 1 回 ping する。
 - **Cloud Run のリクエストタイムアウトは最大 60 分** (`--timeout`)。LINE webhook は 30 秒以内に 200 を返す必要があるので、heavy 処理は `setImmediate` で fire-and-forget (本リポジトリは実装済)。
 - **Cloud Run の cold start**: `--min-instances=1` にすると常時 1 instance 待機、料金は増える。LINE webhook の cold start delay が気になるなら 1 にする。
-- **`prisma migrate deploy` は cold start のたびに走るが冪等**。pending migration が無ければ即座に skip。
-- **画像バイナリは Voucher の BYTEA に入る**。データ量が増えたら Cloud Storage への移行を spec 17 以降で検討（spec 10 にも記載）。
+- **`prisma migrate deploy` は cold start のたびに走るが冪等**。pending migration が無ければ即座に skip。Supabase に DB スキーマが存在しない初回起動時に migrations 6 件を一気に流す。
+- **画像バイナリは Voucher の BYTEA に入る**。Supabase free tier 500MB ストレージなので、数百枚程度までは耐える。本格運用するなら Cloud Storage への移行を spec 17 以降で検討（spec 10 にも記載）。
