@@ -865,6 +865,8 @@ function adaptApiClient(d) {
     contactPrimary: d.contactPrimary,
     contactEndpoints: d.contactEndpoints ?? {},
     vendorSyncs: d.vendorSyncs ?? [],
+    fiscalYearEnd: d.fiscalYearEnd ?? null,
+    yearendKpi: d.yearendKpi ?? null,
     tasks: rawTasks.map((t) => [
       t.title,
       t.note,
@@ -1032,16 +1034,58 @@ function renderSummary() {
   }
   helperEl.textContent = labels.helper[appState.activeView] || "";
 
-  // 5th summary card "ベンダー横断同期"
+  // 5th summary card. Spec 05: in yearend mode, repurpose the same DOM as
+  // "残申告日数"; otherwise compute spec 01's vendor-sync KPI from the
+  // client's own VendorSync rows.
   const vendorEl = $("#vendorSyncValue");
+  const vendorLabelEl = $("#vendorSyncLabel");
+  const vendorDetailEl = $("#vendorSyncDetail");
   if (vendorEl) {
-    fetch("/api/sync-status")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (!data) return;
-        vendorEl.textContent = data.okRate + "%";
-      })
-      .catch(() => {});
+    if (client.mode === "yearend") {
+      // Spec 05 F2: in yearend mode, repurpose the 5th card as "残申告日数".
+      // Filing deadline = fiscalYearEnd + 2 months.
+      if (vendorLabelEl) vendorLabelEl.textContent = "残申告日数";
+      let daysLeft = null;
+      if (client.fiscalYearEnd) {
+        const due = new Date(client.fiscalYearEnd);
+        due.setMonth(due.getMonth() + 2);
+        const diffMs = due.getTime() - Date.now();
+        daysLeft = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+      }
+      vendorEl.textContent = daysLeft != null ? daysLeft + "日" : "—";
+      if (vendorDetailEl) {
+        const kpi = client.yearendKpi || {};
+        const ready = typeof kpi.filingReadiness === "number" ? kpi.filingReadiness : null;
+        vendorDetailEl.textContent =
+          ready != null
+            ? "申告草案準備度 " + ready + "%"
+            : "決算+2ヶ月の申告期限まで";
+      }
+    } else {
+      // Spec 01 F5: cross-vendor sync rate from the active client's VendorSync rows.
+      const syncs = Array.isArray(client.vendorSyncs) ? client.vendorSyncs : [];
+      if (vendorLabelEl) vendorLabelEl.textContent = "ベンダー横断同期";
+      if (syncs.length === 0) {
+        vendorEl.textContent = "—";
+        if (vendorDetailEl) {
+          vendorDetailEl.textContent = "freee/MF の取り込み履歴がまだありません";
+        }
+      } else {
+        const okCount = syncs.filter((s) => s.status === "ok").length;
+        const pct = Math.round((okCount / syncs.length) * 100);
+        vendorEl.textContent = pct + "%";
+        if (vendorDetailEl) {
+          // e.g. "MF: ✓ 15分前 / freee: ✗ 6時間前"
+          const parts = syncs.map((s) => {
+            const label = s.vendor === "mf" ? "MF" : s.vendor === "freee" ? "freee" : s.vendor;
+            const mark = s.status === "ok" ? "✓" : s.status === "warn" ? "△" : "✗";
+            const when = s.lastSync ? formatRelative(new Date(s.lastSync)) : "未取得";
+            return label + ": " + mark + " " + when;
+          });
+          vendorDetailEl.textContent = parts.join(" / ");
+        }
+      }
+    }
   }
 }
 
