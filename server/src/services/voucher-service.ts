@@ -1,6 +1,9 @@
 import { prisma } from '../lib/prisma.js';
 import type { Voucher } from '@prisma/client';
+import { env } from '../env.js';
 import { extractVoucherFields } from './ocr-service.js';
+import { assignVoucherToClient } from './voucher-assign-service.js';
+import { findMatchForVoucher } from './matching-service.js';
 
 export interface VoucherMeta {
   id: string;
@@ -15,6 +18,9 @@ export interface VoucherMeta {
   ocrError: string | null;
   ocrAt: Date | null;
   matchStatus: string;
+  matchedEntryId: string | null;
+  matchedAt: Date | null;
+  matchedClientReason: string | null;
 }
 
 function toMeta(row: Pick<Voucher, keyof VoucherMeta>): VoucherMeta {
@@ -31,6 +37,9 @@ function toMeta(row: Pick<Voucher, keyof VoucherMeta>): VoucherMeta {
     ocrError: row.ocrError,
     ocrAt: row.ocrAt,
     matchStatus: row.matchStatus,
+    matchedEntryId: row.matchedEntryId,
+    matchedAt: row.matchedAt,
+    matchedClientReason: row.matchedClientReason,
   };
 }
 
@@ -79,6 +88,9 @@ export async function listVouchers(filter: {
       ocrError: true,
       ocrAt: true,
       matchStatus: true,
+      matchedEntryId: true,
+      matchedAt: true,
+      matchedClientReason: true,
     },
   });
   return rows.map(toMeta);
@@ -124,6 +136,11 @@ export async function runOcrForVoucher(id: string): Promise<void> {
         ocrError: null,
       },
     });
+    if (env.OPENAI_API_KEY) {
+      setImmediate(() => {
+        assignAndMatchVoucher(id).catch(() => {});
+      });
+    }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     await prisma.voucher.update({
@@ -131,4 +148,45 @@ export async function runOcrForVoucher(id: string): Promise<void> {
       data: { ocrStatus: 'failed', ocrError: msg, ocrAt: new Date() },
     });
   }
+}
+
+export async function assignAndMatchVoucher(id: string): Promise<void> {
+  const v = await prisma.voucher.findUnique({
+    where: { id },
+    select: { clientId: true, ocrStatus: true },
+  });
+  if (!v || v.ocrStatus !== 'done') return;
+
+  let reason: string | null = v.clientId ? 'manual' : null;
+  if (!v.clientId) {
+    const assigned = await assignVoucherToClient(id);
+    if (assigned.clientId) {
+      await prisma.voucher.update({
+        where: { id },
+        data: {
+          clientId: assigned.clientId,
+          matchedClientReason: assigned.reason,
+        },
+      });
+      reason = assigned.reason;
+    } else {
+      reason = assigned.reason;
+    }
+  }
+
+  const match = await findMatchForVoucher(id);
+  const exists = await prisma.voucher.findUnique({
+    where: { id },
+    select: { id: true },
+  });
+  if (!exists) return;
+  await prisma.voucher.update({
+    where: { id },
+    data: {
+      matchStatus: match.status,
+      matchedEntryId: match.matchedEntryId,
+      matchedAt: new Date(),
+      ...(reason ? { matchedClientReason: reason } : {}),
+    },
+  });
 }

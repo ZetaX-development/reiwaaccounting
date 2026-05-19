@@ -6,8 +6,11 @@ import {
   getVoucherImage,
   deleteVoucher,
   runOcrForVoucher,
+  assignAndMatchVoucher,
 } from '../../src/services/voucher-service.js';
 import * as ocrService from '../../src/services/ocr-service.js';
+import * as assignService from '../../src/services/voucher-assign-service.js';
+import * as matchingService from '../../src/services/matching-service.js';
 
 beforeEach(async () => {
   await prisma.voucher.deleteMany();
@@ -189,6 +192,81 @@ describe('runOcrForVoucher', () => {
 
   it('is a no-op when voucher does not exist', async () => {
     await expect(runOcrForVoucher('does-not-exist')).resolves.toBeUndefined();
+  });
+});
+
+describe('assignAndMatchVoucher', () => {
+  it('does nothing when ocrStatus is not done', async () => {
+    const meta = await createVoucher({
+      clientId: null,
+      filename: 'x.jpg',
+      mimeType: 'image/jpeg',
+      buffer: Buffer.from([0xff]),
+      uploadedBy: null,
+    });
+    // ocrStatus default = 'pending', so should bail
+    const assignSpy = vi.spyOn(assignService, 'assignVoucherToClient');
+    await assignAndMatchVoucher(meta.id);
+    expect(assignSpy).not.toHaveBeenCalled();
+  });
+
+  it('assigns via AI when clientId is null then matches', async () => {
+    const meta = await createVoucher({
+      clientId: null,
+      filename: 'y.jpg',
+      mimeType: 'image/jpeg',
+      buffer: Buffer.from([0xff]),
+      uploadedBy: null,
+    });
+    await prisma.voucher.update({
+      where: { id: meta.id },
+      data: {
+        ocrStatus: 'done',
+        ocrJson: { amount: 100, issue_date: '2026-05-15' } as object,
+      },
+    });
+    vi.spyOn(assignService, 'assignVoucherToClient').mockResolvedValue({
+      clientId: 'shibuya-cafe',
+      reason: 'ai',
+    });
+    vi.spyOn(matchingService, 'findMatchForVoucher').mockResolvedValue({
+      status: 'matched',
+      matchedEntryId: 'E42',
+    });
+    await assignAndMatchVoucher(meta.id);
+    const row = await prisma.voucher.findUnique({ where: { id: meta.id } });
+    expect(row?.clientId).toBe('shibuya-cafe');
+    expect(row?.matchStatus).toBe('matched');
+    expect(row?.matchedEntryId).toBe('E42');
+    expect(row?.matchedClientReason).toBe('ai');
+    expect(row?.matchedAt).toBeInstanceOf(Date);
+  });
+
+  it('skips assign when clientId already set, just matches', async () => {
+    const meta = await createVoucher({
+      clientId: 'shibuya-cafe',
+      filename: 'z.jpg',
+      mimeType: 'image/jpeg',
+      buffer: Buffer.from([0xff]),
+      uploadedBy: null,
+    });
+    await prisma.voucher.update({
+      where: { id: meta.id },
+      data: {
+        ocrStatus: 'done',
+        ocrJson: { amount: 200, issue_date: '2026-05-15' } as object,
+      },
+    });
+    const assignSpy = vi.spyOn(assignService, 'assignVoucherToClient');
+    vi.spyOn(matchingService, 'findMatchForVoucher').mockResolvedValue({
+      status: 'unmatched',
+      matchedEntryId: null,
+    });
+    await assignAndMatchVoucher(meta.id);
+    expect(assignSpy).not.toHaveBeenCalled();
+    const row = await prisma.voucher.findUnique({ where: { id: meta.id } });
+    expect(row?.matchStatus).toBe('unmatched');
+    expect(row?.matchedClientReason).toBe('manual');
   });
 });
 
