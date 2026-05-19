@@ -368,14 +368,11 @@ function adaptApiClient(d) {
     ]),
     rawTasks: rawTasks,
     mfConnected: mfConnected,
-    entries: (d.entries ?? []).map((e) => [
-      e.account,
-      e.description,
-      e.taxClass ?? "",
-      e.receiptStatus === "matched" ? "証憑一致" : e.receiptStatus === "missing" ? "証憑不足" : "確認",
-      e.receiptStatus === "matched" ? "done" : e.receiptStatus === "missing" ? "urgent" : "open",
-      e.score ?? 50,
-    ]),
+    // Preserve entry objects as-is so renderers (renderJobsJournal,
+    // renderJobsMonthlyCheck, etc.) can read occurredAt/amount/etc. The
+    // earlier positional-array transform was a leftover from a removed
+    // dashboard variant and broke jobs-journal with "Invalid time value".
+    entries: d.entries ?? [],
     receipts: (d.receipts ?? []).map((r) => [
       r.vendorRef ?? "(未設定)",
       r.status === "attached" ? "紐付け済み" : r.status === "missing" ? "領収書不足" : "候補あり",
