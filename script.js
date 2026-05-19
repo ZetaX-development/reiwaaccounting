@@ -1699,7 +1699,50 @@ function renderJobsJournal() {
   }
   html += '<small class="sync-fresh">マネーフォワード クラウド会計からライブ取得</small>';
   html += '</section>';
+  // Spec 14: zeimee 側で承認したドラフトを別セクションで一覧表示する。
+  // MF への書き戻しは禁止なのでここに溜まる。loadApprovedDraftsIntoSlot が
+  // renderView の jobs-journal ブロックから非同期で埋める。
+  html += '<div id="approvedDraftsSlot"></div>';
   return html;
+}
+
+async function loadApprovedDraftsIntoSlot(clientId) {
+  const slot = document.querySelector('#approvedDraftsSlot');
+  if (!slot) return;
+  try {
+    const res = await fetch(
+      '/api/vouchers?clientId=' + encodeURIComponent(clientId),
+    );
+    if (!res.ok) return;
+    const vouchers = await res.json();
+    const approved = vouchers.filter((v) => v.journalStatus === 'approved');
+    if (approved.length === 0) {
+      slot.innerHTML = '';
+      return;
+    }
+    let html = '<section style="margin-top:24px">';
+    html += '<p class="eyebrow">承認済み仕訳ドラフト (zeimee 側、' + approved.length + ' 件)</p>';
+    html += '<div class="table-wrap"><table><thead><tr>';
+    html += '<th>日付</th><th>科目</th><th>摘要</th><th>金額</th><th>税区分</th><th>証憑</th>';
+    html += '</tr></thead><tbody>';
+    for (const v of approved) {
+      const d = v.draftJournalJson || {};
+      html += '<tr>';
+      html += '<td>' + escapeHtml(d.occurredAt || '-') + '</td>';
+      html += '<td><strong>' + escapeHtml(d.account || '-') + '</strong></td>';
+      html += '<td>' + escapeHtml(d.description || '-') + '</td>';
+      html += '<td style="text-align:right">¥' + (d.amount != null ? Number(d.amount).toLocaleString('ja-JP') : '-') + '</td>';
+      html += '<td>' + escapeHtml(d.taxClass || '-') + '</td>';
+      html += '<td><a href="/api/vouchers/' + v.id + '/image" target="_blank">画像</a></td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table></div>';
+    html += '<small class="sync-fresh">zeimee で生成・承認されたドラフト。MF にはまだ転記されていません（手動入力してください）。</small>';
+    html += '</section>';
+    slot.innerHTML = html;
+  } catch (_err) {
+    // best-effort
+  }
 }
 
 // ===== 業務 > 月次業務 > 証憑 (=旧 receipts) =====
@@ -2137,6 +2180,10 @@ function renderView() {
   if (appState.activeView === "rules") {
     loadAndRenderRules();
   }
+  if (appState.activeView === "jobs-journal") {
+    const c = currentClient();
+    if (c?.id) loadApprovedDraftsIntoSlot(c.id);
+  }
   if (appState.activeView === "jobs-vouchers") {
     loadAndRenderMissing();
   }
@@ -2553,6 +2600,10 @@ function render() {
 
 document.querySelectorAll(".nav-item").forEach((button) => {
   button.addEventListener("click", () => {
+    // nav-parent buttons (e.g. 月次業務) have data-view-group but no data-view,
+    // and are handled by their dedicated toggle handler below. Skip them here
+    // so we don't clobber appState.activeView with undefined.
+    if (!button.dataset.view) return;
     appState.activeView = button.dataset.view;
     appState.activeFilter = "all";
     render();
@@ -2620,7 +2671,8 @@ document.querySelectorAll('[data-view-group="jobs"]').forEach((btn) => {
   btn.addEventListener("click", () => {
     if (jobsSub) jobsSub.classList.toggle("expanded");
     btn.classList.toggle("expanded");
-    if (jobsSub?.classList.contains("expanded") && !appState.activeView.startsWith("jobs-")) {
+    const av = appState.activeView || "";
+    if (jobsSub?.classList.contains("expanded") && !av.startsWith("jobs-")) {
       appState.activeView = "jobs-journal";
       render();
     }
