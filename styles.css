@@ -2192,3 +2192,56 @@ textarea {
   border-radius: 50%;
   animation: voucher-spin 0.8s linear infinite;
 }
+
+/* === Spec 12: 突合バッジ + D&D === */
+.voucher-match {
+  padding: 4px 8px;
+  font-size: 11px;
+  border-top: 1px solid #f3f4f6;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 4px;
+}
+
+.voucher-match.match-ok {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.voucher-match.match-no {
+  background: #fefce8;
+  color: #a16207;
+}
+
+.voucher-match.match-gray {
+  background: #f9fafb;
+  color: #6b7280;
+}
+
+.voucher-match-retry {
+  background: #a16207;
+  color: #fff;
+  border: 0;
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.voucher-card[draggable="true"] {
+  cursor: grab;
+}
+
+.voucher-card[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.voucher-card.dragging {
+  opacity: 0.4;
+}
+
+.voucher-tab.drop-target {
+  background: #eef2ff;
+  border-bottom-color: #6366f1 !important;
+}

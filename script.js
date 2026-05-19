@@ -1923,8 +1923,21 @@ function renderVoucherRegister() {
             <div class="voucher-ocr-row"><span class="voucher-ocr-label">登録番号</span>${invoice}</div>
           </div>`;
       }
+
+      let matchHtml = '';
+      const ms = v.matchStatus;
+      if (ms === 'matched') {
+        matchHtml = `<div class="voucher-match match-ok">🔗 ✓ MF 仕訳と突合済み</div>`;
+      } else if (ms === 'unmatched' && ocr === 'done') {
+        matchHtml = `<div class="voucher-match match-no"><span>🔗 MF 仕訳と一致なし</span><button class="voucher-match-retry" data-voucher-rematch="${v.id}">再突合</button></div>`;
+      } else if (ms === 'no_client') {
+        matchHtml = `<div class="voucher-match match-gray">🔗 顧問先未割当て</div>`;
+      } else if (ms === 'no_data') {
+        matchHtml = `<div class="voucher-match match-gray">🔗 OCR データ不足</div>`;
+      }
+
       return `
-      <div class="voucher-card" data-voucher-id="${v.id}">
+      <div class="voucher-card" data-voucher-id="${v.id}" draggable="true">
         <img src="/api/vouchers/${v.id}/image" alt="${escapeHtml(v.filename)}" />
         <button class="voucher-delete" data-voucher-delete="${v.id}" aria-label="削除">×</button>
         <div class="voucher-meta">
@@ -1932,6 +1945,7 @@ function renderVoucherRegister() {
           <div class="voucher-date">${new Date(v.uploadedAt).toLocaleString('ja-JP')}</div>
         </div>
         ${ocrHtml}
+        ${matchHtml}
       </div>
     `;
     })
@@ -2079,6 +2093,59 @@ function renderView() {
         }
       });
     });
+    viewContent.querySelectorAll('[data-voucher-rematch]').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const id = btn.dataset.voucherRematch;
+        try {
+          const res = await fetch(`/api/vouchers/${id}/match`, { method: 'POST' });
+          if (!res.ok) throw new Error('rematch failed');
+          appState.vouchersLoadedTab = null;
+          setTimeout(() => loadVouchers(), 800);
+        } catch (err) {
+          showToast(friendlyError(err));
+        }
+      });
+    });
+    viewContent.querySelectorAll('.voucher-card').forEach((card) => {
+      card.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData('text/plain', card.dataset.voucherId);
+        e.dataTransfer.effectAllowed = 'move';
+        card.classList.add('dragging');
+      });
+      card.addEventListener('dragend', () => {
+        card.classList.remove('dragging');
+      });
+    });
+    viewContent.querySelectorAll('.voucher-tab').forEach((tab) => {
+      tab.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        tab.classList.add('drop-target');
+      });
+      tab.addEventListener('dragleave', () => {
+        tab.classList.remove('drop-target');
+      });
+      tab.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        tab.classList.remove('drop-target');
+        const voucherId = e.dataTransfer.getData('text/plain');
+        if (!voucherId) return;
+        const targetTab = tab.dataset.voucherTab;
+        const newClientId = targetTab === 'unassigned' ? null : targetTab;
+        try {
+          const res = await fetch(`/api/vouchers/${voucherId}`, {
+            method: 'PATCH',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ clientId: newClientId }),
+          });
+          if (!res.ok) throw new Error('reassign failed');
+          appState.vouchersLoadedTab = null;
+          await loadVouchers();
+        } catch (err) {
+          showToast(friendlyError(err));
+        }
+      });
+    });
     viewContent.querySelectorAll('[data-voucher-id]').forEach((card) => {
       card.addEventListener('click', (e) => {
         if (e.target.closest('[data-voucher-delete]')) return;
@@ -2105,7 +2172,10 @@ function renderView() {
       appState.voucherPollTimer = null;
     }
     const hasPending = (appState.vouchers || []).some(
-      (v) => v.ocrStatus === 'pending' || v.ocrStatus === 'processing',
+      (v) =>
+        v.ocrStatus === 'pending' ||
+        v.ocrStatus === 'processing' ||
+        (v.ocrStatus === 'done' && !v.matchedAt),
     );
     if (hasPending) {
       appState.voucherPollTimer = setInterval(() => {
