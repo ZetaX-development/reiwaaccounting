@@ -19,6 +19,7 @@ import { receiptRoutes } from './routes/receipts.js';
 import { modeRoutes } from './routes/mode.js';
 import { mfBooksRoutes } from './routes/mf-books.js';
 import { voucherRoutes } from './routes/vouchers.js';
+import { integrationsDriveRoutes } from './routes/integrations-drive.js';
 import multipart from '@fastify/multipart';
 
 export async function buildApp(): Promise<FastifyInstance> {
@@ -52,6 +53,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(modeRoutes);
   await app.register(mfBooksRoutes);
   await app.register(voucherRoutes);
+  await app.register(integrationsDriveRoutes);
 
   app.setErrorHandler((err, _req, reply) => {
     logger.error({ err }, 'unhandled');
