@@ -48,7 +48,7 @@ export async function listYearendChecklist(clientId: string) {
 
 export async function updateYearendCheck(
   id: string,
-  data: { status?: string; note?: string },
+  data: { status?: string; note?: string | null },
 ) {
   const updated = await prisma.yearendCheck.update({ where: { id }, data });
   await recomputeYearendKpi(updated.clientId);

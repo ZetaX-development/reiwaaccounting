@@ -24,7 +24,7 @@ import { integrationsLineRoutes } from './routes/integrations-line.js';
 import multipart from '@fastify/multipart';
 
 export async function buildApp(): Promise<FastifyInstance> {
-  const app = Fastify({ loggerInstance: logger });
+  const app = Fastify({ logger });
   await app.register(cors, { origin: true });
   await app.register(multipart, {
     limits: { fileSize: 10 * 1024 * 1024 },
@@ -64,7 +64,7 @@ export async function buildApp(): Promise<FastifyInstance> {
     });
   });
 
-  return app;
+  return app as unknown as FastifyInstance;
 }
 
 async function main() {
