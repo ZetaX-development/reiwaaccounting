@@ -14,6 +14,15 @@ const appState = {
   matchingVouchers: [],
   matchingEntries: [],
   matchingLoadedTab: null,
+  driveIntegration: null,
+  driveFolders: [],
+  driveMappings: [],
+  driveLastSync: null,
+  driveLoadedAt: null,
+  lineIntegration: null,
+  lineUsers: [],
+  lineVerifyResult: null,
+  lineLoadedAt: null,
 };
 
 // Loaded from /api/clients on startup. Empty until the first fetch resolves.
@@ -31,6 +40,8 @@ const labels = {
   "vouchers-register": "証憑登録",
   "matching-results": "突合結果",
   portal: "メッセージ",
+  "integrations-drive": "連携 / Google Drive",
+  "integrations-line": "連携 / LINE",
   rules: "学習",
   settings: "設定",
 
@@ -66,6 +77,8 @@ const labels = {
     "vouchers-register": "領収書・請求書などの画像をまとめてアップロードします。未分類プールに入り、後で OCR で振り分けます。",
     "matching-results": "アップロード済み証憑と MF 仕訳の突合結果を顧問先ごとに確認します。",
     portal: "お客さまにメールやSlackなどで連絡できます。届かなかったら再送できます。",
+    "integrations-drive": "Google Drive にあるレシート画像を自動取り込みします。スタッフ用の事務所共通アカウントを 1 つ接続して、サブフォルダを顧問先に割り当ててください。",
+    "integrations-line": "公式 LINE アカウントに送られた画像を自動取り込みします。スタッフが LINE で画像を送るだけで Voucher になります。",
     rules: "この顧問先で過去にミスしやすかった点を、企業ごとのチェック項目として保存します。",
     settings: "事務所全体の運用設定。",
   },
@@ -328,6 +341,188 @@ async function reassignVoucherClient(id, newClientId) {
       appState.matchingLoadedTab = null;
       loadMatchingData();
     }, 800);
+  } catch (err) {
+    showToast(friendlyError(err));
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Spec 15: Google Drive integration fetchers
+// -----------------------------------------------------------------------------
+
+async function loadDriveStatus() {
+  try {
+    const res = await fetch('/api/integrations/drive');
+    if (!res.ok) throw new Error('drive status failed');
+    appState.driveIntegration = await res.json();
+  } catch (_err) {
+    appState.driveIntegration = null;
+  }
+}
+
+async function loadDriveMappings() {
+  try {
+    const res = await fetch('/api/integrations/drive/mappings');
+    if (!res.ok) return;
+    const json = await res.json();
+    // Backend wraps the list as { mappings: [...] }
+    appState.driveMappings = Array.isArray(json) ? json : json.mappings || [];
+  } catch (_err) {
+    /* best-effort */
+  }
+}
+
+async function loadDriveFolders() {
+  try {
+    const res = await fetch('/api/integrations/drive/folders');
+    if (!res.ok) {
+      appState.driveFolders = [];
+      return;
+    }
+    const json = await res.json();
+    appState.driveFolders = Array.isArray(json) ? json : json.folders || [];
+  } catch (_err) {
+    appState.driveFolders = [];
+  }
+}
+
+async function triggerDriveSync() {
+  try {
+    const res = await fetch('/api/integrations/drive/sync', { method: 'POST' });
+    if (!res.ok) throw new Error('sync failed');
+    appState.driveLastSync = await res.json();
+    const s = appState.driveLastSync || {};
+    showToast(
+      `同期完了: imported=${s.imported ?? 0} skipped=${s.skipped ?? 0} failed=${s.failed ?? 0}`,
+    );
+    renderView();
+  } catch (err) {
+    showToast(friendlyError(err));
+  }
+}
+
+async function saveDriveMapping(driveFolderId, folderName, clientId) {
+  try {
+    const res = await fetch('/api/integrations/drive/mappings', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ driveFolderId, folderName, clientId }),
+    });
+    if (!res.ok) throw new Error('save mapping failed');
+    await loadDriveMappings();
+    renderView();
+    showToast('mapping を保存しました');
+  } catch (err) {
+    showToast(friendlyError(err));
+  }
+}
+
+async function deleteDriveMapping(id) {
+  try {
+    const res = await fetch(`/api/integrations/drive/mappings/${id}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error('delete failed');
+    await loadDriveMappings();
+    renderView();
+  } catch (err) {
+    showToast(friendlyError(err));
+  }
+}
+
+async function saveDriveSettings(rootFolderId, importedSubfolderName) {
+  try {
+    const res = await fetch('/api/integrations/drive/settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ rootFolderId, importedSubfolderName }),
+    });
+    if (!res.ok) throw new Error('save settings failed');
+    await loadDriveStatus();
+    await loadDriveFolders();
+    renderView();
+    showToast('Drive 設定を保存しました');
+  } catch (err) {
+    showToast(friendlyError(err));
+  }
+}
+
+async function disconnectDrive() {
+  if (!confirm('Google Drive 連携を解除しますか？')) return;
+  try {
+    const res = await fetch('/api/integrations/drive', { method: 'DELETE' });
+    if (!res.ok) throw new Error('disconnect failed');
+    appState.driveIntegration = null;
+    appState.driveFolders = [];
+    appState.driveMappings = [];
+    renderView();
+    showToast('Drive 連携を解除しました');
+  } catch (err) {
+    showToast(friendlyError(err));
+  }
+}
+
+// -----------------------------------------------------------------------------
+// Spec 16: LINE integration fetchers
+// -----------------------------------------------------------------------------
+
+async function loadLineStatus() {
+  try {
+    const res = await fetch('/api/integrations/line');
+    if (!res.ok) throw new Error('line status failed');
+    appState.lineIntegration = await res.json();
+  } catch (_err) {
+    appState.lineIntegration = null;
+  }
+}
+
+async function loadLineUsers() {
+  try {
+    const res = await fetch('/api/integrations/line/users');
+    if (!res.ok) return;
+    const json = await res.json();
+    appState.lineUsers = Array.isArray(json) ? json : json.users || [];
+  } catch (_err) {
+    /* best-effort */
+  }
+}
+
+async function verifyLine() {
+  try {
+    const res = await fetch('/api/integrations/line/verify', {
+      method: 'POST',
+    });
+    appState.lineVerifyResult = await res.json();
+    renderView();
+  } catch (err) {
+    showToast(friendlyError(err));
+  }
+}
+
+async function updateLineUser(id, patch) {
+  try {
+    const res = await fetch(`/api/integrations/line/users/${id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) throw new Error('update failed');
+    await loadLineUsers();
+    renderView();
+  } catch (err) {
+    showToast(friendlyError(err));
+  }
+}
+
+async function deleteLineUser(id) {
+  if (!confirm('このユーザの mapping を削除しますか？')) return;
+  try {
+    const res = await fetch(`/api/integrations/line/users/${id}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error('delete failed');
+    await loadLineUsers();
+    renderView();
   } catch (err) {
     showToast(friendlyError(err));
   }
@@ -1933,14 +2128,23 @@ function renderVoucherRegister() {
         matchHtml = `<div class="voucher-match match-gray">🔗 OCR データ不足</div>`;
       }
 
+      const sourceClass = v.source === 'drive' ? 'drive' : v.source === 'line' ? 'line' : '';
+      const sourceLabel = v.source === 'drive' ? 'Drive' : v.source === 'line' ? 'LINE' : '';
+      const sourceBadge = sourceClass
+        ? `<span class="voucher-source-badge ${sourceClass}">${sourceLabel}</span>`
+        : '';
+      const captionHtml = v.caption
+        ? `<div class="voucher-caption">${escapeHtml(v.caption)}</div>`
+        : '';
       return `
       <div class="voucher-card" data-voucher-id="${v.id}" draggable="true">
         <img src="/api/vouchers/${v.id}/image" alt="${escapeHtml(v.filename)}" />
         <button class="voucher-delete" data-voucher-delete="${v.id}" aria-label="削除">×</button>
         <div class="voucher-meta">
-          <div class="voucher-filename">${escapeHtml(v.filename)}</div>
+          <div class="voucher-filename">${escapeHtml(v.filename)}${sourceBadge}</div>
           <div class="voucher-date">${new Date(v.uploadedAt).toLocaleString('ja-JP')}</div>
         </div>
+        ${captionHtml}
         ${ocrHtml}
         ${matchHtml}
       </div>
@@ -2189,6 +2393,137 @@ function renderMatchingResults() {
   `;
 }
 
+// ---- LINE Integration view --------------------------------------------------
+
+function renderIntegrationsDrive() {
+  return '<section class="integration-placeholder"><p>Google Drive 連携（未実装）</p></section>';
+}
+
+function escapeHtmlLine(s) {
+  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function renderIntegrationsLine() {
+  const integ = appState.lineIntegration;
+  const users = appState.lineUsers || [];
+
+  // Load data async then re-render if not yet loaded
+  if (!integ) {
+    fetch('/api/integrations/line')
+      .then((r) => r.json())
+      .then((data) => {
+        appState.lineIntegration = data;
+        return loadLineUsers();
+      })
+      .then(() => { if (appState.activeView === 'integrations-line') renderView(); })
+      .catch(() => {});
+    return '<section class="integration-line-view"><p>読み込み中…</p></section>';
+  }
+
+  let connHtml;
+  if (!integ.connected) {
+    connHtml =
+      '<div class="integration-line-connection">' +
+      '<h2>LINE 公式アカウント連携</h2>' +
+      '<p>未接続です。<code>.env</code> に <code>LINE_CHANNEL_ACCESS_TOKEN</code> / <code>LINE_CHANNEL_SECRET</code> を設定してください。</p>' +
+      '</div>';
+  } else {
+    const webhook = integ.webhookUrl ?? '(LINE_WEBHOOK_BASE_URL 未設定)';
+    const verifyHtml = appState.lineVerifyResult
+      ? appState.lineVerifyResult.ok
+        ? `<p style="color:#06c755;">✓ 接続テスト成功: ${escapeHtmlLine(appState.lineVerifyResult.botInfo?.displayName ?? '')} (${escapeHtmlLine(appState.lineVerifyResult.botInfo?.basicId ?? '')})</p>`
+        : `<p style="color:#c00;">✗ ${escapeHtmlLine(appState.lineVerifyResult.message ?? '')}</p>`
+      : '';
+    connHtml =
+      '<div class="integration-line-connection">' +
+      '<h2>LINE 公式アカウント連携</h2>' +
+      `<p>状態: 接続済 (channelId: ${escapeHtmlLine(integ.channelId ?? '-')}, ユーザ ${integ.enabledUserCount}/${integ.userCount} 有効)</p>` +
+      `<p>Webhook URL: <code id="line-webhook-url">${escapeHtmlLine(webhook)}</code> <button id="line-copy-webhook" class="btn btn-sm">コピー</button></p>` +
+      '<button id="line-verify" class="btn btn-primary">接続テスト</button>' +
+      verifyHtml +
+      '<h3>Console 設定手順</h3>' +
+      '<ol>' +
+        '<li>LINE Developers Console で Messaging API channel の "Webhook URL" に上記 URL をペースト</li>' +
+        '<li>"Use webhook" を ON</li>' +
+        '<li>"Auto-reply messages" を OFF</li>' +
+        '<li>友だち追加用の Basic ID / QR をスタッフに共有</li>' +
+      '</ol>' +
+      '</div>';
+  }
+
+  let usersHtml;
+  if (!integ.connected) {
+    usersHtml = '';
+  } else if (users.length === 0) {
+    usersHtml =
+      '<div class="line-user-mappings">' +
+      '<h2>スタッフ一覧</h2>' +
+      '<p>友だち追加されると自動で行が追加されます（最初は無効状態）。所長が承認するまで画像は受け付けられません。</p>' +
+      '</div>';
+  } else {
+    const rows = users.map(
+      (u) =>
+        `<div class="line-user-row" data-user-id="${escapeHtmlLine(u.id)}">` +
+        `<span>${escapeHtmlLine(u.displayName)} <small style="color:#888">${escapeHtmlLine(u.lineUserId)}</small></span>` +
+        `<input type="text" class="line-user-label" placeholder="ラベル (例: 所長)" value="${escapeHtmlLine(u.staffLabel ?? '')}">` +
+        `<label><input type="checkbox" class="line-user-enabled" ${u.enabled ? 'checked' : ''}> 有効</label>` +
+        `<button class="line-user-delete btn btn-sm btn-danger">削除</button>` +
+        `</div>`,
+    ).join('');
+    usersHtml =
+      '<div class="line-user-mappings">' +
+      '<h2>スタッフ一覧</h2>' +
+      rows +
+      '</div>';
+  }
+
+  return `<section class="integration-line-view">${connHtml}${usersHtml}</section>`;
+}
+
+async function loadLineUsers() {
+  try {
+    const res = await fetch('/api/integrations/line/users');
+    appState.lineUsers = res.ok ? await res.json() : [];
+  } catch {
+    appState.lineUsers = [];
+  }
+}
+
+async function verifyLineConnection() {
+  try {
+    const res = await fetch('/api/integrations/line/verify', { method: 'POST' });
+    appState.lineVerifyResult = await res.json();
+  } catch (err) {
+    appState.lineVerifyResult = { ok: false, message: String(err) };
+  }
+  renderView();
+}
+
+async function updateLineUser(id, body) {
+  try {
+    await fetch(`/api/integrations/line/users/${id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    appState.lineIntegration = null; // reset so it reloads
+    renderView();
+  } catch (err) {
+    showToast(friendlyError(err));
+  }
+}
+
+async function deleteLineUserById(id) {
+  if (!confirm('このユーザを削除します')) return;
+  try {
+    await fetch(`/api/integrations/line/users/${id}`, { method: 'DELETE' });
+    appState.lineIntegration = null; // reset so it reloads
+    renderView();
+  } catch (err) {
+    showToast(friendlyError(err));
+  }
+}
+
 function renderView() {
   const client = currentClient();
   // ToDo は role 切替で 税理士=所長確認待ち / スタッフ=作業中+差戻し が並ぶ。
@@ -2202,6 +2537,8 @@ function renderView() {
     "vouchers-register": () => renderVoucherRegister(),
     "matching-results": () => renderMatchingResults(),
     portal: () => renderPortal(),                  // 業務 > メッセージ
+    "integrations-drive": () => renderIntegrationsDrive(),
+    "integrations-line": () => renderIntegrationsLine(),
     rules: () => renderRules(),                    // 学習・設定 > 学習
     settings: () => renderSettings(),              // 学習・設定 > 設定
   };
@@ -2444,6 +2781,25 @@ function renderView() {
     viewContent.querySelectorAll('[data-matching-approve]').forEach((btn) => {
       btn.addEventListener('click', () => {
         approveVoucherJournal(btn.dataset.matchingApprove);
+      });
+    });
+  }
+  if (appState.activeView === 'integrations-line') {
+    document.getElementById('line-copy-webhook')?.addEventListener('click', () => {
+      const webhook = appState.lineIntegration?.webhookUrl ?? '';
+      navigator.clipboard.writeText(webhook).catch(() => {});
+    });
+    document.getElementById('line-verify')?.addEventListener('click', verifyLineConnection);
+    viewContent.querySelectorAll('.line-user-row').forEach((row) => {
+      const userId = row.dataset.userId;
+      row.querySelector('.line-user-label')?.addEventListener('change', (e) => {
+        updateLineUser(userId, { staffLabel: e.target.value });
+      });
+      row.querySelector('.line-user-enabled')?.addEventListener('change', (e) => {
+        updateLineUser(userId, { enabled: e.target.checked });
+      });
+      row.querySelector('.line-user-delete')?.addEventListener('click', () => {
+        deleteLineUserById(userId);
       });
     });
   }
