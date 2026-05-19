@@ -360,3 +360,96 @@ describe('POST /api/vouchers/:id/match', () => {
     expect(res.json().error.code).toBe('NOT_FOUND');
   });
 });
+
+describe("POST /api/vouchers/:id/draft-journal", () => {
+  it("returns 202 for existing voucher", async () => {
+    const created = await prisma.voucher.create({
+      data: {
+        clientId: null,
+        filename: "d.jpg",
+        mimeType: "image/jpeg",
+        size: 1,
+        imageData: Buffer.from([0xff]),
+      },
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/vouchers/${created.id}/draft-journal`,
+    });
+    expect(res.statusCode).toBe(202);
+    expect(res.json()).toEqual({ ok: true });
+  });
+
+  it("returns 404 for unknown id", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/vouchers/does-not-exist/draft-journal",
+    });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("POST /api/vouchers/:id/inquire", () => {
+  it("returns 202 for existing voucher", async () => {
+    const created = await prisma.voucher.create({
+      data: {
+        clientId: "shibuya-cafe",
+        filename: "i.jpg",
+        mimeType: "image/jpeg",
+        size: 1,
+        imageData: Buffer.from([0xff]),
+      },
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/vouchers/${created.id}/inquire`,
+    });
+    expect(res.statusCode).toBe(202);
+  });
+
+  it("returns 404 for unknown id", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/vouchers/does-not-exist/inquire",
+    });
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+describe("PATCH /api/vouchers/:id/journal", () => {
+  it("merges partial draft journal updates", async () => {
+    const created = await prisma.voucher.create({
+      data: {
+        clientId: null,
+        filename: "j.jpg",
+        mimeType: "image/jpeg",
+        size: 1,
+        imageData: Buffer.from([0xff]),
+        draftJournalJson: { account: "雑費", amount: 1000 } as object,
+        journalStatus: "drafted",
+      },
+    });
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/vouchers/${created.id}/journal`,
+      payload: { account: "接待交際費", status: "approved" },
+      headers: { "content-type": "application/json" },
+    });
+    expect(res.statusCode).toBe(200);
+    const row = await prisma.voucher.findUnique({ where: { id: created.id } });
+    expect((row?.draftJournalJson as any)?.account).toBe("接待交際費");
+    expect((row?.draftJournalJson as any)?.amount).toBe(1000);
+    expect(row?.journalStatus).toBe("approved");
+  });
+
+  it("returns 404 for unknown id", async () => {
+    const res = await app.inject({
+      method: "PATCH",
+      url: "/api/vouchers/does-not-exist/journal",
+      payload: { account: "x" },
+      headers: { "content-type": "application/json" },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+});
+

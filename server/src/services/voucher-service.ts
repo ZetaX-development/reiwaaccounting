@@ -23,6 +23,10 @@ export interface VoucherMeta {
   matchedEntryId: string | null;
   matchedAt: Date | null;
   matchedClientReason: string | null;
+  draftJournalJson: unknown;
+  journalStatus: string;
+  inquiryAt: Date | null;
+  inquiryChannel: string | null;
 }
 
 function toMeta(row: Pick<Voucher, keyof VoucherMeta>): VoucherMeta {
@@ -42,6 +46,10 @@ function toMeta(row: Pick<Voucher, keyof VoucherMeta>): VoucherMeta {
     matchedEntryId: row.matchedEntryId,
     matchedAt: row.matchedAt,
     matchedClientReason: row.matchedClientReason,
+    draftJournalJson: row.draftJournalJson as unknown,
+    journalStatus: row.journalStatus,
+    inquiryAt: row.inquiryAt,
+    inquiryChannel: row.inquiryChannel,
   };
 }
 
@@ -93,6 +101,10 @@ export async function listVouchers(filter: {
       matchedEntryId: true,
       matchedAt: true,
       matchedClientReason: true,
+      draftJournalJson: true,
+      journalStatus: true,
+      inquiryAt: true,
+      inquiryChannel: true,
     },
   });
   return rows.map(toMeta);

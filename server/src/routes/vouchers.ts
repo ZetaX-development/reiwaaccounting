@@ -7,6 +7,8 @@ import {
   runOcrForVoucher,
 } from '../services/voucher-service.js';
 import { findMatchForVoucher } from '../services/matching-service.js';
+import { generateDraftJournal } from '../services/journal-draft-service.js';
+import { inquireAboutVoucher } from '../services/outreach-service.js';
 import { prisma } from '../lib/prisma.js';
 
 async function runMatchAndPersist(id: string): Promise<void> {
@@ -200,4 +202,79 @@ export async function voucherRoutes(app: FastifyInstance) {
       return { ok: true };
     },
   );
+
+  app.post<{ Params: { id: string } }>(
+    '/api/vouchers/:id/draft-journal',
+    async (req, reply) => {
+      const row = await prisma.voucher.findUnique({
+        where: { id: req.params.id },
+        select: { id: true },
+      });
+      if (!row) {
+        reply.code(404);
+        return { error: { code: 'NOT_FOUND', message: 'voucher not found' } };
+      }
+      setImmediate(() => {
+        generateDraftJournal(req.params.id).catch(() => {});
+      });
+      reply.code(202);
+      return { ok: true };
+    },
+  );
+
+  app.post<{ Params: { id: string } }>(
+    '/api/vouchers/:id/inquire',
+    async (req, reply) => {
+      const row = await prisma.voucher.findUnique({
+        where: { id: req.params.id },
+        select: { id: true },
+      });
+      if (!row) {
+        reply.code(404);
+        return { error: { code: 'NOT_FOUND', message: 'voucher not found' } };
+      }
+      setImmediate(() => {
+        inquireAboutVoucher(req.params.id).catch(() => {});
+      });
+      reply.code(202);
+      return { ok: true };
+    },
+  );
+
+  app.patch<{
+    Params: { id: string };
+    Body: {
+      account?: string;
+      taxClass?: string | null;
+      description?: string;
+      amount?: number;
+      occurredAt?: string;
+      status?: string;
+    };
+  }>('/api/vouchers/:id/journal', async (req, reply) => {
+    const row = await prisma.voucher.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, draftJournalJson: true },
+    });
+    if (!row) {
+      reply.code(404);
+      return { error: { code: 'NOT_FOUND', message: 'voucher not found' } };
+    }
+    const body = req.body || {};
+    const existing = (row.draftJournalJson as Record<string, unknown> | null) ?? {};
+    const merged: Record<string, unknown> = { ...existing };
+    if (body.account !== undefined) merged.account = body.account;
+    if (body.taxClass !== undefined) merged.taxClass = body.taxClass;
+    if (body.description !== undefined) merged.description = body.description;
+    if (body.amount !== undefined) merged.amount = body.amount;
+    if (body.occurredAt !== undefined) merged.occurredAt = body.occurredAt;
+
+    const update: Record<string, unknown> = { draftJournalJson: merged };
+    if (body.status) update.journalStatus = body.status;
+    await prisma.voucher.update({
+      where: { id: req.params.id },
+      data: update,
+    });
+    return { ok: true };
+  });
 }
