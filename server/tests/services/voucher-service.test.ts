@@ -11,9 +11,14 @@ import {
 import * as ocrService from '../../src/services/ocr-service.js';
 import * as assignService from '../../src/services/voucher-assign-service.js';
 import * as matchingService from '../../src/services/matching-service.js';
+import { __resetEnvCache } from '../../src/env.js';
 
 beforeEach(async () => {
   await prisma.voucher.deleteMany();
+  // Other test files set OPENAI_API_KEY; clear so the spec 14 fire-and-forget
+  // generateDraftJournal call inside assignAndMatchVoucher is skipped.
+  process.env.OPENAI_API_KEY = '';
+  __resetEnvCache();
 });
 
 afterAll(async () => {

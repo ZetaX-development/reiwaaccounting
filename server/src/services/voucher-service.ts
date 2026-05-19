@@ -4,6 +4,8 @@ import { env } from '../env.js';
 import { extractVoucherFields } from './ocr-service.js';
 import { assignVoucherToClient } from './voucher-assign-service.js';
 import { findMatchForVoucher } from './matching-service.js';
+import { generateDraftJournal } from './journal-draft-service.js';
+import { inquireAboutVoucher } from './outreach-service.js';
 
 export interface VoucherMeta {
   id: string;
@@ -189,4 +191,20 @@ export async function assignAndMatchVoucher(id: string): Promise<void> {
       ...(reason ? { matchedClientReason: reason } : {}),
     },
   });
+
+  // Spec 14: if the match did not land, generate a draft journal so the staff
+  // has something concrete to review. Stays fire-and-forget — failures are
+  // captured inside generateDraftJournal.
+  if (match.status === 'unmatched' && env.OPENAI_API_KEY) {
+    await generateDraftJournal(id);
+    if (env.OUTREACH_AUTO) {
+      const after = await prisma.voucher.findUnique({
+        where: { id },
+        select: { journalStatus: true },
+      });
+      if (after?.journalStatus === 'needs_info') {
+        await inquireAboutVoucher(id);
+      }
+    }
+  }
 }
