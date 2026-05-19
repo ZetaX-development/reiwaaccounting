@@ -1306,6 +1306,7 @@ function renderSettings() {
 // Spec 03 F2: 3-column portal: edit | history | settings
 function renderPortal() {
   const client = currentClient();
+  if (!client) return '<div class="empty-state">顧問先を読み込み中…</div>';
   if (!appState.portalChannel) {
     appState.portalChannel = client.contactPrimary || "email";
   }
@@ -3329,11 +3330,14 @@ function applyHashRoute(force) {
 }
 window.addEventListener("hashchange", () => applyHashRoute(false));
 // Normalize the URL on first load so bookmarks land on /#/dashboard rather
-// than /, and ensure activeView matches whatever the URL says.
+// than /. The actual route application happens after loadClientsFromApi
+// resolves (see bottom of file) so renderers that depend on a loaded client
+// (renderPortal, renderJobsJournal, etc.) don't crash on first paint.
 if (!location.hash) {
   history.replaceState(null, "", "#/dashboard");
 }
-applyHashRoute(true);
+// Sync activeView with URL without rendering — render fires after clients load.
+appState.activeView = viewFromHash(location.hash) || "dashboard";
 
 // Spec 05 F1: mode toggle
 document.querySelectorAll("#modeToggle .mode-btn").forEach((btn) => {
@@ -3394,4 +3398,5 @@ document.querySelectorAll('[data-view-group="jobs"]').forEach((btn) => {
   });
 });
 
-loadClientsFromApi().finally(render);
+// Startup: load clients, then apply the URL hash route (which calls render).
+loadClientsFromApi().finally(() => applyHashRoute(true));
