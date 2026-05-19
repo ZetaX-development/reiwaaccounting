@@ -2687,3 +2687,67 @@ textarea {
   padding: 32px;
   color: #888;
 }
+
+/* === Spec 15+16 integration views === */
+.integration-panel {
+  padding: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  background: #fff;
+}
+.integration-panel h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+.integration-panel .muted {
+  color: #6b7280;
+  font-size: 12px;
+}
+.integration-status-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+}
+.integration-status-badge.ok {
+  background: #dcfce7;
+  color: #166534;
+}
+.integration-status-badge.warn {
+  background: #fef3c7;
+  color: #92400e;
+}
+.integration-status-badge.error {
+  background: #fee2e2;
+  color: #991b1b;
+}
+.drive-mappings-table,
+.line-users-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-top: 8px;
+}
+.drive-mappings-table th,
+.drive-mappings-table td,
+.line-users-table th,
+.line-users-table td {
+  border: 1px solid #e5e7eb;
+  padding: 6px 8px;
+  text-align: left;
+  vertical-align: middle;
+}
+.drive-mappings-table th,
+.line-users-table th {
+  background: #f9fafb;
+  font-weight: 600;
+}
+.voucher-source-badge.src-drive {
+  background: #dbeafe;
+  color: #1e40af;
+}
+.voucher-source-badge.src-line {
+  background: #dcfce7;
+  color: #166534;
+}

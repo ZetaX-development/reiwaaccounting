@@ -2128,11 +2128,12 @@ function renderVoucherRegister() {
         matchHtml = `<div class="voucher-match match-gray">🔗 OCR データ不足</div>`;
       }
 
-      const sourceClass = v.source === 'drive' ? 'drive' : v.source === 'line' ? 'line' : '';
-      const sourceLabel = v.source === 'drive' ? 'Drive' : v.source === 'line' ? 'LINE' : '';
-      const sourceBadge = sourceClass
-        ? `<span class="voucher-source-badge ${sourceClass}">${sourceLabel}</span>`
-        : '';
+      const sourceBadge =
+        v.source === 'drive'
+          ? '<span class="voucher-source-badge src-drive">Drive</span>'
+          : v.source === 'line'
+            ? '<span class="voucher-source-badge src-line">LINE</span>'
+            : '';
       const captionHtml = v.caption
         ? `<div class="voucher-caption">${escapeHtml(v.caption)}</div>`
         : '';
@@ -2393,135 +2394,286 @@ function renderMatchingResults() {
   `;
 }
 
-// ---- LINE Integration view --------------------------------------------------
-
+// -----------------------------------------------------------------------------
+// Spec 15: Google Drive integration view
+// -----------------------------------------------------------------------------
 function renderIntegrationsDrive() {
-  return '<section class="integration-placeholder"><p>Google Drive 連携（未実装）</p></section>';
+  const integ = appState.driveIntegration;
+  const folders = appState.driveFolders || [];
+  const mappings = appState.driveMappings || [];
+  const last = appState.driveLastSync;
+
+  let connectionPanel;
+  if (!integ || !integ.connected) {
+    connectionPanel = `
+      <div class="integration-panel integration-drive-connection">
+        <h3>接続</h3>
+        <p class="muted">Google Drive と連携すると、指定したフォルダの画像が自動で Voucher として取り込まれます。</p>
+        <p><a class="primary-btn" href="/api/integrations/drive/oauth/authorize">Google と連携</a></p>
+      </div>
+    `;
+  } else {
+    const settings = integ.settings || {};
+    const expires = integ.watchExpiresAt
+      ? new Date(integ.watchExpiresAt).toLocaleString('ja-JP')
+      : '未登録';
+    const statusBadgeClass =
+      integ.status === 'ok'
+        ? 'ok'
+        : integ.status === 'reauth_required' || integ.status === 'watch_failed'
+          ? 'error'
+          : 'warn';
+    connectionPanel = `
+      <div class="integration-panel integration-drive-connection">
+        <h3>接続</h3>
+        <p>
+          <span class="muted">アカウント:</span> <strong>${escapeHtml(integ.email || '—')}</strong>
+          <span class="integration-status-badge ${statusBadgeClass}">${escapeHtml(integ.status || 'ok')}</span>
+        </p>
+        <p class="muted">watch channel 期限: ${escapeHtml(expires)}</p>
+        <div style="margin-top: 12px;">
+          <label style="display:block; font-size:12px; margin-bottom:4px;">ルートフォルダ ID</label>
+          <input type="text" id="driveRootFolderId" value="${escapeHtml(settings.rootFolderId || '')}"
+                 placeholder="folder id (空欄なら My Drive ルート)"
+                 style="width:100%; padding:6px 8px; font-family:monospace; font-size:12px;" />
+        </div>
+        <div style="margin-top: 8px;">
+          <label style="display:block; font-size:12px; margin-bottom:4px;">取り込み済みフォルダ名</label>
+          <input type="text" id="driveImportedSubfolderName"
+                 value="${escapeHtml(settings.importedSubfolderName || '')}"
+                 placeholder="例: 取り込み済"
+                 style="width:100%; padding:6px 8px; font-size:12px;" />
+        </div>
+        <div style="margin-top: 12px; display:flex; gap:8px;">
+          <button class="primary-btn" data-drive-action="save-settings">保存</button>
+          <button class="ghost-btn" data-drive-action="disconnect">切断</button>
+        </div>
+      </div>
+    `;
+  }
+
+  let mappingsPanel = '';
+  if (integ && integ.connected) {
+    const mappingByFolderId = Object.fromEntries(
+      mappings.map((m) => [m.driveFolderId, m]),
+    );
+    const clientOptionsHtml = (selectedId) => {
+      const head = `<option value="">— 顧問先を選択 —</option>`;
+      const rest = (clients || [])
+        .map(
+          (c) =>
+            `<option value="${escapeHtml(c.id)}"${c.id === selectedId ? ' selected' : ''}>${escapeHtml(c.name)}</option>`,
+        )
+        .join('');
+      return head + rest;
+    };
+
+    const folderRows = folders
+      .map((f) => {
+        const existing = mappingByFolderId[f.id];
+        return `
+        <tr>
+          <td>${escapeHtml(f.name)}</td>
+          <td><code style="font-size:11px;">${escapeHtml(f.id)}</code></td>
+          <td>
+            <select data-drive-mapping-select="${escapeHtml(f.id)}" data-drive-folder-name="${escapeHtml(f.name)}">
+              ${clientOptionsHtml(existing?.clientId)}
+            </select>
+          </td>
+          <td>
+            <button class="primary-btn" data-drive-mapping-save="${escapeHtml(f.id)}">保存</button>
+            ${existing ? `<button class="ghost-btn" data-drive-mapping-delete="${escapeHtml(existing.id)}" title="解除">×</button>` : ''}
+          </td>
+        </tr>
+      `;
+      })
+      .join('');
+
+    const orphanRows = mappings
+      .filter((m) => !folders.find((f) => f.id === m.driveFolderId))
+      .map(
+        (m) => `
+          <tr>
+            <td>${escapeHtml(m.folderName)} <span class="muted">(未表示)</span></td>
+            <td><code style="font-size:11px;">${escapeHtml(m.driveFolderId)}</code></td>
+            <td>${escapeHtml((clients || []).find((c) => c.id === m.clientId)?.name || m.clientId)}</td>
+            <td><button class="ghost-btn" data-drive-mapping-delete="${escapeHtml(m.id)}">×</button></td>
+          </tr>
+        `,
+      )
+      .join('');
+
+    mappingsPanel = `
+      <div class="integration-panel drive-folder-mappings">
+        <h3>フォルダ → 顧問先 mapping</h3>
+        <p class="muted">ルートフォルダ直下のサブフォルダを zeimee の顧問先に割り当てます。割当てたフォルダに画像を入れると Voucher として取り込まれます。</p>
+        ${
+          folders.length === 0 && orphanRows.length === 0
+            ? '<p class="muted">サブフォルダが見つかりません。ルートフォルダ ID を確認してください。</p>'
+            : `<table class="drive-mappings-table">
+              <thead>
+                <tr><th>フォルダ名</th><th>Drive ID</th><th>顧問先</th><th></th></tr>
+              </thead>
+              <tbody>${folderRows}${orphanRows}</tbody>
+            </table>`
+        }
+      </div>
+    `;
+  }
+
+  let syncPanel = '';
+  if (integ && integ.connected) {
+    const lastHtml = last
+      ? `<ul class="muted" style="margin:8px 0 0; padding-left:16px; font-size:12px;">
+          <li>imported: <strong>${last.imported ?? 0}</strong></li>
+          <li>skipped: <strong>${last.skipped ?? 0}</strong></li>
+          <li>failed: <strong>${last.failed ?? 0}</strong></li>
+          <li>pageToken: <code>${escapeHtml(last.lastPageToken || last.pageToken || '—')}</code></li>
+        </ul>`
+      : '<p class="muted" style="font-size:12px;">まだ同期されていません。</p>';
+    syncPanel = `
+      <div class="integration-panel drive-sync">
+        <h3>同期</h3>
+        <button class="primary-btn" data-drive-action="sync">今すぐ同期</button>
+        ${lastHtml}
+      </div>
+    `;
+  }
+
+  return `
+    <section class="integrations-drive">
+      ${connectionPanel}
+      ${mappingsPanel}
+      ${syncPanel}
+    </section>
+  `;
 }
 
-function escapeHtmlLine(s) {
-  return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
+// -----------------------------------------------------------------------------
+// Spec 16: LINE integration view
+// -----------------------------------------------------------------------------
 function renderIntegrationsLine() {
   const integ = appState.lineIntegration;
   const users = appState.lineUsers || [];
+  const verify = appState.lineVerifyResult;
 
-  // Load data async then re-render if not yet loaded
-  if (!integ) {
-    fetch('/api/integrations/line')
-      .then((r) => r.json())
-      .then((data) => {
-        appState.lineIntegration = data;
-        return loadLineUsers();
-      })
-      .then(() => { if (appState.activeView === 'integrations-line') renderView(); })
-      .catch(() => {});
-    return '<section class="integration-line-view"><p>読み込み中…</p></section>';
+  const connected = !!(integ && integ.connected);
+  const statusBadgeClass = connected ? 'ok' : 'warn';
+  const statusText = connected ? 'connected' : 'not configured';
+  const webhookUrl = integ?.webhookUrl || '';
+  const channelId = integ?.channelId || '';
+
+  let verifyHtml = '';
+  if (verify) {
+    if (verify.ok) {
+      const botName =
+        verify.botInfo?.displayName || verify.botInfo?.basicId || '';
+      verifyHtml = `
+        <p class="muted" style="margin-top:8px; font-size:12px;">
+          <span class="integration-status-badge ok">疎通 OK</span>
+          ${botName ? escapeHtml(botName) : ''}
+        </p>
+      `;
+    } else {
+      verifyHtml = `
+        <p class="muted" style="margin-top:8px; font-size:12px;">
+          <span class="integration-status-badge error">疎通 NG</span>
+          ${escapeHtml(verify.message || '不明なエラー')}
+        </p>
+      `;
+    }
   }
 
-  let connHtml;
-  if (!integ.connected) {
-    connHtml =
-      '<div class="integration-line-connection">' +
-      '<h2>LINE 公式アカウント連携</h2>' +
-      '<p>未接続です。<code>.env</code> に <code>LINE_CHANNEL_ACCESS_TOKEN</code> / <code>LINE_CHANNEL_SECRET</code> を設定してください。</p>' +
-      '</div>';
+  const connectionPanel = `
+    <div class="integration-panel integration-line-connection">
+      <h3>接続状態</h3>
+      <p>
+        <span class="integration-status-badge ${statusBadgeClass}">${statusText}</span>
+      </p>
+      <p class="muted" style="font-size:12px;">
+        Channel ID: <code>${escapeHtml(channelId || '未設定')}</code>
+      </p>
+      <p class="muted" style="font-size:12px;">
+        友だち: <strong>${integ?.userCount ?? 0}</strong> 人 / 有効: <strong>${integ?.enabledUserCount ?? 0}</strong> 人
+      </p>
+      <div style="margin-top:8px;">
+        <label style="display:block; font-size:12px; margin-bottom:4px;">Webhook URL</label>
+        <div style="display:flex; gap:6px; align-items:center;">
+          <input type="text" id="lineWebhookUrl" readonly value="${escapeHtml(webhookUrl || '(LINE_WEBHOOK_BASE_URL を設定してください)')}"
+                 style="flex:1; padding:6px 8px; font-family:monospace; font-size:11px;" />
+          <button class="ghost-btn" data-line-action="copy-webhook">コピー</button>
+        </div>
+      </div>
+      <div style="margin-top:12px;">
+        <button class="primary-btn" data-line-action="verify"${connected ? '' : ' disabled'}>接続テスト</button>
+      </div>
+      ${verifyHtml}
+      <details style="margin-top:12px;">
+        <summary style="cursor:pointer; font-size:12px; color:#374151;">LINE Developers Console での設定手順</summary>
+        <ol style="font-size:12px; color:#4b5563; padding-left:18px; margin-top:8px;">
+          <li>LINE Developers Console で Messaging API チャネルを作成し、Channel ID / secret / access token を取得</li>
+          <li>取得した値を <code>.env</code> の <code>LINE_CHANNEL_ID</code> / <code>LINE_CHANNEL_SECRET</code> / <code>LINE_CHANNEL_ACCESS_TOKEN</code> に設定</li>
+          <li>このページの Webhook URL を console の Webhook URL に貼り付けて検証</li>
+          <li>「Webhook 送信」を ON、「応答メッセージ」を OFF にする</li>
+        </ol>
+      </details>
+    </div>
+  `;
+
+  let usersPanel;
+  if (users.length === 0) {
+    usersPanel = `
+      <div class="integration-panel line-user-mappings">
+        <h3>LINE ユーザ</h3>
+        <p class="muted">友だち追加されると自動で行が追加されます（最初は無効状態）。</p>
+      </div>
+    `;
   } else {
-    const webhook = integ.webhookUrl ?? '(LINE_WEBHOOK_BASE_URL 未設定)';
-    const verifyHtml = appState.lineVerifyResult
-      ? appState.lineVerifyResult.ok
-        ? `<p style="color:#06c755;">✓ 接続テスト成功: ${escapeHtmlLine(appState.lineVerifyResult.botInfo?.displayName ?? '')} (${escapeHtmlLine(appState.lineVerifyResult.botInfo?.basicId ?? '')})</p>`
-        : `<p style="color:#c00;">✗ ${escapeHtmlLine(appState.lineVerifyResult.message ?? '')}</p>`
-      : '';
-    connHtml =
-      '<div class="integration-line-connection">' +
-      '<h2>LINE 公式アカウント連携</h2>' +
-      `<p>状態: 接続済 (channelId: ${escapeHtmlLine(integ.channelId ?? '-')}, ユーザ ${integ.enabledUserCount}/${integ.userCount} 有効)</p>` +
-      `<p>Webhook URL: <code id="line-webhook-url">${escapeHtmlLine(webhook)}</code> <button id="line-copy-webhook" class="btn btn-sm">コピー</button></p>` +
-      '<button id="line-verify" class="btn btn-primary">接続テスト</button>' +
-      verifyHtml +
-      '<h3>Console 設定手順</h3>' +
-      '<ol>' +
-        '<li>LINE Developers Console で Messaging API channel の "Webhook URL" に上記 URL をペースト</li>' +
-        '<li>"Use webhook" を ON</li>' +
-        '<li>"Auto-reply messages" を OFF</li>' +
-        '<li>友だち追加用の Basic ID / QR をスタッフに共有</li>' +
-      '</ol>' +
-      '</div>';
+    const rows = users
+      .map(
+        (u) => `
+          <tr>
+            <td>
+              ${escapeHtml(u.displayName || '(no name)')}
+              <div class="muted" style="font-size:10px;">${escapeHtml(u.lineUserId || '')}</div>
+            </td>
+            <td>
+              <input type="text" value="${escapeHtml(u.staffLabel || '')}"
+                     data-line-user-staff-label="${escapeHtml(u.id)}"
+                     placeholder="スタッフ名"
+                     style="width:120px; padding:4px 6px; font-size:12px;" />
+            </td>
+            <td>
+              <label style="display:inline-flex; align-items:center; gap:4px;">
+                <input type="checkbox" data-line-user-enabled="${escapeHtml(u.id)}" ${u.enabled ? 'checked' : ''} />
+                <span style="font-size:11px;">${u.enabled ? '有効' : '無効'}</span>
+              </label>
+            </td>
+            <td><button class="ghost-btn" data-line-user-delete="${escapeHtml(u.id)}">削除</button></td>
+          </tr>
+        `,
+      )
+      .join('');
+    usersPanel = `
+      <div class="integration-panel line-user-mappings">
+        <h3>LINE ユーザ (${users.length} 人)</h3>
+        <p class="muted">スタッフ名を編集し、有効にすると画像送信が受け付けられます。</p>
+        <table class="line-users-table">
+          <thead>
+            <tr><th>表示名</th><th>スタッフ名</th><th>有効</th><th></th></tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    `;
   }
 
-  let usersHtml;
-  if (!integ.connected) {
-    usersHtml = '';
-  } else if (users.length === 0) {
-    usersHtml =
-      '<div class="line-user-mappings">' +
-      '<h2>スタッフ一覧</h2>' +
-      '<p>友だち追加されると自動で行が追加されます（最初は無効状態）。所長が承認するまで画像は受け付けられません。</p>' +
-      '</div>';
-  } else {
-    const rows = users.map(
-      (u) =>
-        `<div class="line-user-row" data-user-id="${escapeHtmlLine(u.id)}">` +
-        `<span>${escapeHtmlLine(u.displayName)} <small style="color:#888">${escapeHtmlLine(u.lineUserId)}</small></span>` +
-        `<input type="text" class="line-user-label" placeholder="ラベル (例: 所長)" value="${escapeHtmlLine(u.staffLabel ?? '')}">` +
-        `<label><input type="checkbox" class="line-user-enabled" ${u.enabled ? 'checked' : ''}> 有効</label>` +
-        `<button class="line-user-delete btn btn-sm btn-danger">削除</button>` +
-        `</div>`,
-    ).join('');
-    usersHtml =
-      '<div class="line-user-mappings">' +
-      '<h2>スタッフ一覧</h2>' +
-      rows +
-      '</div>';
-  }
-
-  return `<section class="integration-line-view">${connHtml}${usersHtml}</section>`;
-}
-
-async function loadLineUsers() {
-  try {
-    const res = await fetch('/api/integrations/line/users');
-    appState.lineUsers = res.ok ? await res.json() : [];
-  } catch {
-    appState.lineUsers = [];
-  }
-}
-
-async function verifyLineConnection() {
-  try {
-    const res = await fetch('/api/integrations/line/verify', { method: 'POST' });
-    appState.lineVerifyResult = await res.json();
-  } catch (err) {
-    appState.lineVerifyResult = { ok: false, message: String(err) };
-  }
-  renderView();
-}
-
-async function updateLineUser(id, body) {
-  try {
-    await fetch(`/api/integrations/line/users/${id}`, {
-      method: 'PATCH',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    appState.lineIntegration = null; // reset so it reloads
-    renderView();
-  } catch (err) {
-    showToast(friendlyError(err));
-  }
-}
-
-async function deleteLineUserById(id) {
-  if (!confirm('このユーザを削除します')) return;
-  try {
-    await fetch(`/api/integrations/line/users/${id}`, { method: 'DELETE' });
-    appState.lineIntegration = null; // reset so it reloads
-    renderView();
-  } catch (err) {
-    showToast(friendlyError(err));
-  }
+  return `
+    <section class="integrations-line">
+      ${connectionPanel}
+      ${usersPanel}
+    </section>
+  `;
 }
 
 function renderView() {
@@ -2784,22 +2936,117 @@ function renderView() {
       });
     });
   }
-  if (appState.activeView === 'integrations-line') {
-    document.getElementById('line-copy-webhook')?.addEventListener('click', () => {
-      const webhook = appState.lineIntegration?.webhookUrl ?? '';
-      navigator.clipboard.writeText(webhook).catch(() => {});
+  if (appState.activeView === 'integrations-drive') {
+    // Initial load: fetch status, then (if connected) folders + mappings.
+    if (!appState.driveLoadedAt) {
+      appState.driveLoadedAt = Date.now();
+      (async () => {
+        await loadDriveStatus();
+        if (appState.driveIntegration?.connected) {
+          await Promise.all([loadDriveMappings(), loadDriveFolders()]);
+        }
+        renderView();
+      })();
+    }
+    // Wire connection panel actions
+    viewContent.querySelectorAll('[data-drive-action]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const action = btn.dataset.driveAction;
+        if (action === 'sync') {
+          triggerDriveSync();
+        } else if (action === 'disconnect') {
+          disconnectDrive();
+        } else if (action === 'save-settings') {
+          const rootEl = document.getElementById('driveRootFolderId');
+          const impEl = document.getElementById('driveImportedSubfolderName');
+          saveDriveSettings(rootEl?.value || '', impEl?.value || '');
+        }
+      });
     });
-    document.getElementById('line-verify')?.addEventListener('click', verifyLineConnection);
-    viewContent.querySelectorAll('.line-user-row').forEach((row) => {
-      const userId = row.dataset.userId;
-      row.querySelector('.line-user-label')?.addEventListener('change', (e) => {
-        updateLineUser(userId, { staffLabel: e.target.value });
+    // Mapping save buttons
+    viewContent.querySelectorAll('[data-drive-mapping-save]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const folderId = btn.dataset.driveMappingSave;
+        const sel = viewContent.querySelector(
+          `[data-drive-mapping-select="${CSS.escape(folderId)}"]`,
+        );
+        const clientId = sel?.value || '';
+        const folderName = sel?.dataset.driveFolderName || folderId;
+        if (!clientId) {
+          showToast('顧問先を選んでください');
+          return;
+        }
+        saveDriveMapping(folderId, folderName, clientId);
       });
-      row.querySelector('.line-user-enabled')?.addEventListener('change', (e) => {
-        updateLineUser(userId, { enabled: e.target.checked });
+    });
+    // Mapping delete buttons
+    viewContent.querySelectorAll('[data-drive-mapping-delete]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        deleteDriveMapping(btn.dataset.driveMappingDelete);
       });
-      row.querySelector('.line-user-delete')?.addEventListener('click', () => {
-        deleteLineUserById(userId);
+    });
+  }
+  if (appState.activeView === 'integrations-line') {
+    // Initial load: fetch status + users.
+    if (!appState.lineLoadedAt) {
+      appState.lineLoadedAt = Date.now();
+      (async () => {
+        await Promise.all([loadLineStatus(), loadLineUsers()]);
+        renderView();
+      })();
+    }
+    // Wire connection panel actions
+    viewContent.querySelectorAll('[data-line-action]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const action = btn.dataset.lineAction;
+        if (action === 'verify') {
+          verifyLine();
+        } else if (action === 'copy-webhook') {
+          const webhook = appState.lineIntegration?.webhookUrl ?? '';
+          if (!webhook) {
+            showToast('Webhook URL が未設定です');
+            return;
+          }
+          if (navigator.clipboard?.writeText) {
+            navigator.clipboard
+              .writeText(webhook)
+              .then(() => showToast('コピーしました'))
+              .catch(() => showToast('コピーできませんでした'));
+          } else {
+            const input = document.getElementById('lineWebhookUrl');
+            if (input) {
+              input.select();
+              document.execCommand('copy');
+              showToast('コピーしました');
+            }
+          }
+        }
+      });
+    });
+    // User rows: staffLabel change
+    viewContent
+      .querySelectorAll('[data-line-user-staff-label]')
+      .forEach((inp) => {
+        inp.addEventListener('change', () => {
+          updateLineUser(inp.dataset.lineUserStaffLabel, {
+            staffLabel: inp.value || null,
+          });
+        });
+      });
+    // User rows: enabled toggle
+    viewContent
+      .querySelectorAll('[data-line-user-enabled]')
+      .forEach((cb) => {
+        cb.addEventListener('change', () => {
+          updateLineUser(cb.dataset.lineUserEnabled, {
+            enabled: cb.checked,
+          });
+        });
+      });
+    // User rows: delete
+    viewContent.querySelectorAll('[data-line-user-delete]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        deleteLineUser(btn.dataset.lineUserDelete);
       });
     });
   }
@@ -3029,6 +3276,9 @@ document.querySelectorAll(".nav-item").forEach((button) => {
     if (!button.dataset.view) return;
     appState.activeView = button.dataset.view;
     appState.activeFilter = "all";
+    // Reset integration-view load guards so each nav re-fetches fresh status.
+    if (appState.activeView === "integrations-drive") appState.driveLoadedAt = null;
+    if (appState.activeView === "integrations-line") appState.lineLoadedAt = null;
     render();
   });
 });
@@ -3041,6 +3291,25 @@ $("#searchInput").addEventListener("input", (event) => {
   appState.search = event.target.value.trim();
   renderView();
 });
+
+// Hash routing: OAuth callbacks redirect to `/#/integrations/drive`. Translate
+// known hashes to the matching view so the user lands on the right page.
+function applyHashRoute() {
+  const h = (typeof location !== "undefined" && location.hash) || "";
+  const map = {
+    "#/integrations/drive": "integrations-drive",
+    "#/integrations/line": "integrations-line",
+  };
+  const target = map[h];
+  if (target && appState.activeView !== target) {
+    appState.activeView = target;
+    appState.driveLoadedAt = null;
+    appState.lineLoadedAt = null;
+    render();
+  }
+}
+window.addEventListener("hashchange", applyHashRoute);
+applyHashRoute();
 
 // Spec 05 F1: mode toggle
 document.querySelectorAll("#modeToggle .mode-btn").forEach((btn) => {
