@@ -1,0 +1,29 @@
+# Cloud Build config: build the production image using server/Dockerfile.prod.
+# Tag with the short SHA so each commit produces a distinct revision.
+# Trigger with:
+#   gcloud builds submit --config cloudbuild.yaml \
+#     --substitutions=_REGION=asia-northeast1,_REPO=zeimee,_PROJECT=$PROJECT_ID
+steps:
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - server/Dockerfile.prod
+      - -t
+      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/server:${SHORT_SHA}
+      - -t
+      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/server:latest
+      - .
+  - id: push-sha
+    name: gcr.io/cloud-builders/docker
+    args: [push, '${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/server:${SHORT_SHA}']
+  - id: push-latest
+    name: gcr.io/cloud-builders/docker
+    args: [push, '${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/server:latest']
+substitutions:
+  _REGION: asia-northeast1
+  _REPO: zeimee
+  _PROJECT: ''
+options:
+  logging: CLOUD_LOGGING_ONLY
