@@ -274,3 +274,89 @@ describe('POST /api/vouchers/:id/ocr', () => {
     expect(res.json().error.code).toBe('NOT_FOUND');
   });
 });
+
+describe('PATCH /api/vouchers/:id', () => {
+  it('updates clientId and schedules rematch', async () => {
+    const created = await prisma.voucher.create({
+      data: {
+        clientId: null,
+        filename: 'p.jpg',
+        mimeType: 'image/jpeg',
+        size: 1,
+        imageData: Buffer.from([0xff]),
+      },
+    });
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/vouchers/${created.id}`,
+      payload: { clientId: 'shibuya-cafe' },
+      headers: { 'content-type': 'application/json' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true });
+    const row = await prisma.voucher.findUnique({ where: { id: created.id } });
+    expect(row?.clientId).toBe('shibuya-cafe');
+    expect(row?.matchedClientReason).toBe('manual');
+  });
+
+  it('clears clientId when body has clientId=null', async () => {
+    const created = await prisma.voucher.create({
+      data: {
+        clientId: 'shibuya-cafe',
+        filename: 'p.jpg',
+        mimeType: 'image/jpeg',
+        size: 1,
+        imageData: Buffer.from([0xff]),
+      },
+    });
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/vouchers/${created.id}`,
+      payload: { clientId: null },
+      headers: { 'content-type': 'application/json' },
+    });
+    expect(res.statusCode).toBe(200);
+    const row = await prisma.voucher.findUnique({ where: { id: created.id } });
+    expect(row?.clientId).toBeNull();
+  });
+
+  it('returns 404 for unknown id', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/vouchers/does-not-exist',
+      payload: { clientId: 'shibuya-cafe' },
+      headers: { 'content-type': 'application/json' },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe('NOT_FOUND');
+  });
+});
+
+describe('POST /api/vouchers/:id/match', () => {
+  it('returns 202 for existing voucher', async () => {
+    const created = await prisma.voucher.create({
+      data: {
+        clientId: null,
+        filename: 'm.jpg',
+        mimeType: 'image/jpeg',
+        size: 1,
+        imageData: Buffer.from([0xff]),
+      },
+    });
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/vouchers/${created.id}/match`,
+    });
+    expect(res.statusCode).toBe(202);
+    expect(res.json()).toEqual({ ok: true });
+  });
+
+  it('returns 404 for unknown id', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/vouchers/does-not-exist/match',
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe('NOT_FOUND');
+  });
+});

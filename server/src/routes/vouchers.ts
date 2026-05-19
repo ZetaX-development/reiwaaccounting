@@ -6,7 +6,25 @@ import {
   deleteVoucher,
   runOcrForVoucher,
 } from '../services/voucher-service.js';
+import { findMatchForVoucher } from '../services/matching-service.js';
 import { prisma } from '../lib/prisma.js';
+
+async function runMatchAndPersist(id: string): Promise<void> {
+  const m = await findMatchForVoucher(id);
+  const exists = await prisma.voucher.findUnique({
+    where: { id },
+    select: { id: true },
+  });
+  if (!exists) return;
+  await prisma.voucher.update({
+    where: { id },
+    data: {
+      matchStatus: m.status,
+      matchedEntryId: m.matchedEntryId,
+      matchedAt: new Date(),
+    },
+  });
+}
 
 const ALLOWED_MIMES = new Set([
   'image/jpeg',
@@ -135,6 +153,48 @@ export async function voucherRoutes(app: FastifyInstance) {
       }
       setImmediate(() => {
         runOcrForVoucher(req.params.id).catch(() => {});
+      });
+      reply.code(202);
+      return { ok: true };
+    },
+  );
+
+  app.patch<{
+    Params: { id: string };
+    Body: { clientId?: string | null };
+  }>('/api/vouchers/:id', async (req, reply) => {
+    const row = await prisma.voucher.findUnique({
+      where: { id: req.params.id },
+      select: { id: true },
+    });
+    if (!row) {
+      reply.code(404);
+      return { error: { code: 'NOT_FOUND', message: 'voucher not found' } };
+    }
+    const newClientId = req.body?.clientId ?? null;
+    await prisma.voucher.update({
+      where: { id: req.params.id },
+      data: { clientId: newClientId, matchedClientReason: 'manual' },
+    });
+    setImmediate(() => {
+      runMatchAndPersist(req.params.id).catch(() => {});
+    });
+    return { ok: true };
+  });
+
+  app.post<{ Params: { id: string } }>(
+    '/api/vouchers/:id/match',
+    async (req, reply) => {
+      const row = await prisma.voucher.findUnique({
+        where: { id: req.params.id },
+        select: { id: true },
+      });
+      if (!row) {
+        reply.code(404);
+        return { error: { code: 'NOT_FOUND', message: 'voucher not found' } };
+      }
+      setImmediate(() => {
+        runMatchAndPersist(req.params.id).catch(() => {});
       });
       reply.code(202);
       return { ok: true };
