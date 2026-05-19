@@ -55,11 +55,24 @@ describe('generateDraftJournal', () => {
         {
           message: {
             content: JSON.stringify({
-              account: '接待交際費',
-              taxClass: '課税仕入10%',
-              description: '取引先との会食',
-              amount: 12000,
-              occurredAt: '2026-05-15',
+              transactionDate: '2026-05-15',
+              debit: {
+                account: '接待交際費',
+                subAccount: null,
+                partner: 'ハラペコステーキ',
+                taxClass: '課税仕入10%',
+                invoiceNumber: 'T1234567890123',
+                amount: 12000,
+              },
+              credit: {
+                account: '現金',
+                subAccount: null,
+                partner: null,
+                taxClass: '対象外',
+                invoiceNumber: null,
+                amount: 12000,
+              },
+              description: 'ハラペコステーキ — 取引先との会食',
               missingFields: [],
               reasoning: '請求書の宛名と業種から会食と判断',
             }),
@@ -76,11 +89,10 @@ describe('generateDraftJournal', () => {
     const row = await prisma.voucher.findUnique({ where: { id } });
     expect(row?.journalStatus).toBe('drafted');
     expect(row?.draftJournalJson).toMatchObject({
-      account: '接待交際費',
-      taxClass: '課税仕入10%',
-      description: '取引先との会食',
-      amount: 12000,
-      occurredAt: '2026-05-15',
+      transactionDate: '2026-05-15',
+      debit: { account: '接待交際費', amount: 12000 },
+      credit: { account: '現金', amount: 12000 },
+      description: 'ハラペコステーキ — 取引先との会食',
       missingFields: [],
     });
 
@@ -103,11 +115,24 @@ describe('generateDraftJournal', () => {
         {
           message: {
             content: JSON.stringify({
-              account: '接待交際費',
-              taxClass: '課税仕入10%',
-              description: '会食',
-              amount: 8000,
-              occurredAt: '2026-05-15',
+              transactionDate: '2026-05-15',
+              debit: {
+                account: '接待交際費',
+                subAccount: null,
+                partner: 'ハラペコステーキ',
+                taxClass: '課税仕入10%',
+                invoiceNumber: null,
+                amount: 8000,
+              },
+              credit: {
+                account: '現金',
+                subAccount: null,
+                partner: null,
+                taxClass: '対象外',
+                invoiceNumber: null,
+                amount: 8000,
+              },
+              description: 'ハラペコステーキ — 会食 (要確認)',
               missingFields: ['参加者'],
               reasoning: '宛名なし',
             }),

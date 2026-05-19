@@ -2540,3 +2540,95 @@ textarea {
   background: #047857;
   color: #fff;
 }
+
+/* === MF-style draft journal table === */
+.matching-draft-mf-meta {
+  display: flex;
+  gap: 24px;
+  font-size: 11px;
+  color: #4b5563;
+  margin-bottom: 8px;
+}
+
+.matching-draft-mf-meta .matching-draft-label {
+  margin-right: 4px;
+}
+
+.matching-draft-mf-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.matching-draft-mf-table th,
+.matching-draft-mf-table td {
+  border: 1px solid #e5e7eb;
+  padding: 4px 6px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.matching-draft-mf-table thead th {
+  background: #f3f4f6;
+  font-weight: 600;
+  color: #374151;
+  font-size: 10px;
+}
+
+.matching-draft-mf-table .row-debit {
+  background: #fef9f3;
+}
+
+.matching-draft-mf-table .row-credit {
+  background: #f0f9ff;
+}
+
+.matching-draft-mf-table .row-debit > th,
+.matching-draft-mf-table .row-credit > th {
+  font-weight: 600;
+  width: 40px;
+}
+
+.matching-draft-mf-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* === MF-style approved drafts table (jobs-journal view) === */
+.mf-draft-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.mf-draft-table th,
+.mf-draft-table td {
+  border: 1px solid #e5e7eb;
+  padding: 4px 6px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.mf-draft-table .th-debit {
+  background: #fef9f3;
+  color: #9a3412;
+  text-align: center;
+}
+
+.mf-draft-table .th-credit {
+  background: #f0f9ff;
+  color: #075985;
+  text-align: center;
+}
+
+.mf-draft-table .mf-sub-header th {
+  background: #f9fafb;
+  font-size: 10px;
+  font-weight: 500;
+  color: #6b7280;
+}
+
+.mf-draft-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}

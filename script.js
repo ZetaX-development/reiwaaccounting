@@ -1717,24 +1717,70 @@ async function loadApprovedDraftsIntoSlot(clientId) {
       slot.innerHTML = '';
       return;
     }
+    const cell = (s) => (s ? escapeHtml(String(s)) : '-');
+    const yen = (n) =>
+      n != null ? '¥' + Number(n).toLocaleString('ja-JP') : '-';
     let html = '<section style="margin-top:24px">';
-    html += '<p class="eyebrow">承認済み仕訳ドラフト (zeimee 側、' + approved.length + ' 件)</p>';
-    html += '<div class="table-wrap"><table><thead><tr>';
-    html += '<th>日付</th><th>科目</th><th>摘要</th><th>金額</th><th>税区分</th><th>証憑</th>';
+    html +=
+      '<p class="eyebrow">承認済み仕訳ドラフト (MF 形式、zeimee 側、' +
+      approved.length +
+      ' 件)</p>';
+    html += '<div class="table-wrap"><table class="mf-draft-table"><thead><tr>';
+    html +=
+      '<th>取引No</th><th>取引日</th>' +
+      '<th colspan="6" class="th-debit">借方</th>' +
+      '<th colspan="6" class="th-credit">貸方</th>' +
+      '<th>摘要</th><th>証憑</th>';
+    html += '</tr><tr class="mf-sub-header">';
+    html += '<th></th><th></th>';
+    html += '<th>勘定科目</th><th>補助</th><th>取引先</th><th>税区分</th><th>インボイス</th><th>金額</th>';
+    html += '<th>勘定科目</th><th>補助</th><th>取引先</th><th>税区分</th><th>インボイス</th><th>金額</th>';
+    html += '<th></th><th></th>';
     html += '</tr></thead><tbody>';
+    let no = 1;
     for (const v of approved) {
       const d = v.draftJournalJson || {};
+      const debit = d.debit || {
+        account: d.account,
+        subAccount: null,
+        partner: null,
+        taxClass: d.taxClass,
+        invoiceNumber: null,
+        amount: d.amount,
+      };
+      const credit = d.credit || {
+        account: '現金',
+        subAccount: null,
+        partner: null,
+        taxClass: '対象外',
+        invoiceNumber: null,
+        amount: d.amount,
+      };
+      const txDate = d.transactionDate || d.occurredAt || '-';
       html += '<tr>';
-      html += '<td>' + escapeHtml(d.occurredAt || '-') + '</td>';
-      html += '<td><strong>' + escapeHtml(d.account || '-') + '</strong></td>';
-      html += '<td>' + escapeHtml(d.description || '-') + '</td>';
-      html += '<td style="text-align:right">¥' + (d.amount != null ? Number(d.amount).toLocaleString('ja-JP') : '-') + '</td>';
-      html += '<td>' + escapeHtml(d.taxClass || '-') + '</td>';
-      html += '<td><a href="/api/vouchers/' + v.id + '/image" target="_blank">画像</a></td>';
+      html += '<td>' + no + '</td>';
+      html += '<td>' + cell(txDate) + '</td>';
+      html += '<td>' + cell(debit.account) + '</td>';
+      html += '<td>' + cell(debit.subAccount) + '</td>';
+      html += '<td>' + cell(debit.partner) + '</td>';
+      html += '<td>' + cell(debit.taxClass) + '</td>';
+      html += '<td>' + cell(debit.invoiceNumber) + '</td>';
+      html += '<td class="num">' + yen(debit.amount) + '</td>';
+      html += '<td>' + cell(credit.account) + '</td>';
+      html += '<td>' + cell(credit.subAccount) + '</td>';
+      html += '<td>' + cell(credit.partner) + '</td>';
+      html += '<td>' + cell(credit.taxClass) + '</td>';
+      html += '<td>' + cell(credit.invoiceNumber) + '</td>';
+      html += '<td class="num">' + yen(credit.amount) + '</td>';
+      html += '<td>' + cell(d.description) + '</td>';
+      html +=
+        '<td><a href="/api/vouchers/' + v.id + '/image" target="_blank">画像</a></td>';
       html += '</tr>';
+      no += 1;
     }
     html += '</tbody></table></div>';
-    html += '<small class="sync-fresh">zeimee で生成・承認されたドラフト。MF にはまだ転記されていません（手動入力してください）。</small>';
+    html +=
+      '<small class="sync-fresh">zeimee で生成・承認されたドラフト。MF にはまだ転記されていません（手動入力してください）。</small>';
     html += '</section>';
     slot.innerHTML = html;
   } catch (_err) {
@@ -2033,15 +2079,15 @@ function renderMatchingResults() {
         dj &&
         (js === 'drafted' || js === 'needs_info' || js === 'inquired' || js === 'approved')
       ) {
-        const account = dj.account ? escapeHtml(String(dj.account)) : '—';
-        const taxClass = dj.taxClass ? escapeHtml(String(dj.taxClass)) : '—';
+        // Spec 14 (MF-style 借方/貸方): dj は debit/credit/transactionDate/description.
+        // 旧フォーマット (account/amount/taxClass/occurredAt) で残ってる古いレコードも一応サポート。
+        const debit = dj.debit || { account: dj.account, amount: dj.amount, taxClass: dj.taxClass, partner: dj.vendor_name, invoiceNumber: null, subAccount: null };
+        const credit = dj.credit || { account: '現金', amount: dj.amount, taxClass: '対象外', partner: null, invoiceNumber: null, subAccount: null };
+        const txDate = dj.transactionDate || dj.occurredAt || '—';
         const description = dj.description ? escapeHtml(String(dj.description)) : '—';
-        const occurred = dj.occurredAt ? escapeHtml(String(dj.occurredAt)) : '—';
         const missing = Array.isArray(dj.missingFields) ? dj.missingFields : [];
-        const draftAmount =
-          dj.amount != null
-            ? '¥' + Number(dj.amount).toLocaleString('ja-JP')
-            : '—';
+        const yen = (n) => n != null ? '¥' + Number(n).toLocaleString('ja-JP') : '—';
+        const cell = (s) => s ? escapeHtml(String(s)) : '—';
         const statusBadge =
           js === 'approved'
             ? '<span class="matching-draft-badge badge-approved">承認済</span>'
@@ -2062,14 +2108,38 @@ function renderMatchingResults() {
         draftHtml = `
           <div class="matching-draft">
             <div class="matching-draft-header">
-              📝 仕訳ドラフト ${statusBadge}
+              📝 仕訳ドラフト (MF 形式) ${statusBadge}
             </div>
-            <div class="matching-draft-grid">
-              <div class="matching-draft-row"><span class="matching-draft-label">勘定科目</span>${account}</div>
-              <div class="matching-draft-row"><span class="matching-draft-label">税区分</span>${taxClass}</div>
-              <div class="matching-draft-row"><span class="matching-draft-label">摘要</span>${description}</div>
-              <div class="matching-draft-row"><span class="matching-draft-label">金額</span>${draftAmount}</div>
-              <div class="matching-draft-row"><span class="matching-draft-label">発生日</span>${occurred}</div>
+            <div class="matching-draft-mf">
+              <div class="matching-draft-mf-meta">
+                <span><span class="matching-draft-label">取引日</span>${cell(txDate)}</span>
+                <span><span class="matching-draft-label">摘要</span>${description}</span>
+              </div>
+              <table class="matching-draft-mf-table">
+                <thead>
+                  <tr><th></th><th>勘定科目</th><th>補助</th><th>取引先</th><th>税区分</th><th>インボイス</th><th>金額</th></tr>
+                </thead>
+                <tbody>
+                  <tr class="row-debit">
+                    <th>借方</th>
+                    <td>${cell(debit.account)}</td>
+                    <td>${cell(debit.subAccount)}</td>
+                    <td>${cell(debit.partner)}</td>
+                    <td>${cell(debit.taxClass)}</td>
+                    <td>${cell(debit.invoiceNumber)}</td>
+                    <td class="num">${yen(debit.amount)}</td>
+                  </tr>
+                  <tr class="row-credit">
+                    <th>貸方</th>
+                    <td>${cell(credit.account)}</td>
+                    <td>${cell(credit.subAccount)}</td>
+                    <td>${cell(credit.partner)}</td>
+                    <td>${cell(credit.taxClass)}</td>
+                    <td>${cell(credit.invoiceNumber)}</td>
+                    <td class="num">${yen(credit.amount)}</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
             ${missingHtml}
             <div class="matching-draft-actions">
