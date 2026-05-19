@@ -1,4 +1,4 @@
-# Zeimee
+# Bookmee
 
 税理士事務所向け AI 月次レビュー SaaS のプロトタイプ。
 

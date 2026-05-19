@@ -19,7 +19,7 @@ const TEST_SECRET = 'integration-test-channel-secret';
 process.env.LINE_CHANNEL_ACCESS_TOKEN = 'test-token';
 process.env.LINE_CHANNEL_SECRET = TEST_SECRET;
 process.env.LINE_CHANNEL_ID = '1234567890';
-process.env.LINE_WEBHOOK_BASE_URL = 'https://zeimee.example.com';
+process.env.LINE_WEBHOOK_BASE_URL = 'https://bookmee.example.com';
 __resetEnvCache();
 
 const app = await buildApp();
@@ -120,7 +120,7 @@ describe('GET /api/integrations/line', () => {
     expect(body.connected).toBe(true);
     expect(body.channelId).toBe('1234567890');
     expect(body.webhookUrl).toBe(
-      'https://zeimee.example.com/api/integrations/line/webhook',
+      'https://bookmee.example.com/api/integrations/line/webhook',
     );
     expect(body.userCount).toBe(2);
     expect(body.enabledUserCount).toBe(1);

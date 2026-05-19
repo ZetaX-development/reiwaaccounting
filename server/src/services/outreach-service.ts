@@ -49,8 +49,8 @@ function composeBody(args: {
       ? missing.map((m) => `- ${m}`).join('\n')
       : '- (特になし)';
 
-  const subject = `[zeimee] 経費の追加情報のお願い (${vendor})`;
-  const body = `[zeimee] ${args.clientName} 様
+  const subject = `[bookmee] 経費の追加情報のお願い (${vendor})`;
+  const body = `[bookmee] ${args.clientName} 様
 
 お預かりした領収書について、以下の情報を教えていただけますでしょうか:
 

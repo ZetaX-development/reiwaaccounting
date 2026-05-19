@@ -1,8 +1,8 @@
 # Production image for GCP Cloud Run / App Engine Flex / GKE.
 # Multi-stage build keeps the final image small (no devDeps, no source maps,
 # no tests). Run with:
-#   docker build -f server/Dockerfile.prod -t zeimee:prod .
-#   docker run -e DATABASE_URL=... -p 8080:3000 zeimee:prod
+#   docker build -f server/Dockerfile.prod -t bookmee:prod .
+#   docker run -e DATABASE_URL=... -p 8080:3000 bookmee:prod
 
 # ---------- Stage 1: build ----------
 FROM node:20-alpine AS builder

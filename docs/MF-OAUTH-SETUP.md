@@ -3,7 +3,7 @@
 最終確認日: 2026-05-16
 仕様参照元: <https://developers.api-accounting.moneyforward.com/v3/openapi.yaml>
 
-zeimee は MF クラウド会計の **読み取り専用 API** を OAuth 2.0 で叩きます。書き込みは spec 08 の方針通り行いません。
+bookmee は MF クラウド会計の **読み取り専用 API** を OAuth 2.0 で叩きます。書き込みは spec 08 の方針通り行いません。
 
 ## ホスト構成
 
@@ -27,7 +27,7 @@ zeimee は MF クラウド会計の **読み取り専用 API** を OAuth 2.0 で
 
 `server/src/adapters/mf-api.ts` の `MF_SCOPES` に定義済み:
 
-| スコープ | 用途 | zeimee で使う場面 |
+| スコープ | 用途 | bookmee で使う場面 |
 |---|---|---|
 | `mfc/accounting/journal.read` | 仕訳の参照 | レビューセンター・差戻しの元データ |
 | `mfc/accounting/accounts.read` | 勘定科目・補助科目の参照 | 仕訳整形・分類表示 |
@@ -46,7 +46,7 @@ zeimee は MF クラウド会計の **読み取り専用 API** を OAuth 2.0 で
 公式手順: <https://biz.moneyforward.com/support/app-portal/guide/g011.html>
 
 1. MF クラウドにログインし、アプリポータルへ
-2. 「新規アプリ作成」で zeimee を登録
+2. 「新規アプリ作成」で bookmee を登録
 3. 「リダイレクト URI」に **実際の URL を一字一句一致** で登録:
    - 開発: `http://localhost:3000/api/mf/oauth/callback`
    - 本番: `https://your-domain.example.com/api/mf/oauth/callback`
@@ -61,19 +61,19 @@ MF_REDIRECT_URI=http://localhost:3000/api/mf/oauth/callback
 
 ## 接続フロー (顧問先 1 件あたり)
 
-zeimee 側 URL: `GET /api/mf/oauth/start?clientId=<zeimee_client_id>`
+bookmee 側 URL: `GET /api/mf/oauth/start?clientId=<bookmee_client_id>`
 
 ```
 ブラウザ
   │  GET /api/mf/oauth/start?clientId=aoyama-design
   ▼
-zeimee (302) → MF authorize URL (state=aoyama-design)
+bookmee (302) → MF authorize URL (state=aoyama-design)
   │
   ▼
 MF クラウド (ユーザがログイン+同意)
   │  302 → http://localhost:3000/api/mf/oauth/callback?code=...&state=aoyama-design
   ▼
-zeimee /callback
+bookmee /callback
   │  POST https://api.biz.moneyforward.com/token (code → access_token + refresh_token)
   │  GET  https://api-accounting.moneyforward.com/api/v3/offices (連携先確認)
   │  Prisma update Client { mfAccessToken, mfRefreshToken, mfTokenExpiresAt, mfExternalId }
@@ -81,7 +81,7 @@ zeimee /callback
 HTML "MF 連携完了" 画面表示
 ```
 
-## 取得対象エンドポイント (現状の zeimee 実装)
+## 取得対象エンドポイント (現状の bookmee 実装)
 
 `mf-api.ts` から実際に呼ぶのは以下。
 
@@ -105,7 +105,7 @@ GET /api/v3/offices
 
 ## まだ呼んでいないエンドポイント
 
-`/openapi.yaml` には以下が定義されていますが、現状の zeimee では未利用:
+`/openapi.yaml` には以下が定義されていますが、現状の bookmee では未利用:
 
 | パス | 用途 | 使う予定 |
 |---|---|---|
@@ -121,7 +121,7 @@ GET /api/v3/offices
 | `/api/v3/reports/transition_pl` | PL 推移表 | 同上 |
 | `/api/v3/connected_accounts` | 連携金融機関 | 同期元の表示 |
 | `/api/v3/term_settings` | 会計期間 | 期末日の自動取得 |
-| `/api/v3/vouchers` (POST/DELETE のみ) | 証憑添付 | zeimee は read-only なので非対象 |
+| `/api/v3/vouchers` (POST/DELETE のみ) | 証憑添付 | bookmee は read-only なので非対象 |
 | `/api/v3/transactions` (POST のみ) | 明細作成 | 同上 |
 
 ## 動作確認 (実トークン取得後)
@@ -136,7 +136,7 @@ open http://localhost:3000/api/mf/oauth/start?clientId=aoyama-design
 curl -X POST http://localhost:3000/api/clients/aoyama-design/sync
 
 # 4. DB を確認
-docker compose exec postgres psql -U zeimee -d zeimee \
+docker compose exec postgres psql -U bookmee -d bookmee \
   -c 'SELECT count(*) FROM "Entry" WHERE "clientId"=$$aoyama-design$$ AND source=$$mf$$;'
 ```
 

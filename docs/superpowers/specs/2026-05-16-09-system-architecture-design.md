@@ -54,7 +54,7 @@
 ## ディレクトリ構成（推奨）
 
 ```
-zeimee/
+bookmee/
 ├── index.html               # 既存維持
 ├── styles.css               # 既存維持
 ├── script.js                # 既存維持。fetch呼び出しに書き換え
@@ -407,7 +407,7 @@ MF_BASE_URL=https://invoice.moneyforward.com  # 実際のエンドポイント�
 
 # 通知
 SENDGRID_API_KEY=...
-EMAIL_FROM=zeimee@example.com
+EMAIL_FROM=bookmee@example.com
 
 SLACK_BOT_TOKEN=xoxb-...
 

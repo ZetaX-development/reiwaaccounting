@@ -28,7 +28,7 @@ describe('mfApiAdapter', () => {
 });
 
 describe('MF_SCOPES', () => {
-  it('only requests read-scopes (zeimee writes nothing back to MF)', () => {
+  it('only requests read-scopes (bookmee writes nothing back to MF)', () => {
     for (const s of MF_SCOPES) {
       expect(s.endsWith('.read')).toBe(true);
     }

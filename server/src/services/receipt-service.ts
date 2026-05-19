@@ -184,7 +184,7 @@ export async function generateReceiptRequest(
   const due = new Date(client.fiscalYearEnd);
   const subject = `${client.name} 様 月次資料のご確認のお願い`;
   const body =
-    `${client.name} ご担当者様\n\nいつもお世話になっております。zeimeeでございます。\n` +
+    `${client.name} ご担当者様\n\nいつもお世話になっております。bookmeeでございます。\n` +
     `月次処理にあたり、下記資料のご共有をお願いいたします。\n\n${lines.join('\n')}\n\n` +
     `恐れ入りますが、${due.toISOString().slice(0, 10)}までにご対応いただけますと幸いです。\n` +
     `何卒よろしくお願い申し上げます。`;

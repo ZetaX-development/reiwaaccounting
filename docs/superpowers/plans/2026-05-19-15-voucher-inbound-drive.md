@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** zeimee に Google Drive アカウントを 1 つ繋ぎ、サブフォルダを顧問先と手動 mapping し、画像レシートを自動取り込みする経路を実装する。Push Notification（本番）と手動「今すぐ同期」ボタン（開発）の両方をサポート。取り込んだ Voucher は spec 11/12 のパイプラインにそのまま乗る。
+**Goal:** bookmee に Google Drive アカウントを 1 つ繋ぎ、サブフォルダを顧問先と手動 mapping し、画像レシートを自動取り込みする経路を実装する。Push Notification（本番）と手動「今すぐ同期」ボタン（開発）の両方をサポート。取り込んだ Voucher は spec 11/12 のパイプラインにそのまま乗る。
 
 **Architecture:** `Integration`（汎用形、種別 string + creds Json）/ `DriveFolderMapping` / `DriveWatchChannel` の 3 テーブル + `Voucher` への 3 列追加。サーバは `integration-service.ts` / `drive-service.ts`（googleapis ラッパ）/ `drive-importer.ts`（同期処理本体）/ `routes/integrations-drive.ts` に分離。フロントは `data-view="integrations-drive"` を新規追加し既存 Vanilla JS パターンに乗せる。
 
@@ -759,7 +759,7 @@ export async function startWatch(opts: {
   webhookUrl: string;
 }): Promise<DriveWatchResult> {
   const d = driveClient(opts.accessToken);
-  const channelId = `zeimee-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  const channelId = `bookmee-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   const res = await d.changes.watch({
     pageToken: opts.pageToken,
     requestBody: {
@@ -2162,7 +2162,7 @@ describe('POST /api/integrations/drive/watch/renew', () => {
     const stopSpy = vi.spyOn(driveService, 'stopWatch').mockResolvedValue();
 
     // need GOOGLE_DRIVE_WEBHOOK_BASE_URL set
-    process.env.GOOGLE_DRIVE_WEBHOOK_BASE_URL = 'https://zeimee.example.com';
+    process.env.GOOGLE_DRIVE_WEBHOOK_BASE_URL = 'https://bookmee.example.com';
     const { __resetEnvCache } = await import('../../src/env.js');
     __resetEnvCache();
 

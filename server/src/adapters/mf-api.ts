@@ -17,9 +17,9 @@ import { logger } from '../lib/logger.js';
 // Spec source: https://developers.api-accounting.moneyforward.com/v3/openapi.yaml
 // ---------------------------------------------------------------------------
 
-// Scopes required by the read paths zeimee uses today (spec 01 + future 04/07).
-// Write scopes are intentionally NOT included — zeimee is read-only against
-// Money Forward (spec 08 O2: never edit vendor-owned data from zeimee).
+// Scopes required by the read paths bookmee uses today (spec 01 + future 04/07).
+// Write scopes are intentionally NOT included — bookmee is read-only against
+// Money Forward (spec 08 O2: never edit vendor-owned data from bookmee).
 export const MF_SCOPES = [
   'mfc/accounting/journal.read',
   'mfc/accounting/accounts.read',
@@ -194,7 +194,7 @@ async function mfGet<T>(token: string, path: string): Promise<T | null> {
 }
 
 // ---------------------------------------------------------------------------
-// API response shapes (subset — only fields zeimee actually consumes)
+// API response shapes (subset — only fields bookmee actually consumes)
 // Source of truth: https://developers.api-accounting.moneyforward.com/v3/openapi.yaml
 // ---------------------------------------------------------------------------
 
@@ -252,9 +252,9 @@ export const mfApiAdapter: VendorAdapter = {
   source: 'mf',
 
   /**
-   * Map MF journals → zeimee RawEntry rows.
+   * Map MF journals → bookmee RawEntry rows.
    * Each journal has `branches[]`, each branch is a debit/credit pair.
-   * For zeimee we surface the debit side as the "expense entry" the
+   * For bookmee we surface the debit side as the "expense entry" the
    * accountant reviews. (Money side / 現金 / 預金 is on the credit side.)
    */
   async fetchEntries(externalId, since): Promise<FetchResult<RawEntry>> {

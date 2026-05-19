@@ -1,4 +1,4 @@
-# Zeimee 改善設計 — 概要 & スペック索引
+# Bookmee 改善設計 — 概要 & スペック索引
 
 作成日: 2026-05-16
 
@@ -38,7 +38,7 @@
 | 05 | 月次 vs 期末モード切替 | ⑤ | `Client.mode` 切替API / 月次/期末モード別の KPI 集計 / レビューセンター・進捗ダッシュボードの列差替 / `YearendCheck` チェックリスト / AIパネル モード別メッセージ / 運用設定の一括変更表 |
 | 06 | UI極限シンプル化（横断指針） | ⑥ | （横断指針）`labels` 中央集約 / 専門用語の禁止リスト / 1カード3ボタン制約 / 自然文KPI / 空状態表現 / `helper-line` / `friendlyError` / API英語コードを labels 経由で日本語化 |
 | 07 | 証憑不足の自動検出＋依頼文生成 | ⑦ | `ReceiptPolicy`/`Client.receiptPolicyOverrides` の編集API / `computeMissingReceipts` 派生計算 / `Entry.receiptStatus` の MF同期時判定 / 証憑・消込ビュー3セクション再設計 / `generateReceiptRequest` 依頼文生成 → 03 へ流す / AIパネル不足通知 / KPI差替 |
-| 08 | 機能重複の回避（横断指針） | ⑧ | （横断指針）zeimee の Yes/No 境界定義 / 「ジャンプ」ファーストUI / 読み取り専用方針（Entry/Receipt/Matching の書き込み API 非公開） / 同期遅延の明示 / freee は `freee-mock.ts` のまま |
+| 08 | 機能重複の回避（横断指針） | ⑧ | （横断指針）bookmee の Yes/No 境界定義 / 「ジャンプ」ファーストUI / 読み取り専用方針（Entry/Receipt/Matching の書き込み API 非公開） / 同期遅延の明示 / freee は `freee-mock.ts` のまま |
 | 09 | システムアーキテクチャ | — | スタック / ディレクトリ構成 / Prisma スキーマ全体 / REST API 一覧 / SWRキャッシュ / MF OAuth / 通知4本実装詳細 / 環境変数 / デプロイ |
 
 > 改善案 ⑧ は **08（横断指針）が原典**。01 の F6（ジャンプリンク・出所列）は ⑧ の具体実装で、08 が定める原則 O1〜O3 に従う。

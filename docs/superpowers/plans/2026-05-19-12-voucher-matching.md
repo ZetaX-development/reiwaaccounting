@@ -33,7 +33,7 @@
 - [ ] **Step 2: migrate**
 
 ```bash
-cd /home/kkouta/poc/zeimee/server
+cd /home/kkouta/poc/bookmee/server
 npx prisma migrate dev --name add-voucher-match-meta
 ```
 
@@ -608,5 +608,5 @@ viewContent.querySelectorAll('.voucher-tab').forEach((tab) => {
 ## Task 12: 全体回帰
 
 ```bash
-cd /home/kkouta/poc/zeimee/server && npx vitest run
+cd /home/kkouta/poc/bookmee/server && npx vitest run
 ```

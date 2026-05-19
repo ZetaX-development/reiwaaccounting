@@ -68,27 +68,27 @@ model LineUserMapping {
 - [ ] **Step 3: マイグレーション**
 
 ```bash
-cd /home/kkouta/poc/zeimee/server && npx prisma migrate dev --name spec16_line_inbound
+cd /home/kkouta/poc/bookmee/server && npx prisma migrate dev --name spec16_line_inbound
 ```
 Expected: `Applied migration ... spec16_line_inbound`、Prisma Client 再生成。
 
 - [ ] **Step 4: 確認**
 
 ```bash
-PGPASSWORD=zeimee_dev psql -h localhost -U zeimee -d zeimee -c "\d \"LineUserMapping\""
-PGPASSWORD=zeimee_dev psql -h localhost -U zeimee -d zeimee -c "\d \"Voucher\"" | grep -E "source|lineSourceMessageId|lineUserId|caption"
+PGPASSWORD=bookmee_dev psql -h localhost -U bookmee -d bookmee -c "\d \"LineUserMapping\""
+PGPASSWORD=bookmee_dev psql -h localhost -U bookmee -d bookmee -c "\d \"Voucher\"" | grep -E "source|lineSourceMessageId|lineUserId|caption"
 ```
 LineUserMapping テーブルが見え、Voucher に 4 列が追加されていることを確認。
 
 ```bash
-cd /home/kkouta/poc/zeimee/server && npm test 2>&1 | tail -5
+cd /home/kkouta/poc/bookmee/server && npm test 2>&1 | tail -5
 ```
 Expected: 全 94 テスト PASS（既存挙動を壊していないこと）。
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/kkouta/poc/zeimee && git add server/prisma/schema.prisma server/prisma/migrations/
+cd /home/kkouta/poc/bookmee && git add server/prisma/schema.prisma server/prisma/migrations/
 git commit -m "feat(spec 16): add LineUserMapping + Voucher source/lineSourceMessageId/lineUserId/caption
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
@@ -129,14 +129,14 @@ LINE_CHANNEL_ID=
 - [ ] **Step 3: tsc 通過確認**
 
 ```bash
-cd /home/kkouta/poc/zeimee/server && npm run build 2>&1 | tail -5
+cd /home/kkouta/poc/bookmee/server && npm run build 2>&1 | tail -5
 ```
 Expected: エラー無し。
 
 - [ ] **Step 4: Commit**
 
 ```bash
-cd /home/kkouta/poc/zeimee && git add server/src/env.ts server/.env.example
+cd /home/kkouta/poc/bookmee && git add server/src/env.ts server/.env.example
 git commit -m "feat(spec 16): add LINE_* env vars (channel access token / secret / webhook base / channel id)
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
@@ -188,7 +188,7 @@ describe('verifySignature', () => {
 - [ ] **Step 2: テスト失敗確認**
 
 ```bash
-cd /home/kkouta/poc/zeimee/server && npx vitest run tests/services/line-service.test.ts
+cd /home/kkouta/poc/bookmee/server && npx vitest run tests/services/line-service.test.ts
 ```
 Expected: FAIL — `Cannot find module '.../line-service.js'`。
 
@@ -223,14 +223,14 @@ export function verifySignature(
 - [ ] **Step 4: テストパス**
 
 ```bash
-cd /home/kkouta/poc/zeimee/server && npx vitest run tests/services/line-service.test.ts
+cd /home/kkouta/poc/bookmee/server && npx vitest run tests/services/line-service.test.ts
 ```
 Expected: 4 ケース PASS。
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/kkouta/poc/zeimee && git add server/src/services/line-service.ts server/tests/services/line-service.test.ts
+cd /home/kkouta/poc/bookmee && git add server/src/services/line-service.ts server/tests/services/line-service.test.ts
 git commit -m "feat(spec 16): line-service verifySignature with timing-safe compare
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
@@ -395,14 +395,14 @@ export async function pushQuickReply(
 - [ ] **Step 2: tsc 通過 + 既存テスト維持**
 
 ```bash
-cd /home/kkouta/poc/zeimee/server && npm run build && npx vitest run tests/services/line-service.test.ts
+cd /home/kkouta/poc/bookmee/server && npm run build && npx vitest run tests/services/line-service.test.ts
 ```
 Expected: build エラー無し、4 テスト PASS。
 
 - [ ] **Step 3: Commit**
 
 ```bash
-cd /home/kkouta/poc/zeimee && git add server/src/services/line-service.ts
+cd /home/kkouta/poc/bookmee && git add server/src/services/line-service.ts
 git commit -m "feat(spec 16): line-service wrappers (getBotInfo / getMessageContent / getProfile / replyMessage / pushMessage / pushQuickReply)
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
@@ -499,7 +499,7 @@ describe('listLineUsers', () => {
 - [ ] **Step 2: テスト失敗確認**
 
 ```bash
-cd /home/kkouta/poc/zeimee/server && npx vitest run tests/services/line-mapping-service.test.ts
+cd /home/kkouta/poc/bookmee/server && npx vitest run tests/services/line-mapping-service.test.ts
 ```
 Expected: FAIL。
 
@@ -566,14 +566,14 @@ export async function deleteLineUser(id: string): Promise<boolean> {
 - [ ] **Step 4: テストパス**
 
 ```bash
-cd /home/kkouta/poc/zeimee/server && npx vitest run tests/services/line-mapping-service.test.ts
+cd /home/kkouta/poc/bookmee/server && npx vitest run tests/services/line-mapping-service.test.ts
 ```
 Expected: 全ケース PASS。
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/kkouta/poc/zeimee && git add server/src/services/line-mapping-service.ts server/tests/services/line-mapping-service.test.ts
+cd /home/kkouta/poc/bookmee && git add server/src/services/line-mapping-service.ts server/tests/services/line-mapping-service.test.ts
 git commit -m "feat(spec 16): line-mapping-service CRUD for LineUserMapping
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
@@ -659,7 +659,7 @@ describe('handleWebhookEvents - unfollow', () => {
 - [ ] **Step 2: テスト失敗確認**
 
 ```bash
-cd /home/kkouta/poc/zeimee/server && npx vitest run tests/services/line-importer.test.ts
+cd /home/kkouta/poc/bookmee/server && npx vitest run tests/services/line-importer.test.ts
 ```
 Expected: FAIL — module 未定義。
 
@@ -741,14 +741,14 @@ async function handleSingleEvent(event: LineEvent): Promise<void> {
 - [ ] **Step 4: テストパス**
 
 ```bash
-cd /home/kkouta/poc/zeimee/server && npx vitest run tests/services/line-importer.test.ts
+cd /home/kkouta/poc/bookmee/server && npx vitest run tests/services/line-importer.test.ts
 ```
 Expected: 2 ケース PASS。
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/kkouta/poc/zeimee && git add server/src/services/line-importer.ts server/tests/services/line-importer.test.ts
+cd /home/kkouta/poc/bookmee && git add server/src/services/line-importer.ts server/tests/services/line-importer.test.ts
 git commit -m "feat(spec 16): line-importer handles follow/unfollow events
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
@@ -855,7 +855,7 @@ describe('handleWebhookEvents - image from enabled user', () => {
 - [ ] **Step 2: テスト失敗確認**
 
 ```bash
-cd /home/kkouta/poc/zeimee/server && npx vitest run tests/services/line-importer.test.ts -t image
+cd /home/kkouta/poc/bookmee/server && npx vitest run tests/services/line-importer.test.ts -t image
 ```
 Expected: 3 ケース FAIL。
 
@@ -1089,14 +1089,14 @@ async function handleImageMessage(
 - [ ] **Step 4: テストパス**
 
 ```bash
-cd /home/kkouta/poc/zeimee/server && npx vitest run tests/services/line-importer.test.ts
+cd /home/kkouta/poc/bookmee/server && npx vitest run tests/services/line-importer.test.ts
 ```
 Expected: 5 ケース PASS。
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/kkouta/poc/zeimee && git add server/src/services/line-importer.ts server/tests/services/line-importer.test.ts
+cd /home/kkouta/poc/bookmee && git add server/src/services/line-importer.ts server/tests/services/line-importer.test.ts
 git commit -m "feat(spec 16): line-importer handles image messages with caption matching
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
@@ -1197,14 +1197,14 @@ describe('handleWebhookEvents - skip cases', () => {
 - [ ] **Step 2: テスト実行**
 
 ```bash
-cd /home/kkouta/poc/zeimee/server && npx vitest run tests/services/line-importer.test.ts
+cd /home/kkouta/poc/bookmee/server && npx vitest run tests/services/line-importer.test.ts
 ```
 Expected: 全 8 ケース PASS（既に Task 7 で実装した挙動でカバーされている）。
 
 - [ ] **Step 3: Commit**
 
 ```bash
-cd /home/kkouta/poc/zeimee && git add server/tests/services/line-importer.test.ts
+cd /home/kkouta/poc/bookmee && git add server/tests/services/line-importer.test.ts
 git commit -m "test(spec 16): line-importer skip cases (dup messageId, unregistered, disabled)
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
@@ -1281,7 +1281,7 @@ describe('handleWebhookEvents - postback', () => {
 - [ ] **Step 2: テスト失敗確認**
 
 ```bash
-cd /home/kkouta/poc/zeimee/server && npx vitest run tests/services/line-importer.test.ts -t postback
+cd /home/kkouta/poc/bookmee/server && npx vitest run tests/services/line-importer.test.ts -t postback
 ```
 Expected: FAIL — postback 未実装。
 
@@ -1351,14 +1351,14 @@ async function handlePostback(event: LineEvent): Promise<void> {
 - [ ] **Step 4: テストパス**
 
 ```bash
-cd /home/kkouta/poc/zeimee/server && npx vitest run tests/services/line-importer.test.ts
+cd /home/kkouta/poc/bookmee/server && npx vitest run tests/services/line-importer.test.ts
 ```
 Expected: 全 10 ケース PASS。
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /home/kkouta/poc/zeimee && git add server/src/services/line-importer.ts server/tests/services/line-importer.test.ts
+cd /home/kkouta/poc/bookmee && git add server/src/services/line-importer.ts server/tests/services/line-importer.test.ts
 git commit -m "feat(spec 16): line-importer handles postback (approve/rework/later/client)
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
@@ -1412,7 +1412,7 @@ describe('GET /api/integrations/line', () => {
   it('returns connected=true with userCount when env set', async () => {
     process.env.LINE_CHANNEL_ACCESS_TOKEN = 'tok';
     process.env.LINE_CHANNEL_SECRET = 'sec';
-    process.env.LINE_WEBHOOK_BASE_URL = 'https://zeimee.example.com';
+    process.env.LINE_WEBHOOK_BASE_URL = 'https://bookmee.example.com';
     __resetEnvCache();
     await prisma.lineUserMapping.create({
       data: { lineUserId: 'U1', displayName: 'A', enabled: true },
@@ -1425,7 +1425,7 @@ describe('GET /api/integrations/line', () => {
     const body = res.json();
     expect(body.connected).toBe(true);
     expect(body.webhookUrl).toBe(
-      'https://zeimee.example.com/api/integrations/line/webhook',
+      'https://bookmee.example.com/api/integrations/line/webhook',
     );
     expect(body.userCount).toBe(2);
     expect(body.enabledUserCount).toBe(1);
@@ -1439,8 +1439,8 @@ describe('POST /api/integrations/line/verify', () => {
     __resetEnvCache();
     vi.spyOn(lineService, 'getBotInfo').mockResolvedValue({
       userId: 'Ubot',
-      basicId: '@zeimee',
-      displayName: 'zeimee bot',
+      basicId: '@bookmee',
+      displayName: 'bookmee bot',
       chatMode: 'bot',
       markAsReadMode: 'auto',
     });
@@ -1451,7 +1451,7 @@ describe('POST /api/integrations/line/verify', () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.ok).toBe(true);
-    expect(body.botInfo.basicId).toBe('@zeimee');
+    expect(body.botInfo.basicId).toBe('@bookmee');
   });
 
   it('returns ok:false when API throws', async () => {
@@ -1484,7 +1484,7 @@ describe('POST /api/integrations/line/verify', () => {
 - [ ] **Step 2: テスト失敗確認**
 
 ```bash
-cd /home/kkouta/poc/zeimee/server && npx vitest run tests/routes/integrations-line.test.ts
+cd /home/kkouta/poc/bookmee/server && npx vitest run tests/routes/integrations-line.test.ts
 ```
 Expected: FAIL — route 未登録。
 
@@ -1560,14 +1560,14 @@ import { integrationsLineRoutes } from './routes/integrations-line.js';
 - [ ] **Step 5: テストパス**
 
 ```bash
-cd /home/kkouta/poc/zeimee/server && npx vitest run tests/routes/integrations-line.test.ts
+cd /home/kkouta/poc/bookmee/server && npx vitest run tests/routes/integrations-line.test.ts
 ```
 Expected: 5 ケース PASS。
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /home/kkouta/poc/zeimee && git add server/src/routes/integrations-line.ts server/src/server.ts server/tests/routes/integrations-line.test.ts
+cd /home/kkouta/poc/bookmee && git add server/src/routes/integrations-line.ts server/src/server.ts server/tests/routes/integrations-line.test.ts
 git commit -m "feat(spec 16): GET /api/integrations/line + POST /verify endpoints
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
@@ -1666,7 +1666,7 @@ describe('POST /api/integrations/line/webhook', () => {
 - [ ] **Step 2: テスト失敗確認**
 
 ```bash
-cd /home/kkouta/poc/zeimee/server && npx vitest run tests/routes/integrations-line.test.ts -t webhook
+cd /home/kkouta/poc/bookmee/server && npx vitest run tests/routes/integrations-line.test.ts -t webhook
 ```
 Expected: FAIL — webhook 未実装。
 
@@ -1752,14 +1752,14 @@ import { verifySignature } from '../services/line-service.js';
 - [ ] **Step 5: テストパス**
 
 ```bash
-cd /home/kkouta/poc/zeimee/server && npx vitest run tests/routes/integrations-line.test.ts
+cd /home/kkouta/poc/bookmee/server && npx vitest run tests/routes/integrations-line.test.ts
 ```
 Expected: 全 8 ケース PASS。
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /home/kkouta/poc/zeimee && git add server/src/routes/integrations-line.ts server/src/server.ts server/tests/routes/integrations-line.test.ts
+cd /home/kkouta/poc/bookmee && git add server/src/routes/integrations-line.ts server/src/server.ts server/tests/routes/integrations-line.test.ts
 git commit -m "feat(spec 16): POST /api/integrations/line/webhook with HMAC verification
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
@@ -1826,7 +1826,7 @@ describe('users mapping endpoints', () => {
 - [ ] **Step 2: テスト失敗確認**
 
 ```bash
-cd /home/kkouta/poc/zeimee/server && npx vitest run tests/routes/integrations-line.test.ts -t users
+cd /home/kkouta/poc/bookmee/server && npx vitest run tests/routes/integrations-line.test.ts -t users
 ```
 Expected: 3 ケース FAIL。
 
@@ -1875,21 +1875,21 @@ Expected: 3 ケース FAIL。
 - [ ] **Step 4: テストパス**
 
 ```bash
-cd /home/kkouta/poc/zeimee/server && npx vitest run tests/routes/integrations-line.test.ts
+cd /home/kkouta/poc/bookmee/server && npx vitest run tests/routes/integrations-line.test.ts
 ```
 Expected: 全 11 ケース PASS。
 
 - [ ] **Step 5: 全テスト走らせて確認**
 
 ```bash
-cd /home/kkouta/poc/zeimee/server && npm test 2>&1 | tail -5
+cd /home/kkouta/poc/bookmee/server && npm test 2>&1 | tail -5
 ```
 Expected: 全テスト PASS。
 
 - [ ] **Step 6: Commit**
 
 ```bash
-cd /home/kkouta/poc/zeimee && git add server/src/routes/integrations-line.ts server/tests/routes/integrations-line.test.ts
+cd /home/kkouta/poc/bookmee && git add server/src/routes/integrations-line.ts server/tests/routes/integrations-line.test.ts
 git commit -m "feat(spec 16): users mapping CRUD endpoints (GET / PATCH / DELETE)
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
@@ -1983,14 +1983,14 @@ async function maybePushLineFollowup(
 - [ ] **Step 3: 既存テストが壊れていないことを確認**
 
 ```bash
-cd /home/kkouta/poc/zeimee/server && npm test 2>&1 | tail -5
+cd /home/kkouta/poc/bookmee/server && npm test 2>&1 | tail -5
 ```
 Expected: 全テスト PASS。voucher-service の既存テストは LINE 環境変数が空なのでフックは発火せず、挙動が変わらない。
 
 - [ ] **Step 4: Commit**
 
 ```bash
-cd /home/kkouta/poc/zeimee && git add server/src/services/voucher-service.ts
+cd /home/kkouta/poc/bookmee && git add server/src/services/voucher-service.ts
 git commit -m "feat(spec 16): voucher-service pushes LINE Quick Reply when source=line
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
@@ -2151,14 +2151,14 @@ async function verifyLineConnection() {
 - [ ] **Step 6: 手動確認**
 
 ```bash
-cd /home/kkouta/poc/zeimee/server && npm run dev
+cd /home/kkouta/poc/bookmee/server && npm run dev
 ```
 別ターミナルでブラウザで `http://localhost:3000` を開き、左ナビ「連携 / LINE」をクリック。`.env` に LINE_* が設定されていれば「接続済」と webhook URL が出る。
 
 - [ ] **Step 7: Commit**
 
 ```bash
-cd /home/kkouta/poc/zeimee && git add index.html script.js styles.css
+cd /home/kkouta/poc/bookmee && git add index.html script.js styles.css
 git commit -m "feat(spec 16): frontend integrations-line view with connection + verify panel
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
@@ -2236,7 +2236,7 @@ async function deleteLineUser(id) {
 - [ ] **Step 3: Commit**
 
 ```bash
-cd /home/kkouta/poc/zeimee && git add script.js
+cd /home/kkouta/poc/bookmee && git add script.js
 git commit -m "feat(spec 16): frontend users mapping UI for LINE integration
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
@@ -2278,7 +2278,7 @@ const captionHtml = voucher.caption
 - [ ] **Step 3: Commit**
 
 ```bash
-cd /home/kkouta/poc/zeimee && git add script.js
+cd /home/kkouta/poc/bookmee && git add script.js
 git commit -m "feat(spec 16): show source badge + caption on voucher thumbnails
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
@@ -2293,7 +2293,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 - [ ] **Step 1: サーバ起動**
 
 ```bash
-cd /home/kkouta/poc/zeimee/server && npm run dev
+cd /home/kkouta/poc/bookmee/server && npm run dev
 ```
 
 - [ ] **Step 2: env 検証**
@@ -2316,7 +2316,7 @@ Expected: `ok: true`、`botInfo` に `userId` / `basicId` / `displayName` が入
 報告内容:
 - `/api/integrations/line` の JSON
 - `/api/integrations/line/verify` の JSON
-- 全自動テストの最終結果 (`cd /home/kkouta/poc/zeimee/server && npm test 2>&1 | tail -5`)
+- 全自動テストの最終結果 (`cd /home/kkouta/poc/bookmee/server && npm test 2>&1 | tail -5`)
 
 ---
 

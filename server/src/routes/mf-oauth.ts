@@ -13,7 +13,7 @@ export async function mfOauthRoutes(app: FastifyInstance) {
   /**
    * Initiates the OAuth dance for a given clientId. The Money Forward
    * authorization server lives at MF_AUTH_BASE_URL (api.biz.moneyforward.com).
-   * `state` carries the zeimee Client.id so the callback knows which row
+   * `state` carries the bookmee Client.id so the callback knows which row
    * receives the tokens.
    */
   app.get<{ Querystring: { clientId?: string } }>(
@@ -91,7 +91,7 @@ export async function mfOauthRoutes(app: FastifyInstance) {
         });
 
         // Confirm connection by reading the office name. We also adopt the
-        // MF office name as the zeimee Client.name so the dashboard shows
+        // MF office name as the bookmee Client.name so the dashboard shows
         // the real customer instead of the seeded placeholder.
         const office = await fetchOffice(tokens.access_token);
         const updated = await prisma.client.update({

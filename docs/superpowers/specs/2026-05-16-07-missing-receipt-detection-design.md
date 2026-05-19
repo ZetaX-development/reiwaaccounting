@@ -94,7 +94,7 @@
 - channel に応じて簡易整形（実送信前に `formatForChannel` で再整形可）
 
 ### F4. AIパネルの不足通知
-`renderAiPanel()` の `zeimeeChat`:
+`renderAiPanel()` の `bookmeeChat`:
 - 不足証憑が3件以上ある場合: 「証憑が◯件不足しています。お客さまに今日中に依頼するのがおすすめです」を追加表示
 - データソース: `GET /api/clients/:id/missing-receipts` の件数
 

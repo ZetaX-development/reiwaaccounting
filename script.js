@@ -3,7 +3,7 @@ const appState = {
   activeView: "dashboard",
   activeFilter: "all",
   search: "",
-  currentRole: (typeof localStorage !== "undefined" && localStorage.getItem("zeimee.role")) || "tax_accountant",
+  currentRole: (typeof localStorage !== "undefined" && localStorage.getItem("bookmee.role")) || "tax_accountant",
   expandedHistory: {}, // taskId -> bool
   vouchers: [],
   voucherTab: 'unassigned',
@@ -1621,7 +1621,7 @@ function renderValidation() {
   let html = '<div class="validation-layout">';
   html += '<section class="validation-hero"><div><p class="eyebrow">Notion Meeting Notes</p>';
   html += '<h3>今日の3つの議事録から、実装判断を固定</h3>';
-  html += '<p>zeimeeは「AIで何でも自動化」ではなく、税理士事務所の所長が毎月迷うレビュー・資料不足・差戻しを減らす業務画面として作ります。</p></div>';
+  html += '<p>bookmeeは「AIで何でも自動化」ではなく、税理士事務所の所長が毎月迷うレビュー・資料不足・差戻しを減らす業務画面として作ります。</p></div>';
   html += '<div class="target-box"><span>初期ターゲット</span><strong>30〜50人規模の税理士事務所</strong><small>職員がいて、標準化による利益改善が見込める層</small></div></section>';
 
   html += '<section class="validation-grid">';
@@ -2271,7 +2271,7 @@ function renderJobsJournal() {
   }
   html += '<small class="sync-fresh">マネーフォワード クラウド会計からライブ取得</small>';
   html += '</section>';
-  // Spec 14: zeimee 側で承認したドラフトを別セクションで一覧表示する。
+  // Spec 14: bookmee 側で承認したドラフトを別セクションで一覧表示する。
   // MF への書き戻しは禁止なのでここに溜まる。loadApprovedDraftsIntoSlot が
   // renderView の jobs-journal ブロックから非同期で埋める。
   html += '<div id="approvedDraftsSlot"></div>';
@@ -2297,7 +2297,7 @@ async function loadApprovedDraftsIntoSlot(clientId) {
       n != null ? '¥' + Number(n).toLocaleString('ja-JP') : '-';
     let html = '<section style="margin-top:24px">';
     html +=
-      '<p class="eyebrow">承認済み仕訳ドラフト (MF 形式、zeimee 側、' +
+      '<p class="eyebrow">承認済み仕訳ドラフト (MF 形式、bookmee 側、' +
       approved.length +
       ' 件)</p>';
     html += '<div class="table-wrap"><table class="mf-draft-table"><thead><tr>';
@@ -2355,7 +2355,7 @@ async function loadApprovedDraftsIntoSlot(clientId) {
     }
     html += '</tbody></table></div>';
     html +=
-      '<small class="sync-fresh">zeimee で生成・承認されたドラフト。MF にはまだ転記されていません（手動入力してください）。</small>';
+      '<small class="sync-fresh">bookmee で生成・承認されたドラフト。MF にはまだ転記されていません（手動入力してください）。</small>';
     html += '</section>';
     slot.innerHTML = html;
   } catch (_err) {
@@ -2886,7 +2886,7 @@ function renderIntegrationsDrive() {
     mappingsPanel = `
       <div class="integration-panel drive-folder-mappings">
         <h3>フォルダ → 顧問先 mapping</h3>
-        <p class="muted">ルートフォルダ直下のサブフォルダを zeimee の顧問先に割り当てます。割当てたフォルダに画像を入れると Voucher として取り込まれます。</p>
+        <p class="muted">ルートフォルダ直下のサブフォルダを bookmee の顧問先に割り当てます。割当てたフォルダに画像を入れると Voucher として取り込まれます。</p>
         ${
           folders.length === 0 && orphanRows.length === 0
             ? '<p class="muted">サブフォルダが見つかりません。ルートフォルダ ID を確認してください。</p>'
@@ -3613,16 +3613,16 @@ function renderView() {
 function renderAiPanel() {
   const client = currentClient();
 
-  // zeimeeくんチャット
-  let chatHtml = '<div class="chat-bubble-z"><strong>zeimeeくん</strong>' + client.chatMessage + "</div>";
+  // bookmeeくんチャット
+  let chatHtml = '<div class="chat-bubble-z"><strong>bookmeeくん</strong>' + client.chatMessage + "</div>";
   if (appState.activeView === "trends") {
     const alertCount = client.trendData.filter((d) => d.flag === "alert").length;
-    chatHtml += '<div class="chat-bubble-z"><strong>zeimeeくん</strong>' + alertCount + '科目で前月比の大きな変動を検出しました。スパークバーで3ヶ月トレンドが一目で分かります！</div>';
+    chatHtml += '<div class="chat-bubble-z"><strong>bookmeeくん</strong>' + alertCount + '科目で前月比の大きな変動を検出しました。スパークバーで3ヶ月トレンドが一目で分かります！</div>';
   }
   if (appState.activeView === "validation") {
-    chatHtml += '<div class="chat-bubble-z"><strong>zeimeeくん</strong>今日の議事録では、税理士向けは「資料不足・進捗・レビュー」、監査向けは「PBC・調書・不正検知」に分ける方針が見えました。zeimeeは前者に集中します。</div>';
+    chatHtml += '<div class="chat-bubble-z"><strong>bookmeeくん</strong>今日の議事録では、税理士向けは「資料不足・進捗・レビュー」、監査向けは「PBC・調書・不正検知」に分ける方針が見えました。bookmeeは前者に集中します。</div>';
   }
-  $("#zeimeeChat").innerHTML = chatHtml;
+  $("#bookmeeChat").innerHTML = chatHtml;
 
   // 優先リスト
   let listHtml = "";
@@ -3765,7 +3765,7 @@ if (roleSel) {
   roleSel.addEventListener("change", () => {
     appState.currentRole = roleSel.value;
     if (typeof localStorage !== "undefined") {
-      localStorage.setItem("zeimee.role", appState.currentRole);
+      localStorage.setItem("bookmee.role", appState.currentRole);
     }
     // Force the task cache to refetch for the new role.
     appState.tasksLoadedClient = null;

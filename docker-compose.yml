@@ -1,17 +1,17 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: zeimee-postgres
+    container_name: bookmee-postgres
     environment:
-      POSTGRES_USER: zeimee
-      POSTGRES_PASSWORD: zeimee_dev
-      POSTGRES_DB: zeimee
+      POSTGRES_USER: bookmee
+      POSTGRES_PASSWORD: bookmee_dev
+      POSTGRES_DB: bookmee
     ports:
       - "5432:5432"
     volumes:
-      - zeimee_pg_data:/var/lib/postgresql/data
+      - bookmee_pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U zeimee -d zeimee"]
+      test: ["CMD-SHELL", "pg_isready -U bookmee -d bookmee"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -20,7 +20,7 @@ services:
     build:
       context: ./server
       dockerfile: Dockerfile
-    container_name: zeimee-server
+    container_name: bookmee-server
     working_dir: /app/server
     # Bind-mount the whole repo so the watcher picks up changes to both
     # server/src and the static frontend (index.html / script.js / styles.css)
@@ -35,7 +35,7 @@ services:
     # override DATABASE_URL so the in-container app reaches the DB container
     # instead of localhost.
     environment:
-      DATABASE_URL: postgresql://zeimee:zeimee_dev@postgres:5432/zeimee
+      DATABASE_URL: postgresql://bookmee:bookmee_dev@postgres:5432/bookmee
       # tsx watch on bind-mounted volumes is more reliable with polling.
       CHOKIDAR_USEPOLLING: "true"
     ports:
@@ -50,21 +50,21 @@ services:
   # Activated with `docker compose --profile test up -d postgres-test`.
   postgres-test:
     image: postgres:16-alpine
-    container_name: zeimee-postgres-test
+    container_name: bookmee-postgres-test
     profiles: ["test"]
     environment:
-      POSTGRES_USER: zeimee
-      POSTGRES_PASSWORD: zeimee_test
-      POSTGRES_DB: zeimee_test
+      POSTGRES_USER: bookmee
+      POSTGRES_PASSWORD: bookmee_test
+      POSTGRES_DB: bookmee_test
     ports:
       - "5433:5432"
     tmpfs:
       - /var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U zeimee -d zeimee_test"]
+      test: ["CMD-SHELL", "pg_isready -U bookmee -d bookmee_test"]
       interval: 3s
       timeout: 3s
       retries: 20
 
 volumes:
-  zeimee_pg_data:
+  bookmee_pg_data:

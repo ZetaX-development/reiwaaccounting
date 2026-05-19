@@ -17,7 +17,7 @@ spec 10 で保管された Voucher 画像に対し、OpenAI Vision を呼んで�
 ## アクター
 
 - **税理士事務所スタッフ**: アップロード後の OCR 結果を確認する
-- **zeimee サーバ**: OpenAI Vision API を呼び出すクライアント
+- **bookmee サーバ**: OpenAI Vision API を呼び出すクライアント
 
 ## トリガー
 
@@ -114,7 +114,7 @@ GET /api/vouchers の戻り値に `ocrJson` / `ocrError` / `ocrAt` を含める�
 
 ```
 OPENAI_API_KEY=sk-...
-OPENAI_VISION_MODEL=gpt-4o   # デフォルト。env で gpt-5 等に差し替え可能
+OPENAI_VISION_MODEL=gpt-5   # デフォルト（性能重視）。env で gpt-4o 等に差し替え可能
 ```
 
 `OPENAI_API_KEY` 未設定時は **OCR を起動しない**（POST は成功するが ocrStatus は pending のまま、`ocrError = "OPENAI_API_KEY is not set"` を即時セット）。テスト環境はこれで保護される。
@@ -123,8 +123,10 @@ env.ts に追加:
 
 ```ts
 OPENAI_API_KEY: z.string().optional(),
-OPENAI_VISION_MODEL: z.string().default('gpt-4o'),
+OPENAI_VISION_MODEL: z.string().default('gpt-5'),
 ```
+
+`server/.env.example` にも追加してドキュメント化する。
 
 ## フロント変更
 

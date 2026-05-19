@@ -1,8 +1,8 @@
 # デプロイ手順 (GCP Cloud Run + Supabase)
 
-zeimee をローカル WSL → 本番に持っていく最短経路。1 アカウントの個人プロト前提で、IaC は使わず `gcloud` + Supabase ダッシュボードベース。
+bookmee をローカル WSL → 本番に持っていく最短経路。1 アカウントの個人プロト前提で、IaC は使わず `gcloud` + Supabase ダッシュボードベース。
 
-**DB は Cloud SQL ではなく Supabase**（Cloud SQL の最小インスタンスでも月 $7+、Supabase は free tier で 500MB / 60 connections まで無料）。Postgres 16 互換なので Prisma と zeimee のコードは完全にそのまま動く。
+**DB は Cloud SQL ではなく Supabase**（Cloud SQL の最小インスタンスでも月 $7+、Supabase は free tier で 500MB / 60 connections まで無料）。Postgres 16 互換なので Prisma と bookmee のコードは完全にそのまま動く。
 
 ## アーキテクチャ
 
@@ -10,7 +10,7 @@ zeimee をローカル WSL → 本番に持っていく最短経路。1 アカ�
 [ブラウザ / LINE / Google Drive]
         │ HTTPS (Cloud Run が自動発行)
         ▼
-[Cloud Run service: zeimee]   ← コンテナは server/Dockerfile.prod でビルド (context=repo root)
+[Cloud Run service: bookmee]   ← コンテナは server/Dockerfile.prod でビルド (context=repo root)
         │ Postgres over TLS (port 5432)
         ▼
 [Supabase: managed PostgreSQL 16 (free tier)]
@@ -43,7 +43,7 @@ gcloud services enable \
 ```bash
 export PROJECT_ID=<your-project-id>
 export REGION=asia-northeast1
-export SERVICE=zeimee
+export SERVICE=bookmee
 ```
 
 ## 1. Supabase で Postgres を準備する
@@ -52,7 +52,7 @@ export SERVICE=zeimee
 
 1. https://supabase.com にサインアップ / ログイン
 2. **New Project** で作成
-   - Name: `zeimee` (何でもよい)
+   - Name: `bookmee` (何でもよい)
    - Database Password: **強いパスワードを生成してメモ**（後で使う）
    - Region: `Northeast Asia (Tokyo)` を推奨（Cloud Run と近い region）
    - Plan: Free
@@ -82,22 +82,22 @@ postgresql://postgres.xxxxxxxx:<PASSWORD>@db.xxxxxxxx.supabase.co:5432/postgres?
 ```bash
 # DATABASE_URL は Supabase の direct connection (上の手順で取得した URL)
 echo -n "<SUPABASE_DB_URL>" \
-  | gcloud secrets create zeimee-database-url --data-file=-
+  | gcloud secrets create bookmee-database-url --data-file=-
 
 # LINE
-gcloud secrets create zeimee-line-channel-access-token --data-file=<(echo -n "<TOKEN>")
-gcloud secrets create zeimee-line-channel-secret --data-file=<(echo -n "<SECRET>")
+gcloud secrets create bookmee-line-channel-access-token --data-file=<(echo -n "<TOKEN>")
+gcloud secrets create bookmee-line-channel-secret --data-file=<(echo -n "<SECRET>")
 
 # Google (Drive 連携)
-gcloud secrets create zeimee-google-client-id --data-file=<(echo -n "<CID>")
-gcloud secrets create zeimee-google-client-secret --data-file=<(echo -n "<CSECRET>")
+gcloud secrets create bookmee-google-client-id --data-file=<(echo -n "<CID>")
+gcloud secrets create bookmee-google-client-secret --data-file=<(echo -n "<CSECRET>")
 
 # MF (任意、必要なら)
-gcloud secrets create zeimee-mf-client-id --data-file=<(echo -n "<CID>")
-gcloud secrets create zeimee-mf-client-secret --data-file=<(echo -n "<CSECRET>")
+gcloud secrets create bookmee-mf-client-id --data-file=<(echo -n "<CID>")
+gcloud secrets create bookmee-mf-client-secret --data-file=<(echo -n "<CSECRET>")
 
 # OpenAI Vision
-gcloud secrets create zeimee-openai-api-key --data-file=<(echo -n "<KEY>")
+gcloud secrets create bookmee-openai-api-key --data-file=<(echo -n "<KEY>")
 ```
 
 Cloud Run サービスアカウントに secret アクセス権を付与:
@@ -106,9 +106,9 @@ Cloud Run サービスアカウントに secret アクセス権を付与:
 PROJECT_NUMBER=$(gcloud projects describe $PROJECT_ID --format='value(projectNumber)')
 SA="${PROJECT_NUMBER}-compute@developer.gserviceaccount.com"
 
-for s in zeimee-database-url zeimee-line-channel-access-token zeimee-line-channel-secret \
-         zeimee-google-client-id zeimee-google-client-secret zeimee-mf-client-id \
-         zeimee-mf-client-secret zeimee-openai-api-key; do
+for s in bookmee-database-url bookmee-line-channel-access-token bookmee-line-channel-secret \
+         bookmee-google-client-id bookmee-google-client-secret bookmee-mf-client-id \
+         bookmee-mf-client-secret bookmee-openai-api-key; do
   gcloud secrets add-iam-policy-binding $s \
     --member=serviceAccount:$SA \
     --role=roles/secretmanager.secretAccessor
@@ -119,14 +119,14 @@ done
 
 ```bash
 # Artifact Registry のリポジトリを 1 回だけ作る
-gcloud artifacts repositories create zeimee \
+gcloud artifacts repositories create bookmee \
   --repository-format=docker \
   --location=$REGION
 
 # repo root の cloudbuild.yaml + server/Dockerfile.prod でビルド & push
 gcloud builds submit \
   --config cloudbuild.yaml \
-  --substitutions=_PROJECT=$PROJECT_ID,_REGION=$REGION,_REPO=zeimee \
+  --substitutions=_PROJECT=$PROJECT_ID,_REGION=$REGION,_REPO=bookmee \
   .
 ```
 
@@ -137,19 +137,19 @@ gcloud builds submit \
 ```bash
 SHORT_SHA=$(git rev-parse --short HEAD)
 gcloud run deploy $SERVICE \
-  --image=$REGION-docker.pkg.dev/$PROJECT_ID/zeimee/server:$SHORT_SHA \
+  --image=$REGION-docker.pkg.dev/$PROJECT_ID/bookmee/server:$SHORT_SHA \
   --region=$REGION \
   --platform=managed \
   --allow-unauthenticated \
   --set-env-vars="NODE_ENV=production" \
-  --set-secrets="DATABASE_URL=zeimee-database-url:latest" \
-  --set-secrets="LINE_CHANNEL_ACCESS_TOKEN=zeimee-line-channel-access-token:latest" \
-  --set-secrets="LINE_CHANNEL_SECRET=zeimee-line-channel-secret:latest" \
-  --set-secrets="GOOGLE_CLIENT_ID=zeimee-google-client-id:latest" \
-  --set-secrets="GOOGLE_CLIENT_SECRET=zeimee-google-client-secret:latest" \
-  --set-secrets="MF_CLIENT_ID=zeimee-mf-client-id:latest" \
-  --set-secrets="MF_CLIENT_SECRET=zeimee-mf-client-secret:latest" \
-  --set-secrets="OPENAI_API_KEY=zeimee-openai-api-key:latest" \
+  --set-secrets="DATABASE_URL=bookmee-database-url:latest" \
+  --set-secrets="LINE_CHANNEL_ACCESS_TOKEN=bookmee-line-channel-access-token:latest" \
+  --set-secrets="LINE_CHANNEL_SECRET=bookmee-line-channel-secret:latest" \
+  --set-secrets="GOOGLE_CLIENT_ID=bookmee-google-client-id:latest" \
+  --set-secrets="GOOGLE_CLIENT_SECRET=bookmee-google-client-secret:latest" \
+  --set-secrets="MF_CLIENT_ID=bookmee-mf-client-id:latest" \
+  --set-secrets="MF_CLIENT_SECRET=bookmee-mf-client-secret:latest" \
+  --set-secrets="OPENAI_API_KEY=bookmee-openai-api-key:latest" \
   --memory=512Mi \
   --cpu=1 \
   --min-instances=0 \
@@ -157,7 +157,7 @@ gcloud run deploy $SERVICE \
   --timeout=300
 ```
 
-デプロイ完了すると公開 URL が出る (`https://zeimee-xxxxx-an.a.run.app` 等)。
+デプロイ完了すると公開 URL が出る (`https://bookmee-xxxxx-an.a.run.app` 等)。
 
 ```bash
 export RUN_URL=$(gcloud run services describe $SERVICE --region=$REGION --format='value(status.url)')
@@ -251,12 +251,12 @@ curl -s $RUN_URL/api/integrations/drive
 ```bash
 gcloud builds submit \
   --config cloudbuild.yaml \
-  --substitutions=_PROJECT=$PROJECT_ID,_REGION=$REGION,_REPO=zeimee \
+  --substitutions=_PROJECT=$PROJECT_ID,_REGION=$REGION,_REPO=bookmee \
   .
 
 SHORT_SHA=$(git rev-parse --short HEAD)
 gcloud run services update $SERVICE --region=$REGION \
-  --image=$REGION-docker.pkg.dev/$PROJECT_ID/zeimee/server:$SHORT_SHA
+  --image=$REGION-docker.pkg.dev/$PROJECT_ID/bookmee/server:$SHORT_SHA
 ```
 
 env / secret を変えるときは `--set-secrets` / `--update-env-vars` を渡し直す。
@@ -276,12 +276,12 @@ env / secret を変えるときは `--set-secrets` / `--update-env-vars` を渡�
 ローカルで本番イメージを試したいとき:
 
 ```bash
-docker build -f server/Dockerfile.prod -t zeimee:prod .
-docker run --rm --name zeimee-prod-test \
+docker build -f server/Dockerfile.prod -t bookmee:prod .
+docker run --rm --name bookmee-prod-test \
   --add-host=host.docker.internal:host-gateway \
-  -e DATABASE_URL='postgresql://zeimee:zeimee_dev@host.docker.internal:5432/zeimee' \
+  -e DATABASE_URL='postgresql://bookmee:bookmee_dev@host.docker.internal:5432/bookmee' \
   -e LINE_CHANNEL_ACCESS_TOKEN='dummy' -e LINE_CHANNEL_SECRET='dummy' \
-  -p 8081:3000 zeimee:prod
+  -p 8081:3000 bookmee:prod
 ```
 
 ローカルでロジック検証 → push & deploy で webhook / 公開 URL を要する機能を最終確認、というフローを想定。

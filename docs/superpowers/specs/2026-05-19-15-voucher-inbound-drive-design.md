@@ -6,7 +6,7 @@
 
 ユーザ要望: ファイルアップロード経路を増やしたい。Google Drive、LINE、メール転送など。
 
-本スペックは「**スタッフ側**が **事務所共通の 1 つの Google Drive アカウント** に置いたレシート画像を、zeimee が自動取り込みする経路」を作る。LINE 経由（spec 14）とメール転送（spec 15）は後続スペックに分けるが、本スペックで作る `Integration` テーブルや `Voucher.source` 列はそれらにも流用できる汎用形で設計する。
+本スペックは「**スタッフ側**が **事務所共通の 1 つの Google Drive アカウント** に置いたレシート画像を、bookmee が自動取り込みする経路」を作る。LINE 経由（spec 14）とメール転送（spec 15）は後続スペックに分けるが、本スペックで作る `Integration` テーブルや `Voucher.source` 列はそれらにも流用できる汎用形で設計する。
 
 ### 既存スペックとの関係
 
@@ -20,8 +20,8 @@ CLAUDE.md と spec 08 に書かれた「MF/freee は read-only」の原則は **
 
 ## ゴール
 
-1. Google アカウント 1 つを zeimee に OAuth で繋ぐ
-2. Drive のルートフォルダ配下のサブフォルダを zeimee 上で顧問先と手動 mapping する
+1. Google アカウント 1 つを bookmee に OAuth で繋ぐ
+2. Drive のルートフォルダ配下のサブフォルダを bookmee 上で顧問先と手動 mapping する
 3. mapping されたサブフォルダに置かれた画像を自動取り込み（本番は Push Notification、開発は「今すぐ同期」ボタン）
 4. 取り込んだファイルは Drive 上で「取り込み済」サブフォルダに move する
 5. 取り込んだ Voucher は spec 11 の OCR、spec 12 の突合パイプラインにそのまま乗る（追加実装なし）
@@ -29,7 +29,7 @@ CLAUDE.md と spec 08 に書かれた「MF/freee は read-only」の原則は **
 
 ## アクター
 
-- **税理士事務所スタッフ**: 自分の業務用 Drive にレシートを放り込む / zeimee 上で接続・mapping・同期を管理する
+- **税理士事務所スタッフ**: 自分の業務用 Drive にレシートを放り込む / bookmee 上で接続・mapping・同期を管理する
 - 顧問先側のアップロードは本スペックではスコープ外（spec 14/15 で別経路）
 
 ## 全体フロー
@@ -199,7 +199,7 @@ https://www.googleapis.com/auth/userinfo.email # 接続中アカウントのメ�
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 GOOGLE_REDIRECT_URI=http://localhost:3000/api/integrations/drive/oauth/callback
-GOOGLE_DRIVE_WEBHOOK_BASE_URL=    # 例: https://zeimee.example.com 。未設定なら watch を貼らず手動 sync のみで動く
+GOOGLE_DRIVE_WEBHOOK_BASE_URL=    # 例: https://bookmee.example.com 。未設定なら watch を貼らず手動 sync のみで動く
 ```
 
 `GOOGLE_DRIVE_WEBHOOK_BASE_URL` が未設定の場合、`drive-service.startWatch` は no-op で成功扱いとし、ローカル開発では手動 sync のみで運用できる。
@@ -246,7 +246,7 @@ export async function syncDriveChanges(opts?: { trigger: 'manual' | 'webhook' })
 
 ### watch channel
 
-- 接続成功時に `startWatch` で channel 作成（`channelId` は zeimee 側で UUID 発行、address は `${GOOGLE_DRIVE_WEBHOOK_BASE_URL}/api/integrations/drive/webhook`）
+- 接続成功時に `startWatch` で channel 作成（`channelId` は bookmee 側で UUID 発行、address は `${GOOGLE_DRIVE_WEBHOOK_BASE_URL}/api/integrations/drive/webhook`）
 - channel の `expiration` は Google が返す UNIX ms。`DriveWatchChannel.expiresAt` に保存
 - `expiresAt - 6h` を切ったら自動 renew（`POST /api/integrations/drive/watch/renew` を手動でも叩ける、本番では cron 想定）
 - renew は「新 channel 作成 → 旧 channel `stop` → DB 更新」の順。失敗時は `Integration.status='watch_failed'`
@@ -264,7 +264,7 @@ export async function syncDriveChanges(opts?: { trigger: 'manual' | 'webhook' })
 
 2. **フォルダ mapping パネル** (`.drive-folder-mappings`)
    - 左: ルート配下のサブフォルダ一覧（`GET /api/integrations/drive/folders` の結果）
-   - 各行に zeimee 顧問先選択（`<select>`、`GET /api/clients` から）
+   - 各行に bookmee 顧問先選択（`<select>`、`GET /api/clients` から）
    - 「mapping を保存」で `POST /api/integrations/drive/mappings`
    - 既存 mapping は select の初期値として反映、× ボタンで `DELETE`
 

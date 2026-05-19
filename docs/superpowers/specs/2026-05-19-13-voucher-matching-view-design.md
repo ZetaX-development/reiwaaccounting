@@ -127,4 +127,4 @@ labels と labels.helper に対応エントリを追加:
 
 - マッチングルールの編集 UI（±30 日を変更等、将来課題）
 - 一括再突合 / 一括振り分け
-- MF への書き戻し（zeimee は read-only）
+- MF への書き戻し（bookmee は read-only）

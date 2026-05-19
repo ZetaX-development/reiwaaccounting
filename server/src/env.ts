@@ -33,7 +33,7 @@ const schema = z.object({
   OPENAI_VISION_MODEL: z.string().default('gpt-5'),
   OUTREACH_CHANNEL: z.enum(['mock', 'email', 'line']).default('mock'),
   OUTREACH_AUTO: z.coerce.boolean().default(false),
-  OUTREACH_EMAIL_FROM: z.string().default('zeimee@example.com'),
+  OUTREACH_EMAIL_FROM: z.string().default('bookmee@example.com'),
   OUTREACH_LINE_TOKEN: z.string().default(''),
 
   // Spec 15: Google Drive 連携

@@ -4,7 +4,7 @@
 
 ## 位置づけ
 
-ユーザ要望: 事務所のスタッフが、顧問先から受け取った紙のレシートを業務中に撮って **LINE 公式アカウント** に送るだけで、zeimee が自動で OCR → 顧問先振り分け → 仕訳ドラフト → 突合まで進める仕組み。zeimee 側で確認が必要な時は LINE 上でスタッフに質問を投げ、スタッフはボタンを押すだけで応答できる。
+ユーザ要望: 事務所のスタッフが、顧問先から受け取った紙のレシートを業務中に撮って **LINE 公式アカウント** に送るだけで、bookmee が自動で OCR → 顧問先振り分け → 仕訳ドラフト → 突合まで進める仕組み。bookmee 側で確認が必要な時は LINE 上でスタッフに質問を投げ、スタッフはボタンを押すだけで応答できる。
 
 LINE 公式アカウント = LINE の Messaging API（一般ユーザが普段使う LINE）。LINE WORKS（業務 LINE、別商品）とは別物。
 
@@ -22,7 +22,7 @@ LINE 公式アカウント = LINE の Messaging API（一般ユーザが普段�
 
 - LINE Developers Console で公式アカウントを作成、Channel Access Token と Channel Secret を取得
 - `.env` に `LINE_CHANNEL_ACCESS_TOKEN` / `LINE_CHANNEL_SECRET` / `LINE_WEBHOOK_BASE_URL` / `LINE_CHANNEL_ID` を設定
-- zeimee の「連携 / LINE」画面で接続状態が「接続済」になっているのを確認
+- bookmee の「連携 / LINE」画面で接続状態が「接続済」になっているのを確認
 - 画面に表示された webhook URL を LINE Console にコピペ登録
 - 事務所側の初回設定はこれだけ
 
@@ -30,7 +30,7 @@ LINE 公式アカウント = LINE の Messaging API（一般ユーザが普段�
 
 - 新しいスタッフが LINE で公式アカウントを QR コードから友だち追加
 - 自動で welcome reply: 「事務所スタッフ承認待ちです。所長が承認すると使えるようになります」
-- zeimee の「連携 / LINE」画面に新しい行が出現（最初は **無効状態 `enabled=false`**）
+- bookmee の「連携 / LINE」画面に新しい行が出現（最初は **無効状態 `enabled=false`**）
 - 所長がスタッフラベルを付けて **有効化トグルを ON**
 - 以降そのスタッフからの画像が処理されるようになる
 - 不審な第三者が友だち追加しても、有効化されない限り画像は受け付けない
@@ -41,7 +41,7 @@ LINE 公式アカウント = LINE の Messaging API（一般ユーザが普段�
 - LINE 公式アカウントのトーク画面で **画像を送る**
 - 続けて **テキストで説明** を送る（例: 「青山デザイン 5/15 タクシー代」）
 - 画像とテキストはどちらの順序でも OK（60 秒以内ならセットで扱われる）
-- zeimee 側で自動的に:
+- bookmee 側で自動的に:
   - 画像が Voucher として保存される（`source='line'`, `lineSourceMessageId`, `lineUserId`, `caption`）
   - OCR ジョブが走る（既存 spec 11）
   - 顧問先振り分け（既存 `voucher-assign-service`）
@@ -49,9 +49,9 @@ LINE 公式アカウント = LINE の Messaging API（一般ユーザが普段�
   - 突合できなければドラフト仕訳生成（既存 spec 14）
 - 「証憑登録」画面で開くと **LINE バッジ**付きで他の Voucher と並んで見える
 
-### 機能 4: zeimee からスタッフに確認質問
+### 機能 4: bookmee からスタッフに確認質問
 
-OCR や仕訳の途中で zeimee が判断に迷ったら、Push API + Quick Reply で LINE に問い合わせ。
+OCR や仕訳の途中で bookmee が判断に迷ったら、Push API + Quick Reply で LINE に問い合わせ。
 
 例:
 
@@ -68,7 +68,7 @@ OCR や仕訳の途中で zeimee が判断に迷ったら、Push API + Quick Rep
 - 突合不一致でドラフト仕訳が生成された時 → 「この仕訳でよろしいですか？」
 - 顧問先振り分けで複数候補がある時 → 「どの顧問先？: [青山デザイン] [橋本商店] [その他]」
 
-### 機能 5: 間違いは zeimee の画面で修正
+### 機能 5: 間違いは bookmee の画面で修正
 
 - LINE 経由で送った Voucher も既存「証憑登録」画面で見える・編集できる
 - 顧問先振り分けが間違っていたら画面上の select で手動修正（既存機能）
@@ -84,7 +84,7 @@ OCR や仕訳の途中で zeimee が判断に迷ったら、Push API + Quick Rep
 
 ## アクター
 
-- **税理士事務所スタッフ**: 自分の LINE で画像送信、zeimee からの質問にボタンで返答
+- **税理士事務所スタッフ**: 自分の LINE で画像送信、bookmee からの質問にボタンで返答
 - **所長 / 管理者**: 「連携 / LINE」画面でスタッフを承認する
 - 顧問先からのアップロード受付は本 spec ではスコープ外（spec 17）
 
@@ -97,7 +97,7 @@ model LineUserMapping {
   id          String   @id @default(cuid())
   lineUserId  String   @unique          // LINE userId (U で始まる)
   displayName String                    // 友だち追加時に LINE プロフィールから取得
-  staffLabel  String?                   // zeimee 上のラベル ('所長' / 'スタッフ' 等)
+  staffLabel  String?                   // bookmee 上のラベル ('所長' / 'スタッフ' 等)
   enabled     Boolean  @default(false)  // 所長が承認するまで false
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -122,7 +122,7 @@ caption             String?                      // 画像と同送されたテ�
 ```env
 LINE_CHANNEL_ACCESS_TOKEN=     # 必須。Content API / Push API 用
 LINE_CHANNEL_SECRET=           # 必須。webhook 署名検証用
-LINE_WEBHOOK_BASE_URL=         # 本番のみ。例 https://zeimee.example.com
+LINE_WEBHOOK_BASE_URL=         # 本番のみ。例 https://bookmee.example.com
 LINE_CHANNEL_ID=               # 任意。informational only
 ```
 
@@ -146,7 +146,7 @@ LINE_CHANNEL_ID=               # 任意。informational only
 {
   "connected": true,
   "channelId": "1234567890",
-  "webhookUrl": "https://zeimee.example.com/api/integrations/line/webhook",
+  "webhookUrl": "https://bookmee.example.com/api/integrations/line/webhook",
   "userCount": 3,
   "enabledUserCount": 2
 }
@@ -394,7 +394,7 @@ lineVerifyResult: null,       // 直近の verify 結果
 - [ ] `POST /api/integrations/line/verify` で LINE API に疎通できる（`/v2/bot/info` が 200 を返す）
 - [ ] LINE Developers Console の webhook URL に `/api/integrations/line/webhook` を設定（開発時は ngrok でトンネル）
 - [ ] スタッフが LINE で友だち追加 → `LineUserMapping` が auto-create + welcome reply
-- [ ] zeimee 「連携 / LINE」画面で `enabled=true` に変更
+- [ ] bookmee 「連携 / LINE」画面で `enabled=true` に変更
 - [ ] LINE で画像を送る → Voucher が作られて OCR / 振り分け / 突合 / ドラフト仕訳が動く
 - [ ] テキストと画像を続けて送ると `caption` にテキストが入る
 - [ ] 同一 messageId の webhook 再送 → Voucher 二重作成されない

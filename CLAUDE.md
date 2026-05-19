@@ -57,7 +57,7 @@ npx prisma studio                         # DB を GUI で確認
 - データ API: `MF_ACCOUNTING_BASE_URL`（`https://api-accounting.moneyforward.com`）の `/api/v3/...`
 - 旧 `MF_BASE_URL` は互換のために env スキーマに残してあるが `mf-api.ts` は読まない（`.env` は空でよい）
 - アクセストークンは 1h、`ensureToken()` が残り 60 秒で自動 refresh、`mfRefreshToken` を更新
-- スコープは `mf-api.ts` の `MF_SCOPES` に列挙。**`*.write` は絶対に足さない**（spec 08 の O2: zeimee は read-only。書き戻し機能を追加してはいけない）
+- スコープは `mf-api.ts` の `MF_SCOPES` に列挙。**`*.write` は絶対に足さない**（spec 08 の O2: bookmee は read-only。書き戻し機能を追加してはいけない）
 - 取得した office の `name` を `Client.name` に上書きし、`code` を `Client.mfExternalId` に保存する設計（spec 01）
 
 ### 環境変数の遅延ロード
@@ -123,7 +123,7 @@ TS=$(date +%Y%m%d%H%M%S) && mkdir -p prisma/migrations/${TS}_<name> \
        --to-schema-datamodel prisma/schema.prisma --script \
        > prisma/migrations/${TS}_<name>/migration.sql \
   && npx prisma migrate resolve --applied "${TS}_<name>" \
-  && docker compose exec -T postgres psql -U zeimee -d zeimee \
+  && docker compose exec -T postgres psql -U bookmee -d bookmee \
        -f - < prisma/migrations/${TS}_<name>/migration.sql \
   && npx prisma generate
 ```
@@ -158,7 +158,7 @@ dev (5432) と test (5433) で Postgres を分けている。`npm test` は自�
 # 初回セットアップ
 docker compose --profile test up -d postgres-test    # ポート 5433
 npm run test:db:setup                                # migration 適用
-DATABASE_URL=postgresql://zeimee:zeimee_test@localhost:5433/zeimee_test \
+DATABASE_URL=postgresql://bookmee:bookmee_test@localhost:5433/bookmee_test \
   npx tsx prisma/seed.ts                              # seed (4 顧問先)
 npm test                                              # vitest 実行
 ```
@@ -178,13 +178,13 @@ npm test                                              # vitest 実行
 
 ```bash
 # ローカルで prod イメージを確認
-docker build -f server/Dockerfile.prod -t zeimee:prod .
-docker run -e DATABASE_URL=postgresql://... -p 8080:3000 zeimee:prod
+docker build -f server/Dockerfile.prod -t bookmee:prod .
+docker run -e DATABASE_URL=postgresql://... -p 8080:3000 bookmee:prod
 
 # GCP Cloud Run へデプロイ (例)
-gcloud builds submit --tag gcr.io/<project>/zeimee
-gcloud run deploy zeimee \
-  --image gcr.io/<project>/zeimee \
+gcloud builds submit --tag gcr.io/<project>/bookmee
+gcloud run deploy bookmee \
+  --image gcr.io/<project>/bookmee \
   --set-env-vars DATABASE_URL=...,OPENAI_API_KEY=...,... \
   --port 3000
 ```

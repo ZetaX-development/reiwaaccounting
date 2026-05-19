@@ -6,5 +6,5 @@ process.env.NODE_ENV = 'test';
 // explicitly cleared — but `npm test` sets it via the script.
 process.env.DATABASE_URL ??=
   process.env.TEST_DATABASE_URL ??
-  'postgresql://zeimee:zeimee_test@localhost:5433/zeimee_test';
+  'postgresql://bookmee:bookmee_test@localhost:5433/bookmee_test';
 process.env.MF_BASE_URL ??= 'https://api.biz.moneyforward.com';

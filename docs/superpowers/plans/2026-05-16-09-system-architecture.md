@@ -15,7 +15,7 @@
 ## File Structure
 
 ```
-zeimee/
+bookmee/
 ├── index.html                       # MODIFY (no changes in this plan; verified still works)
 ├── styles.css                       # untouched
 ├── script.js                        # MODIFY (Tasks 16, 18) — switch from clients[] to fetch()
@@ -73,7 +73,7 @@ zeimee/
 
 ## Working directory convention
 
-All shell commands in this plan run from `/home/kkouta/poc/zeimee/server/` **unless otherwise noted**. Tasks that need root commands (Docker Compose, git) call this out explicitly.
+All shell commands in this plan run from `/home/kkouta/poc/bookmee/server/` **unless otherwise noted**. Tasks that need root commands (Docker Compose, git) call this out explicitly.
 
 ---
 
@@ -90,7 +90,7 @@ All shell commands in this plan run from `/home/kkouta/poc/zeimee/server/` **unl
 
 ```json
 {
-  "name": "zeimee-server",
+  "name": "bookmee-server",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -175,7 +175,7 @@ prisma/migrations/*/migration_lock.toml.bak
 
 - [ ] **Step 5: Append to repo-root `.gitignore`**
 
-Modify `/home/kkouta/poc/zeimee/.gitignore`. Append:
+Modify `/home/kkouta/poc/bookmee/.gitignore`. Append:
 
 ```
 # server
@@ -209,39 +209,39 @@ git commit -m "chore(server): initialize TypeScript + Fastify project skeleton"
 **Files:**
 - Create: `docker-compose.yml` (repo root)
 
-- [ ] **Step 1: Create `/home/kkouta/poc/zeimee/docker-compose.yml`**
+- [ ] **Step 1: Create `/home/kkouta/poc/bookmee/docker-compose.yml`**
 
 ```yaml
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: zeimee-postgres
+    container_name: bookmee-postgres
     environment:
-      POSTGRES_USER: zeimee
-      POSTGRES_PASSWORD: zeimee_dev
-      POSTGRES_DB: zeimee
+      POSTGRES_USER: bookmee
+      POSTGRES_PASSWORD: bookmee_dev
+      POSTGRES_DB: bookmee
     ports:
       - "5432:5432"
     volumes:
-      - zeimee_pg_data:/var/lib/postgresql/data
+      - bookmee_pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U zeimee -d zeimee"]
+      test: ["CMD-SHELL", "pg_isready -U bookmee -d bookmee"]
       interval: 5s
       timeout: 5s
       retries: 10
 
 volumes:
-  zeimee_pg_data:
+  bookmee_pg_data:
 ```
 
 - [ ] **Step 2: Start the database**
 
 Run from repo root: `docker compose up -d postgres`
-Expected: `Container zeimee-postgres  Started`
+Expected: `Container bookmee-postgres  Started`
 
 - [ ] **Step 3: Verify Postgres is reachable**
 
-Run: `docker compose exec postgres pg_isready -U zeimee -d zeimee`
+Run: `docker compose exec postgres pg_isready -U bookmee -d bookmee`
 Expected: `/var/run/postgresql:5432 - accepting connections`
 
 - [ ] **Step 4: Commit**
@@ -263,7 +263,7 @@ git commit -m "chore: add Docker Compose for local PostgreSQL"
 - [ ] **Step 1: Create `server/.env.example`**
 
 ```
-DATABASE_URL=postgresql://zeimee:zeimee_dev@localhost:5432/zeimee
+DATABASE_URL=postgresql://bookmee:bookmee_dev@localhost:5432/bookmee
 PORT=3000
 NODE_ENV=development
 STALE_THRESHOLD_SEC=3600
@@ -277,7 +277,7 @@ MF_BASE_URL=https://api.biz.moneyforward.com
 
 # Notification (filled in spec 03 implementation)
 SENDGRID_API_KEY=
-EMAIL_FROM=zeimee@example.com
+EMAIL_FROM=bookmee@example.com
 SLACK_BOT_TOKEN=
 CHATWORK_API_TOKEN=
 LINEWORKS_BOT_ID=
@@ -638,7 +638,7 @@ Expected: A migration directory under `prisma/migrations/<ts>_init/` is created 
 
 Run from repo root:
 ```bash
-docker compose exec postgres psql -U zeimee -d zeimee -c "\dt"
+docker compose exec postgres psql -U bookmee -d bookmee -c "\dt"
 ```
 Expected: tables listed include `Client`, `Entry`, `Receipt`, `Matching`, `Task`, `TaskHistory`, `Rule`, `RuleHit`, `Thread`, `ReceiptPolicy`, `YearendCheck`, `VendorSync`, `TrendDatum`, `MonthlyCheck` (Prisma may pluralize differently — confirm names match the schema).
 
@@ -664,17 +664,17 @@ import { PrismaClient } from '@prisma/client';
 
 declare global {
   // eslint-disable-next-line no-var
-  var __zeimeePrisma: PrismaClient | undefined;
+  var __bookmeePrisma: PrismaClient | undefined;
 }
 
 export const prisma =
-  globalThis.__zeimeePrisma ??
+  globalThis.__bookmeePrisma ??
   new PrismaClient({
     log: ['warn', 'error'],
   });
 
 if (process.env.NODE_ENV !== 'production') {
-  globalThis.__zeimeePrisma = prisma;
+  globalThis.__bookmeePrisma = prisma;
 }
 ```
 
@@ -1131,7 +1131,7 @@ This task ports the existing `clients[]` array from `script.js` into Prisma upse
 
 - [ ] **Step 1: Read `script.js` lines 8–199 to confirm the fixture shape**
 
-(Engineer task: open `/home/kkouta/poc/zeimee/script.js` and skim the `clients` array. Do not change anything in `script.js` yet.)
+(Engineer task: open `/home/kkouta/poc/bookmee/script.js` and skim the `clients` array. Do not change anything in `script.js` yet.)
 
 - [ ] **Step 2: Create `server/prisma/seed.ts`**
 
@@ -1452,7 +1452,7 @@ Expected: console prints `Seed complete. clients=1`. No errors.
 
 Run from repo root:
 ```bash
-docker compose exec postgres psql -U zeimee -d zeimee -c 'SELECT id, name, vendor FROM "Client";'
+docker compose exec postgres psql -U bookmee -d bookmee -c 'SELECT id, name, vendor FROM "Client";'
 ```
 Expected: row with `aoyama-design | 青山デザイン株式会社 | mf`.
 
@@ -1983,13 +1983,13 @@ await app.register(staticPlugin, {
 });
 ```
 
-The `root` resolves to `/home/kkouta/poc/zeimee` (server/src/.. = server, /.. = repo root). The frontend keeps its existing relative paths (`./styles.css`, `./script.js`).
+The `root` resolves to `/home/kkouta/poc/bookmee` (server/src/.. = server, /.. = repo root). The frontend keeps its existing relative paths (`./styles.css`, `./script.js`).
 
 - [ ] **Step 2: Smoke test in a browser**
 
 Run from `server/`: `npm run dev`
 Open `http://localhost:3000/` in a browser.
-Expected: The current Zeimee UI loads (sidebar, summary cards, etc.). It still uses the inline `clients[]` array — that gets replaced in Task 16.
+Expected: The current Bookmee UI loads (sidebar, summary cards, etc.). It still uses the inline `clients[]` array — that gets replaced in Task 16.
 Stop the dev server.
 
 - [ ] **Step 3: Commit**
@@ -2091,7 +2091,7 @@ git commit -m "feat(frontend): load clients via fetch('/api/clients') with inlin
 - [ ] **Step 1: Replace `README.md` content**
 
 ```markdown
-# Zeimee
+# Bookmee
 
 税理士事務所向け AI 月次レビュー SaaS のプロトタイプ。
 

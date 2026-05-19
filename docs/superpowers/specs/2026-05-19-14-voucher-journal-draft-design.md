@@ -8,7 +8,7 @@ spec 12 で突合できなかった Voucher（OCR 完了済みだが MF 仕訳�
 
 1. AI で **仕訳ドラフト** を生成（勘定科目・税区分・摘要・金額・発生日）
 2. ドラフト生成に必要な情報が **不足** している場合は、顧客にメール/LINE で確認依頼
-3. ドラフトは zeimee 内に保管（MF への書き戻しは **禁止**、spec 08 / 10 で確定済み）。事務所スタッフが「突合結果」ビューでレビュー後、MF 側で手動入力する想定
+3. ドラフトは bookmee 内に保管（MF への書き戻しは **禁止**、spec 08 / 10 で確定済み）。事務所スタッフが「突合結果」ビューでレビュー後、MF 側で手動入力する想定
 
 A→B→C→D に続く **E** のフェーズ。
 
@@ -18,7 +18,7 @@ A→B→C→D に続く **E** のフェーズ。
 2. ドラフトに `missingFields` がある場合、自動 or ボタン操作で顧客に問い合わせメッセージを送る
 3. メール・LINE のアダプタは **インターフェースだけ用意**、実体はモック。user が並行作業で接続する SendGrid/LINEWORKS 等を後から差し込める
 4. 「突合結果」ビューに「仕訳ドラフト」セクションを追加して可視化
-5. zeimee → MF への書き戻しは **しない**（read-only）
+5. bookmee → MF への書き戻しは **しない**（read-only）
 
 ## アクター
 
@@ -119,7 +119,7 @@ export async function inquireAboutVoucher(voucherId: string): Promise<void>;
 4. body を生成（テンプレート）:
 
 ```
-[zeimee] {client.name} 様
+[bookmee] {client.name} 様
 
 お預かりした領収書について、以下の情報を教えていただけますでしょうか:
 
@@ -152,7 +152,7 @@ export async function inquireAboutVoucher(voucherId: string): Promise<void>;
 OUTREACH_CHANNEL=mock           # 'mock' | 'email' | 'line'
 OUTREACH_AUTO=false             # true で missingFields ありの voucher を自動で問い合わせ
 # email 用 (user 接続予定)
-OUTREACH_EMAIL_FROM=zeimee@example.com
+OUTREACH_EMAIL_FROM=bookmee@example.com
 SENDGRID_API_KEY=               # 既存だが流用可
 # line 用 (user 接続予定)
 OUTREACH_LINE_TOKEN=
@@ -238,4 +238,4 @@ PATCH /api/vouchers/:id/journal { status: 'approved' }。
 
 ## メモ: なぜ MF に書かないか
 
-spec 08 で zeimee は read-only と決めた。書き戻しは API スコープが `*.write` を要求し、誤書き込みのリスクが高い。事務所内部で「ドラフト確定 → 担当者が MF UI に手動入力」の運用に倒す。CSV エクスポートは将来の課題。
+spec 08 で bookmee は read-only と決めた。書き戻しは API スコープが `*.write` を要求し、誤書き込みのリスクが高い。事務所内部で「ドラフト確定 → 担当者が MF UI に手動入力」の運用に倒す。CSV エクスポートは将来の課題。
