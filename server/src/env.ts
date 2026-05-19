@@ -31,6 +31,10 @@ const schema = z.object({
   LINEWORKS_PRIVATE_KEY: z.string().default(''),
   OPENAI_API_KEY: z.string().default(''),
   OPENAI_VISION_MODEL: z.string().default('gpt-5'),
+  OUTREACH_CHANNEL: z.enum(['mock', 'email', 'line']).default('mock'),
+  OUTREACH_AUTO: z.coerce.boolean().default(false),
+  OUTREACH_EMAIL_FROM: z.string().default('zeimee@example.com'),
+  OUTREACH_LINE_TOKEN: z.string().default(''),
 });
 
 export type Env = z.infer<typeof schema>;

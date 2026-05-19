@@ -247,6 +247,27 @@ model Voucher {
   matchedAt           DateTime?
   matchedClientReason String?
 
+  draftJournalJson Json?
+  journalStatus    String   @default("none")
+  inquiryAt        DateTime?
+  inquiryChannel   String?
+
+  inquiries VoucherInquiry[]
+
   @@index([clientId, uploadedAt])
   @@index([ocrStatus])
+}
+
+model VoucherInquiry {
+  id           String   @id @default(cuid())
+  voucher      Voucher  @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  voucherId    String
+  channel      String
+  target       String
+  body         String
+  sentAt       DateTime @default(now())
+  status       String   @default("sent")
+  errorMessage String?
+
+  @@index([voucherId])
 }
