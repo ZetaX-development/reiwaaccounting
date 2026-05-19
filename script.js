@@ -694,6 +694,10 @@ function channelBadgeHtml(channel) {
 }
 
 function renderSummary() {
+  // Summary cards (レビュー完了率 / 所長確認待ち / 証憑回収率 / 差戻し中 /
+  // ベンダー横断同期) are dashboard-only. Hide everywhere else.
+  const grid = $("#summaryGrid");
+  if (grid) grid.style.display = appState.activeView === "dashboard" ? "" : "none";
   const client = currentClient();
   if (!client) return;
   $("#progressValue").textContent = client.progress + "%";
