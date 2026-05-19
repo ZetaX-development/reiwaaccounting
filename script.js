@@ -1232,8 +1232,8 @@ function bindMissingHandlers(rows) {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ entryIds: targets, channel }),
       }).then((r) => r.json()).then((draft) => {
-        appState.activeView = "portal";
         appState.portalChannel = channel;
+        location.hash = "#/portal";
         // Stash draft in messageDraft so portal renderer picks it up
         if ($("#messageDraft")) $("#messageDraft").value = draft.body;
         client.message = draft.body;
@@ -3056,8 +3056,7 @@ function renderView() {
       const taskIndex = button.dataset.task === undefined ? null : Number(button.dataset.task);
       if (action === "open-client") {
         appState.activeClient = Number(button.dataset.clientTarget);
-        appState.activeView = "dashboard";
-        render();
+        location.hash = "#/dashboard";
         showToast("レビュー対象の顧問先を開きました。");
         return;
       }
@@ -3074,16 +3073,14 @@ function renderView() {
         client.tasks[taskIndex][3] = "open";
         client.diff += 1;
         showToast("担当者への差戻しメモを作成しました。");
-        appState.activeView = "feedback";
-        render();
+        location.hash = "#/feedback";
         return;
       }
       if (action === "ask" && taskIndex !== null) {
         const task = client.tasks[taskIndex];
         const draft = client.name + " ご担当者様\n\nいつもお世話になっております。月次確認のため、以下の件について資料または補足をご共有ください。\n\n・" + task[0] + "\n\n確認後、月次処理を進めます。よろしくお願いいたします。";
-        appState.activeView = "portal";
         appState.portalChannel = client.contactPrimary || "email";
-        render();
+        location.hash = "#/portal";
         const portalDraft = $("#portalDraft");
         if (portalDraft) portalDraft.value = formatBodyForChannel(draft, appState.portalChannel);
         showToast("メッセージ画面に依頼文を作成しました。");
@@ -3091,9 +3088,8 @@ function renderView() {
       }
       if (action === "send-feedback") showToast("担当者に差戻し内容を送信しました。");
       if (action === "apply-validation") {
-        appState.activeView = "dashboard";
         showToast("議事録の方針をレビューセンターに反映しました。");
-        render();
+        location.hash = "#/dashboard";
         return;
       }
       if (action === "approve") showToast("AI候補を承認しました。月次進捗に反映します。");
@@ -3209,9 +3205,8 @@ function renderView() {
         const draft = client.name + " ご担当者様\n\n" +
           "下記の件についてご確認ください。\n\n・" + t.title + "\n  " + t.note + "\n\n" +
           "確認後、月次処理を進めます。よろしくお願いいたします。";
-        appState.activeView = "portal";
         appState.portalChannel = client.contactPrimary || "email";
-        render();
+        location.hash = "#/portal";
         const portalDraft = $("#portalDraft");
         if (portalDraft) portalDraft.value = formatBodyForChannel(draft, appState.portalChannel);
         showToast("顧問先連絡に依頼文を作成しました");
@@ -3274,12 +3269,13 @@ document.querySelectorAll(".nav-item").forEach((button) => {
     // and are handled by their dedicated toggle handler below. Skip them here
     // so we don't clobber appState.activeView with undefined.
     if (!button.dataset.view) return;
-    appState.activeView = button.dataset.view;
-    appState.activeFilter = "all";
-    // Reset integration-view load guards so each nav re-fetches fresh status.
-    if (appState.activeView === "integrations-drive") appState.driveLoadedAt = null;
-    if (appState.activeView === "integrations-line") appState.lineLoadedAt = null;
-    render();
+    const newHash = hashFromView(button.dataset.view);
+    if (location.hash === newHash) {
+      // Same hash — force re-apply (re-fetch loaders, etc.).
+      applyHashRoute(true);
+    } else {
+      location.hash = newHash; // triggers 'hashchange' → applyHashRoute
+    }
   });
 });
 
@@ -3292,24 +3288,52 @@ $("#searchInput").addEventListener("input", (event) => {
   renderView();
 });
 
-// Hash routing: OAuth callbacks redirect to `/#/integrations/drive`. Translate
-// known hashes to the matching view so the user lands on the right page.
-function applyHashRoute() {
-  const h = (typeof location !== "undefined" && location.hash) || "";
-  const map = {
-    "#/integrations/drive": "integrations-drive",
-    "#/integrations/line": "integrations-line",
-  };
-  const target = map[h];
-  if (target && appState.activeView !== target) {
-    appState.activeView = target;
-    appState.driveLoadedAt = null;
-    appState.lineLoadedAt = null;
-    render();
-  }
+// Hash routing — the single source of truth for which view is active.
+// URL ↔ view mapping:
+//   #/dashboard         dashboard (default when hash is empty)
+//   #/company           company
+//   #/jobs-journal      jobs-journal
+//   #/jobs-vouchers     jobs-vouchers
+//   #/jobs-monthly-check jobs-monthly-check
+//   #/vouchers-register vouchers-register
+//   #/matching-results  matching-results
+//   #/portal            portal
+//   #/rules             rules
+//   #/settings          settings
+//   #/integrations/drive  integrations-drive
+//   #/integrations/line   integrations-line
+function viewFromHash(h) {
+  const s = (h || "").replace(/^#\/?/, "");
+  if (!s) return null;
+  if (s === "integrations/drive") return "integrations-drive";
+  if (s === "integrations/line") return "integrations-line";
+  return s;
 }
-window.addEventListener("hashchange", applyHashRoute);
-applyHashRoute();
+
+function hashFromView(view) {
+  if (!view || view === "dashboard") return "#/dashboard";
+  if (view === "integrations-drive") return "#/integrations/drive";
+  if (view === "integrations-line") return "#/integrations/line";
+  return "#/" + view;
+}
+
+function applyHashRoute(force) {
+  const target = viewFromHash(location.hash) || "dashboard";
+  if (!force && appState.activeView === target) return;
+  appState.activeView = target;
+  appState.activeFilter = "all";
+  // Reset per-view load guards so re-navigating refetches.
+  if (target === "integrations-drive") appState.driveLoadedAt = null;
+  if (target === "integrations-line") appState.lineLoadedAt = null;
+  render();
+}
+window.addEventListener("hashchange", () => applyHashRoute(false));
+// Normalize the URL on first load so bookmarks land on /#/dashboard rather
+// than /, and ensure activeView matches whatever the URL says.
+if (!location.hash) {
+  history.replaceState(null, "", "#/dashboard");
+}
+applyHashRoute(true);
 
 // Spec 05 F1: mode toggle
 document.querySelectorAll("#modeToggle .mode-btn").forEach((btn) => {
@@ -3365,8 +3389,7 @@ document.querySelectorAll('[data-view-group="jobs"]').forEach((btn) => {
     btn.classList.toggle("expanded");
     const av = appState.activeView || "";
     if (jobsSub?.classList.contains("expanded") && !av.startsWith("jobs-")) {
-      appState.activeView = "jobs-journal";
-      render();
+      location.hash = "#/jobs-journal";
     }
   });
 });
