@@ -79,3 +79,116 @@ npx prisma studio                         # DB を GUI で確認
 - 仕様変更や新機能は、対応する spec 番号（`docs/superpowers/specs/2026-05-16-NN-*.md`）を参照したうえで行う。spec を変えるべきと思ったら先に spec を更新する。
 - MF / freee に書き込む実装は禁止（read-only ポリシー）。
 - 「データを DB にキャッシュして高速化したい」と感じたら、その前に live fetch で十分な要件か確認する。原則として API 直叩き。
+
+## 開発フロー (spec 10〜16 で確立)
+
+spec 10 以降の voucher パイプライン（証憑登録 / OCR / 突合 / 仕訳ドラフト / Drive 連携 / LINE 連携）はすべて以下のフローで実装した。次の機能も同じ流儀でやる。
+
+### 1. spec → plan → execute
+
+1. **設計 (`docs/superpowers/specs/YYYY-MM-DD-NN-*-design.md`)** — 機能の目的、データモデル、API、UI、テスト方針、受入基準、非ゴールを書き切る。実装に入る前に user に見せて方針合意する。
+2. **plan (`docs/superpowers/plans/YYYY-MM-DD-NN-*.md`)** — spec を 8〜15 個の小さい Task に分解。各 Task は「Files」「Step 1〜N」「Commit」を含む。
+3. **execute** — `superpowers:subagent-driven-development` パターンで Task ごとに implementer → spec compliance reviewer → code quality reviewer の 3 ステップ。各 Task 完了で個別 commit。
+
+### 2. TDD discipline
+
+各 Task の Step は **Red → Green → Refactor → Commit** の順:
+
+1. 失敗テストを書く
+2. テストを走らせて **fail を目視確認**（モジュール解決エラーや assert mismatch がメッセージに出ているか）
+3. 実装を書く
+4. テストを走らせて **pass を確認**
+5. commit (TDD discipline を破ったら指摘してもらう)
+
+例外: フロントの Vanilla JS は test framework 無し。`node --check script.js` の構文チェック + 手動 UI 検証で代用。
+
+### 3. テストでモックを使う / 使わない判断
+
+- **Prisma / DB**: モックしない。実 Postgres に繋ぐ。`beforeEach` で `prisma.<table>.deleteMany()`、`afterAll` で cleanup + `$disconnect`。seed のクライアント (`aoyama-design`, `shibuya-cafe`, `nihonbashi-kogyo`, `yokohama-medical`) を使う。
+- **MF / freee の vendor adapter**: モックしない。spec 08 の方針通り、外部 API は信頼して直叩く（テストの遅さは許容）。
+- **OpenAI / Google Drive / LINE 等のサービス API**: モック OK。これらは「会計データのソース」ではない（auxiliary service）。`vi.mock('openai', () => ({ default: vi.fn() }))` パターン or `vi.spyOn(service, 'fn')` で。
+- **env**: `tests/setup.ts` が最低限を `process.env` にセット。テスト中で env を変える場合は `process.env.X = 'y'` + `__resetEnvCache()` を呼ぶ。
+
+### 4. vitest 設定
+
+- `server/vitest.config.ts` の `fileParallelism: false` を維持する。複数テストファイルが同じ Voucher テーブル等を `deleteMany` するので、並列実行すると DB レースで落ちる。
+
+### 5. Prisma migration
+
+通常は `npx prisma migrate dev --name <name>`。**Claude セッションは非インタラクティブなので prisma migrate dev が失敗することがある**。その場合の workaround:
+
+```bash
+TS=$(date +%Y%m%d%H%M%S) && mkdir -p prisma/migrations/${TS}_<name> \
+  && npx prisma migrate diff --from-schema-datasource prisma/schema.prisma \
+       --to-schema-datamodel prisma/schema.prisma --script \
+       > prisma/migrations/${TS}_<name>/migration.sql \
+  && npx prisma migrate resolve --applied "${TS}_<name>" \
+  && docker compose exec -T postgres psql -U zeimee -d zeimee \
+       -f - < prisma/migrations/${TS}_<name>/migration.sql \
+  && npx prisma generate
+```
+
+### 6. コミット運用
+
+- 1 Task = 1 commit。複数機能を 1 commit にまとめない。
+- `feat(spec NN): ...` / `fix(spec NN): ...` / `docs(spec NN): ...` / `test(spec NN): ...` / `chore(spec NN): ...` を使い分け。
+- `Co-Authored-By: Claude ...` は付けない（user 設定）。
+
+### 7. 既知の pre-existing TS エラー
+
+`npx tsc --noEmit` で以下のエラーは spec 10 以降の作業対象外。**触らない**:
+
+- `src/routes/mode.ts(44,48)`: `note: string | null | undefined` mismatch
+- `src/server.ts(25,25)`: `loggerInstance` overload error
+- `src/server.ts(63,3)`: Http2SecureServer assignment
+
+新規ファイルでこの種類のエラーを出さないようにする。
+
+### 8. seed の挙動と運用
+
+`npm run seed` は 4 つの顧問先 (`aoyama-design` ZetaX MF 連携、`shibuya-cafe`, `nihonbashi-kogyo`, `yokohama-medical`) と各々の Entry / Receipt / Matching ダミーを投入する。**テストはこれらに依存**しているので、seed を消してはいけない。
+
+ただし手動 UI 検証で「ダミーを消したい」ときは `Entry` / `Receipt` / `Matching` を `clientId` で `DELETE` する。Client 行自体は残す（MF OAuth 連携状態などが消えるため）。テスト走らせると seed が復活するのでその度に再削除。
+
+### 9. spec/plan ファイル番号
+
+- `docs/superpowers/specs/YYYY-MM-DD-NN-<slug>-design.md`
+- `docs/superpowers/plans/YYYY-MM-DD-NN-<slug>.md`
+
+`NN` は通し番号。`00`〜`09` が初期 spec、`10`〜 が後続機能。新機能は次の番号を取る。
+
+### 10. フロントの hash routing
+
+`script.js` の view 切替は **URL hash (`#/dashboard` 等) が source of truth**。サイドバーをクリックすると `location.hash` が変わり、`hashchange` イベントで `applyHashRoute` が `appState.activeView` を更新して `render()`。新しい view を追加するときは:
+
+1. `index.html` に nav button（`data-view="<view-id>"`）
+2. `labels` / `labels.helper` にエントリ
+3. `views` map に `<view-id>: () => render<View>()` を追加
+4. URL hash は自動的に `#/<view-id>` になる（hash routing が data-view を hash に変換）
+5. OAuth callback 等で特殊 hash が要るなら `viewFromHash` / `hashFromView` に分岐を足す
+
+### 11. UI が壊れたときの典型的な原因
+
+このプロジェクトの Vanilla JS は型がないので、以下のパターンが定期的に発生する:
+
+- **`adaptApiClient` が positional array を返してた残骸**: API レスポンスを `{...}` のまま渡す。`[a, b, c]` に変換しない。
+- **`activeView` が undefined になる**: nav-parent ボタン (data-view 無し) が一般 nav-item handler に拾われると activeView が undefined になり後段が crash。data-view の有無をガードする。
+- **`currentClient()` が undefined**: clients が loadClientsFromApi 完了前。各 renderer の先頭で null guard を入れる。
+- **無限ループ**: renderView が API 呼び出しを kick して、API のコールバックが renderView を呼ぶ。`loadedTab` 等のガード変数で抑止する。
+
+### 12. ドラフト仕訳の形式は MF 準拠
+
+`Voucher.draftJournalJson` は MF クラウド会計の仕訳 CSV 形式に揃える:
+
+```ts
+{
+  transactionDate: 'YYYY-MM-DD',
+  debit: { account, subAccount, partner, taxClass, invoiceNumber, amount },
+  credit: { account, subAccount, partner, taxClass, invoiceNumber, amount },
+  description: string,
+  missingFields: string[],
+  reasoning: string,
+}
+```
+
+借方と貸方両方を AI に出させる。スタッフが MF に手入力するときコピペできる形にする。MF への自動転記は禁止 (read-only)。
