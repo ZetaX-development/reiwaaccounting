@@ -1,4 +1,4 @@
-# Spec 13 (Google Drive 連携) Implementation Plan
+# Spec 15 (Google Drive 連携) Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -40,7 +40,7 @@
 `server/prisma/schema.prisma` の `model Voucher` ブロック末尾、`inquiries VoucherInquiry[]` の直前に追加：
 
 ```prisma
-  // Spec 13: Drive 連携用
+  // Spec 15: Drive 連携用
   source            String   @default("manual")
   driveFileId       String?  @unique
   driveImportStatus String?
@@ -115,7 +115,7 @@ cd server && npx prisma studio
 
 ```bash
 git add server/prisma/schema.prisma server/prisma/migrations/
-git commit -m "feat(spec 13): add Integration, DriveFolderMapping, DriveWatchChannel + Voucher source/driveFileId
+git commit -m "feat(spec 15): add Integration, DriveFolderMapping, DriveWatchChannel + Voucher source/driveFileId
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -145,7 +145,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 `server/.env.example` を Read してから、末尾に：
 
 ```
-# Google Drive 連携 (spec 13)
+# Google Drive 連携 (spec 15)
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 GOOGLE_REDIRECT_URI=http://localhost:3000/api/integrations/drive/oauth/callback
@@ -172,7 +172,7 @@ Expected: `tsc -p tsconfig.json` がエラー無く完了。
 
 ```bash
 git add server/src/env.ts server/.env.example server/package.json server/package-lock.json
-git commit -m "feat(spec 13): add Google env vars and googleapis dep
+git commit -m "feat(spec 15): add Google env vars and googleapis dep
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -349,7 +349,7 @@ Expected: PASS（6 ケース）
 
 ```bash
 git add server/src/services/integration-service.ts server/tests/services/integration-service.test.ts
-git commit -m "feat(spec 13): integration-service CRUD with 6 TDD cases
+git commit -m "feat(spec 15): integration-service CRUD with 6 TDD cases
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -518,7 +518,7 @@ Expected: 全 10 ケース PASS。
 
 ```bash
 git add server/src/services/integration-service.ts server/src/services/drive-service.ts server/tests/services/integration-service.test.ts
-git commit -m "feat(spec 13): ensureDriveToken with refresh + reauth_required handling
+git commit -m "feat(spec 15): ensureDriveToken with refresh + reauth_required handling
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -807,7 +807,7 @@ Expected: エラー無く完了。
 
 ```bash
 git add server/src/services/drive-service.ts
-git commit -m "feat(spec 13): drive-service wrapper for OAuth + files + changes + watch
+git commit -m "feat(spec 15): drive-service wrapper for OAuth + files + changes + watch
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -952,7 +952,7 @@ Expected: 2 ケース PASS
 
 ```bash
 git add server/src/services/drive-importer.ts server/tests/services/drive-importer.test.ts
-git commit -m "feat(spec 13): drive-importer bootstrap saves startPageToken on first run
+git commit -m "feat(spec 15): drive-importer bootstrap saves startPageToken on first run
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -1242,7 +1242,7 @@ Expected: 3 ケース PASS（bootstrap 2 + happy path 1）
 
 ```bash
 git add server/src/services/drive-importer.ts server/tests/services/drive-importer.test.ts
-git commit -m "feat(spec 13): drive-importer happy path imports + moves new files
+git commit -m "feat(spec 15): drive-importer happy path imports + moves new files
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -1395,7 +1395,7 @@ Expected: 全 7 ケース PASS。実装はすでに skip ロジックを書い�
 
 ```bash
 git add server/tests/services/drive-importer.test.ts
-git commit -m "test(spec 13): drive-importer skip cases (unmapped, dup, mime, size)
+git commit -m "test(spec 15): drive-importer skip cases (unmapped, dup, mime, size)
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -1469,7 +1469,7 @@ Expected: 全 8 ケース PASS。実装側はすでに move 失敗時の挙動�
 
 ```bash
 git add server/tests/services/drive-importer.test.ts
-git commit -m "test(spec 13): drive-importer marks driveImportStatus=move_failed
+git commit -m "test(spec 15): drive-importer marks driveImportStatus=move_failed
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -1630,7 +1630,7 @@ Expected: 3 ケース PASS。
 
 ```bash
 git add server/src/routes/integrations-drive.ts server/src/server.ts server/tests/routes/integrations-drive.test.ts
-git commit -m "feat(spec 13): GET/DELETE /api/integrations/drive
+git commit -m "feat(spec 15): GET/DELETE /api/integrations/drive
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -1810,7 +1810,7 @@ Expected: 全 6 ケース PASS。
 
 ```bash
 git add server/src/routes/integrations-drive.ts server/tests/routes/integrations-drive.test.ts
-git commit -m "feat(spec 13): Drive OAuth authorize + callback endpoints
+git commit -m "feat(spec 15): Drive OAuth authorize + callback endpoints
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -2024,7 +2024,7 @@ Expected: 全 12 ケース PASS。
 
 ```bash
 git add server/src/routes/integrations-drive.ts server/tests/routes/integrations-drive.test.ts
-git commit -m "feat(spec 13): folders / settings / mappings CRUD endpoints
+git commit -m "feat(spec 15): folders / settings / mappings CRUD endpoints
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -2302,7 +2302,7 @@ Expected: 全テスト PASS（既存も含む）。
 
 ```bash
 git add server/src/routes/integrations-drive.ts server/tests/routes/integrations-drive.test.ts
-git commit -m "feat(spec 13): sync / webhook / watch renew endpoints
+git commit -m "feat(spec 15): sync / webhook / watch renew endpoints
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -2419,7 +2419,7 @@ cd server && npm run dev
 
 ```bash
 git add index.html script.js styles.css
-git commit -m "feat(spec 13): frontend nav and empty container for integrations-drive
+git commit -m "feat(spec 15): frontend nav and empty container for integrations-drive
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -2497,7 +2497,7 @@ async function disconnectDrive() {
 
 ```bash
 git add script.js
-git commit -m "feat(spec 13): drive connection panel UI
+git commit -m "feat(spec 15): drive connection panel UI
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -2602,7 +2602,7 @@ async function deleteDriveMapping(ev) {
 
 ```bash
 git add script.js
-git commit -m "feat(spec 13): drive folder ↔ client mapping UI
+git commit -m "feat(spec 15): drive folder ↔ client mapping UI
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -2678,7 +2678,7 @@ Expected: 全テスト PASS。
 
 ```bash
 git add script.js styles.css
-git commit -m "feat(spec 13): drive sync panel + voucher source badge
+git commit -m "feat(spec 15): drive sync panel + voucher source badge
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -2707,5 +2707,5 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 - 既存方針に沿って **vi.mock は使わず `vi.spyOn` を service 関数に当てる** スタイルで統一しています（mf-api / voucher-service の慣習に合致）。
 - フロントのテスト基盤は無いので Task 14-17 は手動確認のみ。
-- watch renew の cron 自動化は spec 13 のスコープ外（手動 endpoint まで）。本番ではここを cron / scheduled task で叩く運用になります。
+- watch renew の cron 自動化は spec 15 のスコープ外（手動 endpoint まで）。本番ではここを cron / scheduled task で叩く運用になります。
 - Drive API のスコープは `drive` (フルアクセス) を採用。`drive.file` だと既存ファイルの move が不可なため。
