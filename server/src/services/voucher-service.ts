@@ -220,4 +220,28 @@ export async function assignAndMatchVoucher(id: string): Promise<void> {
       }
     }
   }
+
+  // Spec 16: if this Voucher came in via LINE and we have a token,
+  // push a status / Quick Reply back to the sender. Fire-and-forget;
+  // dynamic import keeps the voucher-service ↔ line-importer cycle broken.
+  if (process.env.LINE_CHANNEL_ACCESS_TOKEN) {
+    const after = await prisma.voucher.findUnique({
+      where: { id },
+      select: { source: true, lineUserId: true },
+    });
+    if (after?.source === 'line' && after.lineUserId) {
+      setImmediate(() => {
+        void (async () => {
+          try {
+            const { sendLinePushForVoucherStatus } = await import(
+              './line-importer.js'
+            );
+            await sendLinePushForVoucherStatus(id);
+          } catch {
+            /* swallow */
+          }
+        })();
+      });
+    }
+  }
 }
