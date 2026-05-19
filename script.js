@@ -648,6 +648,108 @@ async function resendMessage(id) {
   }
 }
 
+// -----------------------------------------------------------------------------
+// Spec 04: per-client risk rules fetchers
+// -----------------------------------------------------------------------------
+
+// Fetch the rule list for the current client.
+async function loadRules() {
+  const client = currentClient();
+  if (!client?.id) return [];
+  try {
+    const res = await fetch(
+      "/api/clients/" + encodeURIComponent(client.id) + "/rules",
+    );
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const rules = await res.json();
+    appState.rules = Array.isArray(rules) ? rules : [];
+    appState.rulesLoadedClient = client.id;
+    return appState.rules;
+  } catch (err) {
+    showToast(friendlyError(err));
+    return [];
+  }
+}
+
+// Fetch the industry rule-template catalog (e.g. "広告制作").
+async function loadRuleTemplates(industry) {
+  try {
+    const res = await fetch(
+      "/api/rule-templates?industry=" + encodeURIComponent(industry || ""),
+    );
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return await res.json();
+  } catch (err) {
+    showToast(friendlyError(err));
+    return [];
+  }
+}
+
+// Create a new rule (template or custom).
+async function addRule(body) {
+  const client = currentClient();
+  if (!client?.id) return null;
+  try {
+    const res = await fetch(
+      "/api/clients/" + encodeURIComponent(client.id) + "/rules",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return await res.json();
+  } catch (err) {
+    showToast(friendlyError(err));
+    throw err;
+  }
+}
+
+// Update an existing rule (active toggle, title, severity, etc.).
+async function updateRule(id, body) {
+  try {
+    const res = await fetch("/api/rules/" + encodeURIComponent(id), {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return await res.json();
+  } catch (err) {
+    showToast(friendlyError(err));
+    throw err;
+  }
+}
+
+// Delete a rule by id.
+async function deleteRuleById(id) {
+  try {
+    const res = await fetch("/api/rules/" + encodeURIComponent(id), {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return true;
+  } catch (err) {
+    showToast(friendlyError(err));
+    throw err;
+  }
+}
+
+// Fetch RuleHit rows (recent firing events) for a single rule.
+async function loadRuleHits(ruleId) {
+  try {
+    const res = await fetch(
+      "/api/rules/" + encodeURIComponent(ruleId) + "/hits",
+    );
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return await res.json();
+  } catch (err) {
+    showToast(friendlyError(err));
+    return [];
+  }
+}
+
 // Update the client's primary channel + endpoint map.
 async function updateContact(body) {
   const client = currentClient();
@@ -1569,10 +1671,8 @@ function renderRules() {
 function loadAndRenderRules() {
   const client = currentClient();
   if (!client?.id) return;
-  Promise.all([
-    fetch("/api/clients/" + encodeURIComponent(client.id) + "/rules").then((r) => r.json()),
-    fetch("/api/rule-templates?industry=" + encodeURIComponent(client.industry || "")).then((r) => r.json()),
-  ]).then(([rules, templates]) => {
+  Promise.all([loadRules(), loadRuleTemplates(client.industry || "")]).then(
+    ([rules, templates]) => {
     const listEl = $("#rulesList");
     if (listEl) {
       if (!Array.isArray(rules) || rules.length === 0) {
@@ -1621,71 +1721,89 @@ function bindRuleHandlers() {
   document.querySelectorAll('[data-action="rule-add-template"]').forEach((btn) => {
     btn.addEventListener("click", () => {
       const client = currentClient();
-      fetch("/api/clients/" + encodeURIComponent(client.id) + "/rules", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          type: "template",
-          industry: client.industry,
-          title: btn.dataset.title,
-          detail: btn.dataset.detail,
-          severity: btn.dataset.severity,
-          createdBy: appState.currentRole === "staff" ? "鈴木" : "畠山",
-        }),
-      }).then(() => { showToast("ルールを追加しました"); loadAndRenderRules(); loadClientsFromApi().finally(render); });
+      addRule({
+        type: "template",
+        industry: client.industry,
+        title: btn.dataset.title,
+        detail: btn.dataset.detail,
+        severity: btn.dataset.severity,
+        createdBy: appState.currentRole === "staff" ? "鈴木" : "畠山",
+      })
+        .then(() => {
+          showToast("ルールを追加しました");
+          loadAndRenderRules();
+          loadClientsFromApi().finally(render);
+        })
+        .catch(() => {});
     });
   });
   document.querySelectorAll('[data-action="rule-add-custom"]').forEach((btn) => {
     btn.addEventListener("click", () => {
-      const client = currentClient();
       const title = $("#ruleNewTitle").value.trim();
       if (!title) { showToast("タイトルを入力してください"); return; }
-      fetch("/api/clients/" + encodeURIComponent(client.id) + "/rules", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          type: "custom",
-          title,
-          detail: $("#ruleNewDetail").value,
-          severity: $("#ruleNewSeverity").value,
-          createdBy: appState.currentRole === "staff" ? "鈴木" : "畠山",
-        }),
-      }).then(() => { showToast("ルールを追加しました"); loadAndRenderRules(); loadClientsFromApi().finally(render); });
+      addRule({
+        type: "custom",
+        title,
+        detail: $("#ruleNewDetail").value,
+        severity: $("#ruleNewSeverity").value,
+        createdBy: appState.currentRole === "staff" ? "鈴木" : "畠山",
+      })
+        .then(() => {
+          showToast("ルールを追加しました");
+          loadAndRenderRules();
+          loadClientsFromApi().finally(render);
+        })
+        .catch(() => {});
     });
   });
   document.querySelectorAll('[data-action="rule-toggle"]').forEach((cb) => {
     cb.addEventListener("change", () => {
-      fetch("/api/rules/" + encodeURIComponent(cb.dataset.ruleId), {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ active: cb.checked }),
-      }).then(() => { showToast(cb.checked ? "ルールを有効にしました" : "ルールを停止しました"); loadAndRenderRules(); });
+      updateRule(cb.dataset.ruleId, { active: cb.checked })
+        .then(() => {
+          showToast(cb.checked ? "ルールを有効にしました" : "ルールを停止しました");
+          loadAndRenderRules();
+        })
+        .catch(() => {});
     });
   });
   document.querySelectorAll('[data-action="rule-delete"]').forEach((btn) => {
     btn.addEventListener("click", () => {
       if (!confirm("このルールを削除しますか？")) return;
-      fetch("/api/rules/" + encodeURIComponent(btn.dataset.ruleId), { method: "DELETE" })
-        .then(() => { showToast("削除しました"); loadAndRenderRules(); });
+      deleteRuleById(btn.dataset.ruleId)
+        .then(() => {
+          showToast("削除しました");
+          loadAndRenderRules();
+        })
+        .catch(() => {});
     });
   });
   document.querySelectorAll('[data-action="rule-history"]').forEach((btn) => {
     btn.addEventListener("click", () => {
-      fetch("/api/rules/" + encodeURIComponent(btn.dataset.ruleId) + "/hits")
-        .then((r) => r.json())
-        .then((hits) => {
-          const parent = btn.closest(".rule-row");
-          let existing = parent.querySelector(".rule-history");
-          if (existing) { existing.remove(); return; }
-          const ul = document.createElement("ul");
-          ul.className = "rule-history";
-          if (!Array.isArray(hits) || hits.length === 0) {
-            ul.innerHTML = "<li>ヒット履歴なし</li>";
-          } else {
-            ul.innerHTML = hits.slice(0, 20).map((h) => "<li>" + new Date(h.at).toLocaleString("ja-JP") + " — " + escapeHtml(h.target) + " (" + h.outcome + ")</li>").join("");
-          }
-          parent.appendChild(ul);
-        });
+      loadRuleHits(btn.dataset.ruleId).then((hits) => {
+        const parent = btn.closest(".rule-row");
+        let existing = parent.querySelector(".rule-history");
+        if (existing) { existing.remove(); return; }
+        const ul = document.createElement("ul");
+        ul.className = "rule-history";
+        if (!Array.isArray(hits) || hits.length === 0) {
+          ul.innerHTML = "<li>ヒット履歴なし</li>";
+        } else {
+          ul.innerHTML = hits
+            .slice(0, 20)
+            .map(
+              (h) =>
+                "<li>" +
+                new Date(h.at).toLocaleString("ja-JP") +
+                " — " +
+                escapeHtml(h.target) +
+                " (" +
+                h.outcome +
+                ")</li>",
+            )
+            .join("");
+        }
+        parent.appendChild(ul);
+      });
     });
   });
 }
