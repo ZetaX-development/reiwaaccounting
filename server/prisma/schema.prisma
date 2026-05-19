@@ -244,6 +244,8 @@ model Voucher {
   ocrError       String?
   matchedEntryId String?
   matchStatus    String   @default("unmatched")
+  matchedAt           DateTime?
+  matchedClientReason String?
 
   @@index([clientId, uploadedAt])
   @@index([ocrStatus])
