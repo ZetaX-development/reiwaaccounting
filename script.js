@@ -10,6 +10,10 @@ const appState = {
   voucherCounts: {},
   uploadQueue: [],
   voucherPollTimer: null,
+  matchingTab: null,
+  matchingVouchers: [],
+  matchingEntries: [],
+  matchingLoadedTab: null,
 };
 
 // Loaded from /api/clients on startup. The inline array below is kept as a
@@ -217,6 +221,7 @@ const labels = {
   "jobs-vouchers": "月次業務 / 証憑",
   "jobs-monthly-check": "月次業務 / 月次チェック",
   "vouchers-register": "証憑登録",
+  "matching-results": "突合結果",
   portal: "メッセージ",
   rules: "学習",
   settings: "設定",
@@ -251,6 +256,7 @@ const labels = {
     "jobs-vouchers": "領収書が足りていない取引と、依頼文の作成。",
     "jobs-monthly-check": "前月比や残高チェックなど月次レビューの観点。",
     "vouchers-register": "領収書・請求書などの画像をまとめてアップロードします。未分類プールに入り、後で OCR で振り分けます。",
+    "matching-results": "アップロード済み証憑と MF 仕訳の突合結果を顧問先ごとに確認します。",
     portal: "お客さまにメールやSlackなどで連絡できます。届かなかったら再送できます。",
     rules: "この顧問先で過去にミスしやすかった点を、企業ごとのチェック項目として保存します。",
     settings: "事務所全体の運用設定。",
@@ -417,6 +423,60 @@ async function deleteVoucherById(id) {
     if (!res.ok) throw new Error('delete failed');
     appState.vouchersLoadedTab = null;
     await loadVouchers();
+  } catch (err) {
+    showToast(friendlyError(err));
+  }
+}
+
+async function loadMatchingData() {
+  const tab = appState.matchingTab;
+  if (!tab) return;
+  try {
+    const voucherUrl =
+      tab === 'unassigned'
+        ? '/api/vouchers?clientId=unassigned'
+        : `/api/vouchers?clientId=${encodeURIComponent(tab)}`;
+    const requests = [fetch(voucherUrl).then((r) => r.json())];
+    if (tab !== 'unassigned') {
+      requests.push(
+        fetch(`/api/clients/${encodeURIComponent(tab)}`).then((r) => r.json()),
+      );
+    }
+    const [vouchers, client] = await Promise.all(requests);
+    appState.matchingVouchers = vouchers;
+    appState.matchingEntries = client?.entries || [];
+    appState.matchingLoadedTab = tab;
+    renderView();
+  } catch (err) {
+    showToast(friendlyError(err));
+  }
+}
+
+async function rematchVoucher(id) {
+  try {
+    const res = await fetch(`/api/vouchers/${id}/match`, { method: 'POST' });
+    if (!res.ok) throw new Error('rematch failed');
+    setTimeout(() => {
+      appState.matchingLoadedTab = null;
+      loadMatchingData();
+    }, 800);
+  } catch (err) {
+    showToast(friendlyError(err));
+  }
+}
+
+async function reassignVoucherClient(id, newClientId) {
+  try {
+    const res = await fetch(`/api/vouchers/${id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ clientId: newClientId }),
+    });
+    if (!res.ok) throw new Error('reassign failed');
+    setTimeout(() => {
+      appState.matchingLoadedTab = null;
+      loadMatchingData();
+    }, 800);
   } catch (err) {
     showToast(friendlyError(err));
   }
@@ -1975,6 +2035,137 @@ function renderVoucherRegister() {
   `;
 }
 
+function renderMatchingResults() {
+  // Default tab = first client by id, fallback to 'unassigned'
+  if (!appState.matchingTab) {
+    appState.matchingTab = (clients || [])[0]?.id || 'unassigned';
+  }
+  const tab = appState.matchingTab;
+  const clientNameById = Object.fromEntries(
+    (clients || []).map((c) => [c.id, c.name]),
+  );
+  const entriesById = Object.fromEntries(
+    (appState.matchingEntries || []).map((e) => [e.sourceEntryId, e]),
+  );
+
+  const tabs = [
+    ...(clients || []).map((c) => ({ id: c.id, label: c.name })),
+    { id: 'unassigned', label: '未割当て' },
+  ];
+  const tabHtml = tabs
+    .map(
+      (t) => `
+      <button class="voucher-tab ${t.id === tab ? 'active' : ''}"
+              data-matching-tab="${t.id}">
+        ${escapeHtml(t.label)}
+      </button>
+    `,
+    )
+    .join('');
+
+  const vouchers = appState.matchingVouchers || [];
+  const matched = vouchers.filter((v) => v.matchStatus === 'matched');
+  const pending = vouchers.filter((v) => v.matchStatus !== 'matched');
+
+  function clientOptions(currentId) {
+    const opts = [
+      `<option value="">未割当て</option>`,
+      ...(clients || []).map(
+        (c) =>
+          `<option value="${c.id}"${c.id === currentId ? ' selected' : ''}>${escapeHtml(c.name)}</option>`,
+      ),
+    ];
+    return opts.join('');
+  }
+
+  const matchedHtml = matched
+    .map((v) => {
+      const j = v.ocrJson || {};
+      const entry = entriesById[v.matchedEntryId] || null;
+      const amount =
+        j.amount != null ? '¥' + j.amount.toLocaleString('ja-JP') : '—';
+      const vendor = j.vendor_name ? escapeHtml(j.vendor_name) : '—';
+      const date = j.issue_date ? escapeHtml(j.issue_date) : '—';
+      const entryAmount = entry
+        ? '¥' + entry.amount.toLocaleString('ja-JP')
+        : '—';
+      const entryDesc = entry ? escapeHtml(entry.description) : '—';
+      const entryDate = entry
+        ? new Date(entry.occurredAt).toISOString().slice(0, 10)
+        : '—';
+      const entryAccount = entry ? escapeHtml(entry.account) : '—';
+      return `
+      <div class="matching-card-matched">
+        <img src="/api/vouchers/${v.id}/image" alt="${escapeHtml(v.filename)}" />
+        <div class="matching-side voucher-side">
+          <div class="matching-label">証憑 OCR</div>
+          <div class="matching-amount">${amount}</div>
+          <div class="matching-row">${vendor}</div>
+          <div class="matching-row matching-muted">${date}</div>
+        </div>
+        <div class="matching-arrow">↔</div>
+        <div class="matching-side entry-side">
+          <div class="matching-label">MF 仕訳</div>
+          <div class="matching-amount">${entryAmount}</div>
+          <div class="matching-row">${entryAccount} — ${entryDesc}</div>
+          <div class="matching-row matching-muted">${entryDate}</div>
+        </div>
+      </div>`;
+    })
+    .join('');
+
+  const pendingHtml = pending
+    .map((v) => {
+      const j = v.ocrJson || {};
+      const status = v.matchStatus || 'unmatched';
+      const statusLabel =
+        status === 'no_client'
+          ? '顧問先未割当て'
+          : status === 'no_data'
+            ? 'OCR データ不足'
+            : 'MF 仕訳と一致なし';
+      const amount =
+        j.amount != null ? '¥' + j.amount.toLocaleString('ja-JP') : '—';
+      const vendor = j.vendor_name ? escapeHtml(j.vendor_name) : '—';
+      const date = j.issue_date ? escapeHtml(j.issue_date) : '—';
+      const reason = v.matchedClientReason
+        ? `振り分け根拠: ${escapeHtml(v.matchedClientReason)}`
+        : '';
+      return `
+      <div class="matching-card-pending">
+        <img src="/api/vouchers/${v.id}/image" alt="${escapeHtml(v.filename)}" />
+        <div class="matching-side">
+          <div class="matching-label matching-status-${status}">${statusLabel}</div>
+          <div class="matching-amount">${amount}</div>
+          <div class="matching-row">${vendor}</div>
+          <div class="matching-row matching-muted">${date}</div>
+          ${reason ? `<div class="matching-row matching-muted">${reason}</div>` : ''}
+        </div>
+        <div class="matching-actions">
+          <button class="matching-rematch-btn" data-matching-rematch="${v.id}">再突合</button>
+          <select class="matching-client-select" data-matching-reassign="${v.id}">
+            ${clientOptions(v.clientId)}
+          </select>
+        </div>
+      </div>`;
+    })
+    .join('');
+
+  return `
+    <section class="matching-results">
+      <div class="voucher-tabs">${tabHtml}</div>
+      <div class="matching-section">
+        <h3 class="matching-section-header">✓ 突合済み (${matched.length} 件)</h3>
+        ${matched.length === 0 ? '<p class="matching-empty">突合済みの証憑はありません。</p>' : matchedHtml}
+      </div>
+      <div class="matching-section">
+        <h3 class="matching-section-header">⚠ 要対応 (${pending.length} 件)</h3>
+        ${pending.length === 0 ? '<p class="matching-empty">対応が必要な証憑はありません。</p>' : pendingHtml}
+      </div>
+    </section>
+  `;
+}
+
 function renderView() {
   const client = currentClient();
   // ToDo は role 切替で 税理士=所長確認待ち / スタッフ=作業中+差戻し が並ぶ。
@@ -1986,6 +2177,7 @@ function renderView() {
     "jobs-vouchers": () => renderJobsVouchers(),   // 業務 > 月次業務 > 証憑
     "jobs-monthly-check": () => renderJobsMonthlyCheck(), // 業務 > 月次業務 > 月次チェック
     "vouchers-register": () => renderVoucherRegister(),
+    "matching-results": () => renderMatchingResults(),
     portal: () => renderPortal(),                  // 業務 > メッセージ
     rules: () => renderRules(),                    // 学習・設定 > 学習
     settings: () => renderSettings(),              // 学習・設定 > 設定
@@ -2188,6 +2380,30 @@ function renderView() {
         loadVouchers();
       }, 5000);
     }
+  }
+  if (appState.activeView === "matching-results") {
+    if (appState.matchingLoadedTab !== appState.matchingTab) {
+      loadMatchingData();
+    }
+    viewContent.querySelectorAll('[data-matching-tab]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        appState.matchingTab = btn.dataset.matchingTab;
+        appState.matchingLoadedTab = null;
+        loadMatchingData();
+      });
+    });
+    viewContent.querySelectorAll('[data-matching-rematch]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        rematchVoucher(btn.dataset.matchingRematch);
+      });
+    });
+    viewContent.querySelectorAll('[data-matching-reassign]').forEach((sel) => {
+      sel.addEventListener('change', () => {
+        const id = sel.dataset.matchingReassign;
+        const newClientId = sel.value || null;
+        reassignVoucherClient(id, newClientId);
+      });
+    });
   }
   viewContent.querySelectorAll("[data-action]").forEach((button) => {
     button.addEventListener("click", () => {
