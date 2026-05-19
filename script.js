@@ -649,6 +649,71 @@ async function resendMessage(id) {
 }
 
 // -----------------------------------------------------------------------------
+// Spec 05: monthly vs yearend mode fetchers
+// -----------------------------------------------------------------------------
+
+// Switch the current client's mode (monthly | yearend) on the server.
+async function updateClientMode(mode) {
+  const client = currentClient();
+  if (!client?.id) return null;
+  try {
+    const res = await fetch(
+      "/api/clients/" + encodeURIComponent(client.id) + "/mode",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mode }),
+      },
+    );
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return await res.json();
+  } catch (err) {
+    showToast(friendlyError(err));
+    throw err;
+  }
+}
+
+// Fetch the yearend checklist for the current client.
+async function loadYearendChecklist() {
+  const client = currentClient();
+  if (!client?.id) return [];
+  try {
+    const res = await fetch(
+      "/api/clients/" +
+        encodeURIComponent(client.id) +
+        "/yearend-checklist",
+    );
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const rows = await res.json();
+    appState.yearend = Array.isArray(rows) ? rows : [];
+    appState.yearendLoadedClient = client.id;
+    return appState.yearend;
+  } catch (err) {
+    showToast(friendlyError(err));
+    return [];
+  }
+}
+
+// Update a single yearend checklist row (status / note).
+async function updateYearendCheck(id, body) {
+  try {
+    const res = await fetch(
+      "/api/yearend-checks/" + encodeURIComponent(id),
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return await res.json();
+  } catch (err) {
+    showToast(friendlyError(err));
+    throw err;
+  }
+}
+
+// -----------------------------------------------------------------------------
 // Spec 04: per-client risk rules fetchers
 // -----------------------------------------------------------------------------
 
@@ -1185,40 +1250,41 @@ function renderYearendDashboard() {
 function loadAndRenderYearend() {
   const client = currentClient();
   if (!client?.id || client.mode !== "yearend") return;
-  fetch("/api/clients/" + encodeURIComponent(client.id) + "/yearend-checklist")
-    .then((r) => r.json())
-    .then((rows) => {
-      const slot = $("#yearendSlot");
-      if (!slot) return;
-      if (!Array.isArray(rows) || rows.length === 0) {
-        slot.innerHTML = '<div class="empty-state">期末チェック項目はまだありません</div>';
-        return;
+  loadYearendChecklist().then((rows) => {
+    const slot = $("#yearendSlot");
+    if (!slot) return;
+    if (!Array.isArray(rows) || rows.length === 0) {
+      slot.innerHTML = '<div class="empty-state">期末チェック項目はまだありません</div>';
+      return;
+    }
+    let h = "";
+    for (const r of rows) {
+      h += '<div class="yearend-check-row ' + (r.status === "done" ? "done" : "") + '">';
+      h += '<div><strong>' + escapeHtml(r.title) + '</strong>';
+      if (r.note) h += '<br><small style="color:#5c6675">' + escapeHtml(r.note) + '</small>';
+      h += '</div>';
+      h += '<div style="display:flex;gap:6px">';
+      if (r.status !== "done") {
+        h += '<button class="row-action" data-action="yearend-status" data-yc-id="' + r.id + '" data-yc-status="done">完了</button>';
+      } else {
+        h += '<button class="vendor-link" data-action="yearend-status" data-yc-id="' + r.id + '" data-yc-status="open">未完了に戻す</button>';
       }
-      let h = "";
-      for (const r of rows) {
-        h += '<div class="yearend-check-row ' + (r.status === "done" ? "done" : "") + '">';
-        h += '<div><strong>' + escapeHtml(r.title) + '</strong>';
-        if (r.note) h += '<br><small style="color:#5c6675">' + escapeHtml(r.note) + '</small>';
-        h += '</div>';
-        h += '<div style="display:flex;gap:6px">';
-        if (r.status !== "done") {
-          h += '<button class="row-action" data-action="yearend-status" data-yc-id="' + r.id + '" data-yc-status="done">完了</button>';
-        } else {
-          h += '<button class="vendor-link" data-action="yearend-status" data-yc-id="' + r.id + '" data-yc-status="open">未完了に戻す</button>';
-        }
-        h += '</div></div>';
-      }
-      slot.innerHTML = h;
-      slot.querySelectorAll('[data-action="yearend-status"]').forEach((btn) => {
-        btn.addEventListener("click", () => {
-          fetch("/api/yearend-checks/" + encodeURIComponent(btn.dataset.ycId), {
-            method: "PATCH",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ status: btn.dataset.ycStatus }),
-          }).then(() => { showToast("更新しました"); loadAndRenderYearend(); });
-        });
+      h += '</div></div>';
+    }
+    slot.innerHTML = h;
+    slot.querySelectorAll('[data-action="yearend-status"]').forEach((btn) => {
+      btn.addEventListener("click", () => {
+        updateYearendCheck(btn.dataset.ycId, { status: btn.dataset.ycStatus })
+          .then(() => {
+            showToast("更新しました");
+            // Force a re-fetch on the next paint.
+            appState.yearendLoadedClient = null;
+            loadAndRenderYearend();
+          })
+          .catch(() => {});
       });
     });
+  });
 }
 
 function stageJpLabel(stage) {
@@ -3629,15 +3695,15 @@ document.querySelectorAll("#modeToggle .mode-btn").forEach((btn) => {
     const client = currentClient();
     if (!client?.id) return;
     const mode = btn.dataset.mode;
-    fetch("/api/clients/" + encodeURIComponent(client.id) + "/mode", {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ mode }),
-    }).then(() => {
-      client.mode = mode;
-      showToast(mode === "yearend" ? "期末モードに切り替えました" : "月次モードに戻しました");
-      loadClientsFromApi().finally(render);
-    });
+    updateClientMode(mode)
+      .then(() => {
+        client.mode = mode;
+        // Invalidate yearend cache so the checklist refetches if needed.
+        appState.yearendLoadedClient = null;
+        showToast(mode === "yearend" ? "期末モードに切り替えました" : "月次モードに戻しました");
+        loadClientsFromApi().finally(render);
+      })
+      .catch(() => {});
   });
 });
 
