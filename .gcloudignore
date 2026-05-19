@@ -1,0 +1,28 @@
+# Same as .dockerignore plus Cloud Build artifacts. Keeps the build context
+# uploaded to Cloud Build small and prevents secrets from leaking.
+node_modules
+**/node_modules
+server/dist
+.env
+.env.local
+server/.env
+server/.env.local
+.git
+.gitignore
+.vscode
+.idea
+**/.DS_Store
+**/*.test.ts
+server/tests
+coverage
+docs/
+README.md
+CLAUDE.md
+# Local-only dev infra
+docker-compose.yml
+server/Dockerfile
+.codex
+.claude
+.claude-plans
+.devcontainer
+**/*.tsbuildinfo

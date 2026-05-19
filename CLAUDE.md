@@ -148,7 +148,48 @@ TS=$(date +%Y%m%d%H%M%S) && mkdir -p prisma/migrations/${TS}_<name> \
 
 `npm run seed` は 4 つの顧問先 (`aoyama-design` ZetaX MF 連携、`shibuya-cafe`, `nihonbashi-kogyo`, `yokohama-medical`) と各々の Entry / Receipt / Matching ダミーを投入する。**テストはこれらに依存**しているので、seed を消してはいけない。
 
-ただし手動 UI 検証で「ダミーを消したい」ときは `Entry` / `Receipt` / `Matching` を `clientId` で `DELETE` する。Client 行自体は残す（MF OAuth 連携状態などが消えるため）。テスト走らせると seed が復活するのでその度に再削除。
+ただし手動 UI 検証で「ダミーを消したい」ときは `Entry` / `Receipt` / `Matching` を `clientId` で `DELETE` する。Client 行自体は残す（MF OAuth 連携状態などが消えるため）。
+
+### 8b. テスト用 DB は分離されている
+
+dev (5432) と test (5433) で Postgres を分けている。`npm test` は自動で test DB を使う:
+
+```bash
+# 初回セットアップ
+docker compose --profile test up -d postgres-test    # ポート 5433
+npm run test:db:setup                                # migration 適用
+DATABASE_URL=postgresql://zeimee:zeimee_test@localhost:5433/zeimee_test \
+  npx tsx prisma/seed.ts                              # seed (4 顧問先)
+npm test                                              # vitest 実行
+```
+
+- dev DB (5432) の Voucher / 設定は **テストで消えない**
+- test DB は tmpfs (RAM) — コンテナ再起動で全部消える、CI でも軽量
+- `tests/setup.ts` がデフォルトを 5433 にしているので `DATABASE_URL` を指定しなければ test DB を使う
+
+### 8c. GCP デプロイ用ファイル
+
+- `server/Dockerfile.prod` — production 用マルチステージビルド。Cloud Run / GKE 用
+- `server/Dockerfile` — **dev のみ** (tsx watch + bind mount)。本番にデプロイしない
+- `docker-compose.yml` — **dev のみ**
+- `.gcloudignore` / `.dockerignore` でテスト / docs / docker-compose / dev Dockerfile / .env を除外
+
+ビルド & ラン:
+
+```bash
+# ローカルで prod イメージを確認
+docker build -f server/Dockerfile.prod -t zeimee:prod .
+docker run -e DATABASE_URL=postgresql://... -p 8080:3000 zeimee:prod
+
+# GCP Cloud Run へデプロイ (例)
+gcloud builds submit --tag gcr.io/<project>/zeimee
+gcloud run deploy zeimee \
+  --image gcr.io/<project>/zeimee \
+  --set-env-vars DATABASE_URL=...,OPENAI_API_KEY=...,... \
+  --port 3000
+```
+
+prod Dockerfile は起動時に `prisma migrate deploy` を実行する。Cloud SQL の DATABASE_URL を渡せばスキーマも自動で揃う。
 
 ### 9. spec/plan ファイル番号
 

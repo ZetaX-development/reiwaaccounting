@@ -7,8 +7,9 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p .",
     "start": "node dist/server.js",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "test": "DATABASE_URL=postgresql://zeimee:zeimee_test@localhost:5433/zeimee_test vitest run",
+    "test:watch": "DATABASE_URL=postgresql://zeimee:zeimee_test@localhost:5433/zeimee_test vitest",
+    "test:db:setup": "DATABASE_URL=postgresql://zeimee:zeimee_test@localhost:5433/zeimee_test prisma migrate deploy",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "seed": "tsx prisma/seed.ts"

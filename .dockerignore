@@ -1,0 +1,38 @@
+# Keep build context small.
+node_modules
+**/node_modules
+server/dist
+
+# Secrets / local-only
+.env
+.env.local
+server/.env
+server/.env.local
+
+# VCS / editor
+.git
+.gitignore
+.vscode
+.idea
+**/.DS_Store
+
+# Tests & coverage
+**/*.test.ts
+server/tests
+coverage
+
+# Docs & planning
+docs/
+README.md
+CLAUDE.md
+
+# Local-only dev infra (do not ship to Cloud Run / App Engine).
+docker-compose.yml
+server/Dockerfile
+
+# Misc
+.codex
+.claude
+.devcontainer
+.claude-plans
+**/*.tsbuildinfo

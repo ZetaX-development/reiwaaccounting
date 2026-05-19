@@ -1,0 +1,55 @@
+# Production image for GCP Cloud Run / App Engine Flex / GKE.
+# Multi-stage build keeps the final image small (no devDeps, no source maps,
+# no tests). Run with:
+#   docker build -f server/Dockerfile.prod -t zeimee:prod .
+#   docker run -e DATABASE_URL=... -p 8080:3000 zeimee:prod
+
+# ---------- Stage 1: build ----------
+FROM node:20-alpine AS builder
+
+RUN apk add --no-cache openssl libc6-compat
+WORKDIR /app/server
+
+# Install ALL deps (incl. devDeps for tsc + prisma generate).
+COPY server/package.json server/package-lock.json ./
+RUN npm ci
+
+# Generate the Prisma client with the deployment binary target baked in.
+COPY server/prisma ./prisma
+RUN npx prisma generate
+
+# Compile TS → dist.
+COPY server/tsconfig.json ./
+COPY server/src ./src
+RUN npm run build
+
+# Prune devDeps so only prod node_modules survive into the next stage.
+RUN npm prune --omit=dev
+
+# ---------- Stage 2: runtime ----------
+FROM node:20-alpine AS runtime
+
+# OpenSSL is required by the Prisma engine at runtime.
+RUN apk add --no-cache openssl libc6-compat
+WORKDIR /app/server
+
+ENV NODE_ENV=production
+
+# Production deps + generated Prisma client.
+COPY --from=builder /app/server/node_modules ./node_modules
+COPY --from=builder /app/server/dist ./dist
+COPY --from=builder /app/server/prisma ./prisma
+COPY --from=builder /app/server/package.json ./package.json
+
+# Static frontend served by Fastify at the repo root (../..).
+COPY index.html /app/index.html
+COPY script.js /app/script.js
+COPY styles.css /app/styles.css
+
+# Cloud Run injects PORT; fall back to 3000 for local docker run.
+ENV PORT=3000
+EXPOSE 3000
+
+# On boot: apply pending migrations, then start. Migrations are idempotent so
+# this is safe to run on every cold start of a Cloud Run revision.
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/server.js"]

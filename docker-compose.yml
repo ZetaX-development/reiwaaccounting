@@ -16,5 +16,55 @@ services:
       timeout: 5s
       retries: 10
 
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: zeimee-server
+    working_dir: /app/server
+    # Bind-mount the whole repo so the watcher picks up changes to both
+    # server/src and the static frontend (index.html / script.js / styles.css)
+    # served from repoRoot. The anonymous volume on node_modules prevents the
+    # host's (possibly OS-mismatched) node_modules from shadowing the image.
+    volumes:
+      - ./:/app
+      - /app/server/node_modules
+    env_file:
+      - ./server/.env
+    # docker-compose's bridge network resolves the postgres service by name;
+    # override DATABASE_URL so the in-container app reaches the DB container
+    # instead of localhost.
+    environment:
+      DATABASE_URL: postgresql://zeimee:zeimee_dev@postgres:5432/zeimee
+      # tsx watch on bind-mounted volumes is more reliable with polling.
+      CHOKIDAR_USEPOLLING: "true"
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Isolated Postgres for vitest. Runs on 5433 so it never touches the dev DB
+  # on 5432. Data lives in tmpfs (RAM) — fresh start every container boot.
+  # Activated with `docker compose --profile test up -d postgres-test`.
+  postgres-test:
+    image: postgres:16-alpine
+    container_name: zeimee-postgres-test
+    profiles: ["test"]
+    environment:
+      POSTGRES_USER: zeimee
+      POSTGRES_PASSWORD: zeimee_test
+      POSTGRES_DB: zeimee_test
+    ports:
+      - "5433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zeimee -d zeimee_test"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
 volumes:
   zeimee_pg_data:
