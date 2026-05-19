@@ -465,6 +465,49 @@ async function rematchVoucher(id) {
   }
 }
 
+async function redraftVoucherJournal(id) {
+  try {
+    const res = await fetch(`/api/vouchers/${id}/draft-journal`, {
+      method: 'POST',
+    });
+    if (!res.ok) throw new Error('redraft failed');
+    setTimeout(() => {
+      appState.matchingLoadedTab = null;
+      loadMatchingData();
+    }, 1500);
+  } catch (err) {
+    showToast(friendlyError(err));
+  }
+}
+
+async function inquireVoucherClient(id) {
+  try {
+    const res = await fetch(`/api/vouchers/${id}/inquire`, { method: 'POST' });
+    if (!res.ok) throw new Error('inquire failed');
+    setTimeout(() => {
+      appState.matchingLoadedTab = null;
+      loadMatchingData();
+    }, 800);
+  } catch (err) {
+    showToast(friendlyError(err));
+  }
+}
+
+async function approveVoucherJournal(id) {
+  try {
+    const res = await fetch(`/api/vouchers/${id}/journal`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ status: 'approved' }),
+    });
+    if (!res.ok) throw new Error('approve failed');
+    appState.matchingLoadedTab = null;
+    await loadMatchingData();
+  } catch (err) {
+    showToast(friendlyError(err));
+  }
+}
+
 async function reassignVoucherClient(id, newClientId) {
   try {
     const res = await fetch(`/api/vouchers/${id}`, {
@@ -2131,6 +2174,67 @@ function renderMatchingResults() {
       const reason = v.matchedClientReason
         ? `振り分け根拠: ${escapeHtml(v.matchedClientReason)}`
         : '';
+
+      // Spec 14: 仕訳ドラフト + 不足情報 + 顧客問い合わせ
+      let draftHtml = '';
+      const dj = v.draftJournalJson;
+      const js = v.journalStatus || 'none';
+      if (js === 'drafting') {
+        draftHtml = `<div class="matching-draft matching-draft-running"><span class="spinner-sm"></span>仕訳ドラフト生成中…</div>`;
+      } else if (
+        dj &&
+        (js === 'drafted' || js === 'needs_info' || js === 'inquired' || js === 'approved')
+      ) {
+        const account = dj.account ? escapeHtml(String(dj.account)) : '—';
+        const taxClass = dj.taxClass ? escapeHtml(String(dj.taxClass)) : '—';
+        const description = dj.description ? escapeHtml(String(dj.description)) : '—';
+        const occurred = dj.occurredAt ? escapeHtml(String(dj.occurredAt)) : '—';
+        const missing = Array.isArray(dj.missingFields) ? dj.missingFields : [];
+        const draftAmount =
+          dj.amount != null
+            ? '¥' + Number(dj.amount).toLocaleString('ja-JP')
+            : '—';
+        const statusBadge =
+          js === 'approved'
+            ? '<span class="matching-draft-badge badge-approved">承認済</span>'
+            : js === 'inquired'
+              ? `<span class="matching-draft-badge badge-inquired">問合せ済 ${v.inquiryAt ? new Date(v.inquiryAt).toLocaleDateString('ja-JP') : ''}</span>`
+              : js === 'needs_info'
+                ? '<span class="matching-draft-badge badge-needs">不足情報あり</span>'
+                : '<span class="matching-draft-badge badge-drafted">ドラフト</span>';
+        const missingHtml = missing.length
+          ? `<div class="matching-draft-missing">
+                <div class="matching-draft-missing-label">⚠ 確認したい情報:</div>
+                <ul>${missing.map((m) => `<li>${escapeHtml(String(m))}</li>`).join('')}</ul>
+                <button class="matching-inquire-btn" data-matching-inquire="${v.id}" ${js === 'inquired' ? 'disabled' : ''}>
+                  ${js === 'inquired' ? '問い合わせ送信済み' : '情報を依頼'}
+                </button>
+              </div>`
+          : '';
+        draftHtml = `
+          <div class="matching-draft">
+            <div class="matching-draft-header">
+              📝 仕訳ドラフト ${statusBadge}
+            </div>
+            <div class="matching-draft-grid">
+              <div class="matching-draft-row"><span class="matching-draft-label">勘定科目</span>${account}</div>
+              <div class="matching-draft-row"><span class="matching-draft-label">税区分</span>${taxClass}</div>
+              <div class="matching-draft-row"><span class="matching-draft-label">摘要</span>${description}</div>
+              <div class="matching-draft-row"><span class="matching-draft-label">金額</span>${draftAmount}</div>
+              <div class="matching-draft-row"><span class="matching-draft-label">発生日</span>${occurred}</div>
+            </div>
+            ${missingHtml}
+            <div class="matching-draft-actions">
+              <button class="matching-redraft-btn" data-matching-redraft="${v.id}">再生成</button>
+              ${js !== 'approved' ? `<button class="matching-approve-btn" data-matching-approve="${v.id}">承認</button>` : ''}
+            </div>
+          </div>`;
+      } else if (status === 'unmatched' && v.ocrStatus === 'done') {
+        draftHtml = `<div class="matching-draft matching-draft-empty">
+          <button class="matching-redraft-btn" data-matching-redraft="${v.id}">仕訳ドラフトを生成</button>
+        </div>`;
+      }
+
       return `
       <div class="matching-card-pending">
         <img src="/api/vouchers/${v.id}/image" alt="${escapeHtml(v.filename)}" />
@@ -2147,6 +2251,7 @@ function renderMatchingResults() {
             ${clientOptions(v.clientId)}
           </select>
         </div>
+        ${draftHtml}
       </div>`;
     })
     .join('');
@@ -2402,6 +2507,21 @@ function renderView() {
         const id = sel.dataset.matchingReassign;
         const newClientId = sel.value || null;
         reassignVoucherClient(id, newClientId);
+      });
+    });
+    viewContent.querySelectorAll('[data-matching-redraft]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        redraftVoucherJournal(btn.dataset.matchingRedraft);
+      });
+    });
+    viewContent.querySelectorAll('[data-matching-inquire]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        inquireVoucherClient(btn.dataset.matchingInquire);
+      });
+    });
+    viewContent.querySelectorAll('[data-matching-approve]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        approveVoucherJournal(btn.dataset.matchingApprove);
       });
     });
   }
