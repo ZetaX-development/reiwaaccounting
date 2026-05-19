@@ -1,5 +1,8 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // 'native' covers the host (Linux glibc) for `npm test` / `prisma studio`;
+  // 'linux-musl-openssl-3.0.x' covers the alpine-based Docker image.
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {
@@ -51,6 +54,7 @@ model Client {
   trendData         TrendDatum[]
   monthlyChecks     MonthlyCheck[]
   vouchers          Voucher[]
+  driveFolderMappings DriveFolderMapping[]
 
   updatedAt DateTime @updatedAt
   createdAt DateTime @default(now())
@@ -252,6 +256,14 @@ model Voucher {
   inquiryAt        DateTime?
   inquiryChannel   String?
 
+  // Spec 15: Drive 連携用 / Spec 16: LINE 連携用
+  source              String   @default("manual")
+  driveFileId         String?  @unique
+  driveImportStatus   String?
+  lineSourceMessageId String?  @unique
+  lineUserId          String?
+  caption             String?
+
   inquiries VoucherInquiry[]
 
   @@index([clientId, uploadedAt])
@@ -270,4 +282,49 @@ model VoucherInquiry {
   errorMessage String?
 
   @@index([voucherId])
+}
+
+model Integration {
+  id        String   @id @default(cuid())
+  type      String
+  creds     Json
+  settings  Json     @default("{}")
+  enabled   Boolean  @default(true)
+  status    String   @default("ok")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([type])
+}
+
+model DriveFolderMapping {
+  id                  String   @id @default(cuid())
+  driveFolderId       String   @unique
+  folderName          String
+  importedSubfolderId String?
+  client              Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId            String
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([clientId])
+}
+
+model DriveWatchChannel {
+  id         String   @id @default(cuid())
+  channelId  String   @unique
+  resourceId String
+  pageToken  String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+}
+
+model LineUserMapping {
+  id          String   @id @default(cuid())
+  lineUserId  String   @unique
+  displayName String
+  staffLabel  String?
+  enabled     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }

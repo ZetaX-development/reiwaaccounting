@@ -35,6 +35,20 @@ const schema = z.object({
   OUTREACH_AUTO: z.coerce.boolean().default(false),
   OUTREACH_EMAIL_FROM: z.string().default('zeimee@example.com'),
   OUTREACH_LINE_TOKEN: z.string().default(''),
+
+  // Spec 15: Google Drive 連携
+  GOOGLE_CLIENT_ID: z.string().default(''),
+  GOOGLE_CLIENT_SECRET: z.string().default(''),
+  GOOGLE_REDIRECT_URI: z
+    .string()
+    .default('http://localhost:3000/api/integrations/drive/oauth/callback'),
+  GOOGLE_DRIVE_WEBHOOK_BASE_URL: z.string().default(''),
+
+  // Spec 16: LINE Messaging API
+  LINE_CHANNEL_ACCESS_TOKEN: z.string().default(''),
+  LINE_CHANNEL_SECRET: z.string().default(''),
+  LINE_WEBHOOK_BASE_URL: z.string().default(''),
+  LINE_CHANNEL_ID: z.string().default(''),
 });
 
 export type Env = z.infer<typeof schema>;
