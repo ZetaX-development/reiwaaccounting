@@ -528,6 +528,69 @@ async function deleteLineUser(id) {
   }
 }
 
+// -----------------------------------------------------------------------------
+// Spec 02: staff approval workflow fetchers
+// -----------------------------------------------------------------------------
+
+// Fetch tasks filtered by the active role for the current client.
+async function loadTasksForCurrentClient() {
+  const client = currentClient();
+  if (!client?.id) return [];
+  try {
+    const url =
+      "/api/clients/" +
+      encodeURIComponent(client.id) +
+      "/tasks?role=" +
+      encodeURIComponent(appState.currentRole);
+    const res = await fetch(url);
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const tasks = await res.json();
+    appState.tasks = tasks;
+    appState.tasksLoadedClient = client.id + ":" + appState.currentRole;
+    return tasks;
+  } catch (err) {
+    showToast(friendlyError(err));
+    return [];
+  }
+}
+
+// Apply a stage transition to a task (approve/reject/staff_complete/resubmit).
+async function transitionTask(id, action, comment) {
+  try {
+    const by = appState.currentRole === "staff" ? "鈴木" : "畠山";
+    const res = await fetch(
+      "/api/tasks/" + encodeURIComponent(id) + "/transition",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action, by, comment }),
+      },
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error?.message || "HTTP " + res.status);
+    }
+    return await res.json();
+  } catch (err) {
+    showToast(friendlyError(err));
+    throw err;
+  }
+}
+
+// Fetch append-only audit history for a single task.
+async function loadTaskHistory(id) {
+  try {
+    const res = await fetch(
+      "/api/tasks/" + encodeURIComponent(id) + "/history",
+    );
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return await res.json();
+  } catch (err) {
+    showToast(friendlyError(err));
+    return [];
+  }
+}
+
 function adaptApiClient(d) {
   // Save raw tasks (with stage etc.) so spec 02 can render workflow buttons.
   const rawTasks = (d.tasks ?? []);
@@ -3167,39 +3230,44 @@ function renderView() {
           comment = window.prompt("差戻しの理由（スタッフに伝わります）", "");
           if (comment === null) return;
         }
-        const by = appState.currentRole === "staff" ? "鈴木" : "畠山";
-        fetch("/api/tasks/" + encodeURIComponent(id) + "/transition", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ action: a, by, comment }),
-        }).then(async (r) => {
-          if (!r.ok) {
-            const err = await r.json();
-            showToast("失敗: " + (err.error?.message || r.status));
-            return;
-          }
-          const labels = { staff_complete: "確認依頼に出しました", approve: "承認しました", reject: "差戻しを記録しました", resubmit: "再提出しました" };
-          showToast(labels[a] || "更新しました");
-          loadClientsFromApi().finally(render);
-        });
+        transitionTask(id, a, comment)
+          .then(() => {
+            const labels = { staff_complete: "確認依頼に出しました", approve: "承認しました", reject: "差戻しを記録しました", resubmit: "再提出しました" };
+            showToast(labels[a] || "更新しました");
+            // Re-fetch the full client list so cached derived counters refresh.
+            return loadClientsFromApi();
+          })
+          .then(() => loadTasksForCurrentClient())
+          .finally(render)
+          .catch(() => {});
       }
       if (action === "toggle-history") {
         const id = button.dataset.taskId;
         appState.expandedHistory[id] = !appState.expandedHistory[id];
         render();
         if (appState.expandedHistory[id]) {
-          fetch("/api/tasks/" + encodeURIComponent(id) + "/history")
-            .then((r) => r.json())
-            .then((rows) => {
-              const slot = document.querySelector('[data-history-for="' + id + '"] ol');
-              if (!slot) return;
-              if (!Array.isArray(rows) || rows.length === 0) {
-                slot.innerHTML = '<li>履歴はありません</li>';
-                return;
-              }
-              const labelMap = { staff_complete: "記帳完了", approve: "承認", reject: "差戻し", resubmit: "再提出" };
-              slot.innerHTML = rows.map((h) => '<li><span class="ts">' + new Date(h.at).toLocaleString("ja-JP") + '</span> ' + escapeHtml(h.by) + ' が ' + (labelMap[h.action] || h.action) + (h.comment ? ' — ' + escapeHtml(h.comment) : '') + '</li>').join('');
-            });
+          loadTaskHistory(id).then((rows) => {
+            const slot = document.querySelector('[data-history-for="' + id + '"] ol');
+            if (!slot) return;
+            if (!Array.isArray(rows) || rows.length === 0) {
+              slot.innerHTML = '<li>履歴はありません</li>';
+              return;
+            }
+            const labelMap = { staff_complete: "記帳完了", approve: "承認", reject: "差戻し", resubmit: "再提出" };
+            slot.innerHTML = rows
+              .map(
+                (h) =>
+                  '<li><span class="ts">' +
+                  new Date(h.at).toLocaleString("ja-JP") +
+                  '</span> ' +
+                  escapeHtml(h.by) +
+                  ' が ' +
+                  (labelMap[h.action] || h.action) +
+                  (h.comment ? ' — ' + escapeHtml(h.comment) : '') +
+                  '</li>',
+              )
+              .join('');
+          });
         }
       }
       if (action === "ask-thread") {
@@ -3377,7 +3445,9 @@ if (roleSel) {
     if (typeof localStorage !== "undefined") {
       localStorage.setItem("zeimee.role", appState.currentRole);
     }
-    render();
+    // Force the task cache to refetch for the new role.
+    appState.tasksLoadedClient = null;
+    loadTasksForCurrentClient().finally(render);
   });
 }
 
