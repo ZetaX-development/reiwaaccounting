@@ -591,6 +591,87 @@ async function loadTaskHistory(id) {
   }
 }
 
+// -----------------------------------------------------------------------------
+// Spec 03: unified client channels (portal) fetchers
+// -----------------------------------------------------------------------------
+
+// Fetch the channel-history timeline for the currently selected client.
+async function loadThreads() {
+  const client = currentClient();
+  if (!client?.id) return [];
+  try {
+    const res = await fetch(
+      "/api/clients/" + encodeURIComponent(client.id) + "/threads",
+    );
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const threads = await res.json();
+    appState.threads = Array.isArray(threads) ? threads : [];
+    appState.threadsLoadedClient = client.id;
+    return appState.threads;
+  } catch (err) {
+    showToast(friendlyError(err));
+    return [];
+  }
+}
+
+// Create a Thread (queued) and trigger immediate send on the server.
+async function sendMessage(payload) {
+  try {
+    const res = await fetch("/api/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error?.message || "HTTP " + res.status);
+    }
+    return await res.json();
+  } catch (err) {
+    showToast(friendlyError(err));
+    throw err;
+  }
+}
+
+// Re-trigger send for a previously-failed thread.
+async function resendMessage(id) {
+  try {
+    const res = await fetch(
+      "/api/messages/" + encodeURIComponent(id) + "/send",
+      { method: "POST" },
+    );
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return await res.json();
+  } catch (err) {
+    showToast(friendlyError(err));
+    throw err;
+  }
+}
+
+// Update the client's primary channel + endpoint map.
+async function updateContact(body) {
+  const client = currentClient();
+  if (!client?.id) return null;
+  try {
+    const res = await fetch(
+      "/api/clients/" + encodeURIComponent(client.id) + "/contact",
+      {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error?.message || "HTTP " + res.status);
+    }
+    return await res.json();
+  } catch (err) {
+    showToast(friendlyError(err));
+    throw err;
+  }
+}
+
 function adaptApiClient(d) {
   // Save raw tasks (with stage etc.) so spec 02 can render workflow buttons.
   const rawTasks = (d.tasks ?? []);
@@ -824,49 +905,52 @@ function renderIntegrationCard() {
     .catch(() => {});
 }
 
-function loadAndRenderThreads() {
+function loadAndRenderThreads(opts) {
   const client = currentClient();
   if (!client?.id) return;
-  fetch("/api/clients/" + encodeURIComponent(client.id) + "/threads")
-    .then((r) => (r.ok ? r.json() : null))
-    .then((threads) => {
-      const wrap = $("#portalThreads");
-      if (!wrap) return;
-      if (!Array.isArray(threads) || threads.length === 0) {
-        wrap.innerHTML = '<div class="thread-item out"><span class="thread-header">まだやり取りはありません</span></div>';
-        return;
+  const useCache =
+    opts?.useCache && appState.threadsLoadedClient === client.id;
+  const promise = useCache
+    ? Promise.resolve(appState.threads || [])
+    : loadThreads();
+  promise.then((threads) => {
+    const wrap = $("#portalThreads");
+    if (!wrap) return;
+    if (!Array.isArray(threads) || threads.length === 0) {
+      wrap.innerHTML = '<div class="thread-item out"><span class="thread-header">まだやり取りはありません</span></div>';
+      return;
+    }
+    let html = "";
+    const channelLabels = { email: "メール", slack: "Slack", chatwork: "Chatwork", line_works: "LINE WORKS", messenger: "Messenger" };
+    for (const t of threads) {
+      html += '<div class="thread-item ' + t.direction + '">';
+      html += '<span class="thread-header">';
+      html += channelBadgeHtml(t.channel);
+      html += ' <span class="pill thread-' + t.status + '">' + (t.status === "sent" ? "送信済み" : t.status === "queued" ? "送信待ち" : t.status === "failed" ? "うまく届かず" : t.status) + '</span>';
+      html += ' ' + formatRelative(new Date(t.createdAt));
+      if (t.direction === "out") html += " · " + (channelLabels[t.channel] || t.channel) + "へ送信";
+      html += '</span>';
+      if (t.subject) html += '<span class="thread-preview"><strong>' + escapeHtml(t.subject) + '</strong></span>';
+      html += '<span class="thread-preview">' + escapeHtml(t.preview || t.body.slice(0, 120)) + '</span>';
+      if (t.status === "failed" && t.errorMsg) {
+        html += '<span class="thread-header" style="color:#9a3040">失敗: ' + escapeHtml(t.errorMsg) + '</span>';
+        html += '<button class="row-action" data-portal-resend data-thread-id="' + t.id + '">再送する</button>';
       }
-      let html = "";
-      const channelLabels = { email: "メール", slack: "Slack", chatwork: "Chatwork", line_works: "LINE WORKS", messenger: "Messenger" };
-      for (const t of threads) {
-        html += '<div class="thread-item ' + t.direction + '">';
-        html += '<span class="thread-header">';
-        html += channelBadgeHtml(t.channel);
-        html += ' <span class="pill thread-' + t.status + '">' + (t.status === "sent" ? "送信済み" : t.status === "queued" ? "送信待ち" : t.status === "failed" ? "うまく届かず" : t.status) + '</span>';
-        html += ' ' + formatRelative(new Date(t.createdAt));
-        if (t.direction === "out") html += " · " + (channelLabels[t.channel] || t.channel) + "へ送信";
-        html += '</span>';
-        if (t.subject) html += '<span class="thread-preview"><strong>' + escapeHtml(t.subject) + '</strong></span>';
-        html += '<span class="thread-preview">' + escapeHtml(t.preview || t.body.slice(0, 120)) + '</span>';
-        if (t.status === "failed" && t.errorMsg) {
-          html += '<span class="thread-header" style="color:#9a3040">失敗: ' + escapeHtml(t.errorMsg) + '</span>';
-          html += '<button class="row-action" data-action="resend-thread" data-thread-id="' + t.id + '">再送する</button>';
-        }
-        html += '</div>';
-      }
-      wrap.innerHTML = html;
-      // Re-bind resend handlers
-      wrap.querySelectorAll('[data-action="resend-thread"]').forEach((btn) => {
-        btn.addEventListener("click", () => {
-          fetch("/api/messages/" + encodeURIComponent(btn.dataset.threadId) + "/send", { method: "POST" })
-            .then(async (r) => {
-              const t2 = await r.json();
-              showToast(t2.status === "sent" ? "再送しました" : "再送失敗: " + (t2.errorMsg || ""));
-              loadAndRenderThreads();
-            });
-        });
+      html += '</div>';
+    }
+    wrap.innerHTML = html;
+    // Re-bind resend handlers via the data-portal-resend attribute.
+    wrap.querySelectorAll('[data-portal-resend]').forEach((btn) => {
+      btn.addEventListener("click", () => {
+        resendMessage(btn.dataset.threadId)
+          .then((t2) => {
+            showToast(t2.status === "sent" ? "再送しました" : "再送失敗: " + (t2.errorMsg || ""));
+            loadAndRenderThreads();
+          })
+          .catch(() => {});
       });
     });
+  });
 }
 
 function formatRelative(d) {
@@ -2799,7 +2883,14 @@ function renderView() {
     });
   });
   if (appState.activeView === "portal") {
-    loadAndRenderThreads();
+    // Guard against re-fetch loops when the view re-renders for unrelated
+    // reasons (channel tab click, search input). Use the cached list if the
+    // active client hasn't changed; otherwise pull a fresh timeline.
+    const client = currentClient();
+    if (client?.id) {
+      const useCache = appState.threadsLoadedClient === client.id;
+      loadAndRenderThreads({ useCache });
+    }
   }
   if (appState.activeView === "rules") {
     loadAndRenderRules();
@@ -3172,24 +3263,28 @@ function renderView() {
       if (action === "portal-send-now") {
         const draft = $("#portalDraft").value;
         const client = currentClient();
-        fetch("/api/messages", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            clientId: client.id,
-            channel: appState.portalChannel,
-            subject: appState.portalChannel === "email" ? "月次のご確認のお願い" : undefined,
-            body: draft,
-          }),
-        }).then(async (r) => {
-          const t = await r.json();
-          if (t.status === "sent") {
-            showToast("送信しました");
-          } else {
-            showToast("送信に失敗しました: " + (t.errorMsg || t.error?.message || ""));
-          }
-          loadAndRenderThreads();
-        }).catch(() => showToast("通信に失敗しました"));
+        sendMessage({
+          clientId: client.id,
+          channel: appState.portalChannel,
+          subject:
+            appState.portalChannel === "email"
+              ? "月次のご確認のお願い"
+              : undefined,
+          body: draft,
+        })
+          .then((t) => {
+            if (t.status === "sent") {
+              showToast("送信しました");
+            } else {
+              showToast(
+                "送信に失敗しました: " + (t.errorMsg || ""),
+              );
+            }
+            // Invalidate the timeline cache so the newly-sent message shows.
+            appState.threadsLoadedClient = null;
+            loadAndRenderThreads();
+          })
+          .catch(() => {});
       }
       if (action === "portal-schedule") {
         showToast("予約送信は未対応です（Bull導入後に有効化）");
@@ -3201,25 +3296,24 @@ function renderView() {
           endpoints[inp.dataset.endpointChannel] = inp.value || null;
         });
         const primary = $("#primaryChannelSelect").value;
-        fetch("/api/clients/" + encodeURIComponent(client.id) + "/contact", {
-          method: "PATCH",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ primary, endpoints }),
-        }).then(() => {
-          client.contactPrimary = primary;
-          client.contactEndpoints = endpoints;
-          showToast("連絡先を更新しました");
-          render();
-        });
+        updateContact({ primary, endpoints })
+          .then(() => {
+            client.contactPrimary = primary;
+            client.contactEndpoints = endpoints;
+            showToast("連絡先を更新しました");
+            render();
+          })
+          .catch(() => {});
       }
       if (action === "resend-thread") {
-        const id = button.dataset.threadId;
-        fetch("/api/messages/" + encodeURIComponent(id) + "/send", { method: "POST" })
-          .then(async (r) => {
-            const t = await r.json();
+        // Legacy data-action path; data-portal-resend is the modern form
+        // (wired in loadAndRenderThreads above).
+        resendMessage(button.dataset.threadId)
+          .then((t) => {
             showToast(t.status === "sent" ? "再送しました" : "失敗: " + (t.errorMsg || ""));
             loadAndRenderThreads();
-          });
+          })
+          .catch(() => {});
       }
       // Spec 02 F3: task workflow transitions
       if (action === "task-transition") {
