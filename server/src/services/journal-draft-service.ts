@@ -48,12 +48,20 @@ const SYSTEM_PROMPT = `あなたは日本の中小企業の経費仕訳を提案
 日本の複式簿記 + MF クラウド会計の仕訳形式に従い、借方 (debit) と貸方 (credit) の両方を提案してください。
 
 - 借方は経費系の勘定科目。候補: ${DEBIT_ACCOUNTS}
-- 貸方は支払元。レシート / 領収書なら基本は「現金」、明らかにカード払いと読み取れるなら「未払金」、振込なら「普通預金」。候補: ${CREDIT_ACCOUNTS}
+- 貸方は支払元。**入力の payment_method を最優先で使う**:
+  - "現金" → 「現金」
+  - "クレジットカード" / "クレジット" / "カード" / "VISA" 等の信販系 → 「未払金」
+  - "電子マネー" / "QR決済" / "PayPay" 等 → 「未払金」（または「事業主借」が妥当なら そちら）
+  - "振込" / "銀行振込" → 「普通預金」
+  - payment_method が null（領収書に支払方法の記載が無い）場合のみ、レシートの体裁から推定し、
+    確信が持てなければ missingFields に「支払方法（現金/カード/振込）」を入れる。
+  候補: ${CREDIT_ACCOUNTS}
 - 借方金額と貸方金額は同額（税込）にしてください。
 - 税区分はインボイス番号 (T で始まる 13 桁) があれば「課税仕入10%」または「課税仕入8%（軽減）」のどちらかを内容から判断。なければ「対象外」を選んでください。候補: ${TAX_CLASSES}
 - 取引先は OCR から読み取った発行者 (vendor_name)。読めなければ null。
 - 摘要は 50 文字以内で「(発行者) — (内容の要約)」の形式。内容不明なら「(発行者) — 詳細不明、要確認」。
-- 判断に必要な情報が不足している場合は missingFields に書いてください（例: '会食の参加者', '出張の目的', '支払方法（現金/カード/振込）'）。`;
+- 判断に必要な情報が不足している場合は missingFields に書いてください（例: '会食の参加者', '出張の目的'）。
+  **payment_method が入力に与えられている場合は「支払方法」を missingFields に入れないこと。**`;
 
 // 1 行（借方または貸方）のスキーマ。
 const JournalLineSchema = z.object({
@@ -128,6 +136,7 @@ interface OcrJson {
   addressee: string | null;
   amount: number | null;
   invoice_number: string | null;
+  payment_method?: string | null;
 }
 
 export async function generateDraftJournal(voucherId: string): Promise<void> {
@@ -168,6 +177,7 @@ export async function generateDraftJournal(voucherId: string): Promise<void> {
       amount: ocr.amount,
       issue_date: ocr.issue_date,
       invoice_number: ocr.invoice_number,
+      payment_method: ocr.payment_method ?? null,
       業種: industry,
     };
     const completion = await client.chat.completions.create({

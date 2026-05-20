@@ -28,6 +28,7 @@ describe('extractVoucherFields', () => {
               addressee: '株式会社サンプル',
               amount: 3200,
               invoice_number: 'T1234567890123',
+              payment_method: 'クレジットカード',
             }),
           },
         },
@@ -46,6 +47,7 @@ describe('extractVoucherFields', () => {
     expect(result.addressee).toBe('株式会社サンプル');
     expect(result.amount).toBe(3200);
     expect(result.invoice_number).toBe('T1234567890123');
+    expect(result.payment_method).toBe('クレジットカード');
 
     // Verify the image was passed as data URL
     expect(create).toHaveBeenCalledOnce();
@@ -70,6 +72,7 @@ describe('extractVoucherFields', () => {
               addressee: null,
               amount: null,
               invoice_number: null,
+              payment_method: null,
             }),
           },
         },
@@ -89,6 +92,7 @@ describe('extractVoucherFields', () => {
       addressee: null,
       amount: null,
       invoice_number: null,
+      payment_method: null,
     });
   });
 

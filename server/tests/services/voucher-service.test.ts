@@ -163,6 +163,7 @@ describe('runOcrForVoucher', () => {
       addressee: null,
       amount: 3200,
       invoice_number: null,
+      payment_method: null,
     });
     await runOcrForVoucher(meta.id);
     const row = await prisma.voucher.findUnique({ where: { id: meta.id } });
@@ -173,6 +174,7 @@ describe('runOcrForVoucher', () => {
       addressee: null,
       amount: 3200,
       invoice_number: null,
+      payment_method: null,
     });
     expect(row?.ocrError).toBeNull();
     expect(spy).toHaveBeenCalledOnce();
@@ -290,6 +292,7 @@ describe('listVouchers ocr fields', () => {
       addressee: null,
       amount: 100,
       invoice_number: null,
+      payment_method: null,
     });
     await runOcrForVoucher(meta.id);
     const rows = await listVouchers({ clientId: null });
