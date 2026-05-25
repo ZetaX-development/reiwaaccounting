@@ -3,6 +3,38 @@ import { mfApiAdapter } from '../adapters/mf-api.js';
 import { logger } from '../lib/logger.js';
 import type { RawEntry } from '../adapters/vendor-adapter.js';
 
+export interface CreateClientInput {
+  name: string;
+  fiscalYearStart: Date;
+  fiscalYearEnd: Date;
+  industry?: string;
+  vendor?: string;
+  mode?: string;
+}
+
+export async function createClient(data: CreateClientInput, firmId: string) {
+  return prisma.client.create({
+    data: {
+      firmId,
+      name: data.name,
+      fiscalYearStart: data.fiscalYearStart,
+      fiscalYearEnd: data.fiscalYearEnd,
+      industry: data.industry ?? 'その他',
+      vendor: data.vendor ?? 'mf',
+      mode: data.mode ?? 'monthly',
+    },
+    select: {
+      id: true,
+      name: true,
+      industry: true,
+      vendor: true,
+      mode: true,
+      fiscalYearStart: true,
+      fiscalYearEnd: true,
+    },
+  });
+}
+
 export async function listClients(firmId: string) {
   return prisma.client.findMany({
     where: { firmId },

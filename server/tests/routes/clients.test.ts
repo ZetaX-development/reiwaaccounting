@@ -30,6 +30,63 @@ describe('GET /api/clients', () => {
   });
 });
 
+describe('POST /api/clients', () => {
+  let createdId: string;
+
+  afterAll(async () => {
+    if (createdId) {
+      await prisma.client.deleteMany({ where: { id: createdId } }).catch(() => {});
+    }
+  });
+
+  it('creates a client with required fields and returns 201', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/clients',
+      headers: { ...auth, 'content-type': 'application/json' },
+      payload: {
+        name: 'テスト株式会社',
+        fiscalYearStart: '2025-01-01',
+        fiscalYearEnd: '2025-12-31',
+      },
+    });
+    expect(res.statusCode).toBe(201);
+    const body = res.json();
+    expect(body.id).toBeDefined();
+    expect(body.name).toBe('テスト株式会社');
+    createdId = body.id;
+  });
+
+  it('returns 400 when name is missing', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/clients',
+      headers: { ...auth, 'content-type': 'application/json' },
+      payload: {
+        fiscalYearStart: '2025-01-01',
+        fiscalYearEnd: '2025-12-31',
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe('INVALID_BODY');
+  });
+
+  it('returns 400 when fiscalYearEnd is before fiscalYearStart', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/clients',
+      headers: { ...auth, 'content-type': 'application/json' },
+      payload: {
+        name: '不正期間会社',
+        fiscalYearStart: '2025-12-31',
+        fiscalYearEnd: '2025-01-01',
+      },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe('INVALID_BODY');
+  });
+});
+
 describe('GET /api/clients/:id', () => {
   it('returns a 404 for unknown ids with friendly error envelope', async () => {
     const res = await app.inject({ method: 'GET', url: '/api/clients/does-not-exist', headers: auth });
