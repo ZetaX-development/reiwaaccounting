@@ -128,8 +128,32 @@ button {
   background: var(--green-dark);
 }
 
-.nav-logout {
+.nav-user-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px 6px;
+  border-top: 1px solid #eaecf0;
   margin-top: auto;
+}
+.nav-user-firm {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nav-user-email {
+  font-size: 11px;
+  color: #8a93a3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nav-logout {
+  margin-top: 0;
   min-height: 38px;
   border: 0;
   border-radius: 8px;

@@ -23,7 +23,18 @@ const appState = {
   lineUsers: [],
   lineVerifyResult: null,
   lineLoadedAt: null,
+  user: null, // { authUserId, firmId, role, email, firmName } — set on startup
 };
+
+// Authenticated fetch wrapper — injects Bearer token for all /api/ requests.
+function apiFetch(url, options) {
+  var opts = options || {};
+  var session = window.__bookmeeSession;
+  var token = session && session.access_token;
+  var headers = Object.assign({}, opts.headers || {});
+  if (token) headers['Authorization'] = 'Bearer ' + token;
+  return fetch(url, Object.assign({}, opts, { headers: headers }));
+}
 
 // Loaded from /api/clients on startup. Empty until the first fetch resolves.
 let clients = [];
@@ -140,14 +151,14 @@ function currentClient() { return clients[appState.activeClient]; }
 
 async function loadClientsFromApi() {
   try {
-    const listRes = await fetch("/api/clients");
+    const listRes = await apiFetch("/api/clients");
     if (!listRes.ok) throw new Error("HTTP " + listRes.status);
     const summaries = await listRes.json();
     if (!Array.isArray(summaries) || summaries.length === 0) return;
 
     const detailed = await Promise.all(
       summaries.map(async (s) => {
-        const detailRes = await fetch("/api/clients/" + encodeURIComponent(s.id));
+        const detailRes = await apiFetch("/api/clients/" + encodeURIComponent(s.id));
         if (!detailRes.ok) return null;
         const detail = await detailRes.json();
         return adaptApiClient(detail);
@@ -167,7 +178,7 @@ async function loadVouchers() {
       ? '/api/vouchers?clientId=unassigned'
       : `/api/vouchers?clientId=${encodeURIComponent(tab)}`;
   try {
-    const res = await fetch(url);
+    const res = await apiFetch(url);
     if (!res.ok) throw new Error('list failed');
     appState.vouchers = await res.json();
     appState.vouchersLoadedTab = tab;
@@ -180,7 +191,7 @@ async function loadVouchers() {
 
 async function refreshVoucherCounts() {
   try {
-    const res = await fetch('/api/vouchers');
+    const res = await apiFetch('/api/vouchers');
     if (!res.ok) return;
     const all = await res.json();
     const counts = { unassigned: 0 };
@@ -219,7 +230,7 @@ async function uploadVouchers(files) {
       form.append('clientId', appState.voucherTab);
     }
     try {
-      const res = await fetch('/api/vouchers', {
+      const res = await apiFetch('/api/vouchers', {
         method: 'POST',
         body: form,
         headers: { 'x-uploaded-by': role },
@@ -240,7 +251,7 @@ async function uploadVouchers(files) {
 async function deleteVoucherById(id) {
   if (!confirm('この証憑を削除しますか？')) return;
   try {
-    const res = await fetch(`/api/vouchers/${id}`, { method: 'DELETE' });
+    const res = await apiFetch(`/api/vouchers/${id}`, { method: 'DELETE' });
     if (!res.ok) throw new Error('delete failed');
     appState.vouchersLoadedTab = null;
     await loadVouchers();
@@ -275,7 +286,7 @@ async function loadMatchingData() {
 
 async function rematchVoucher(id) {
   try {
-    const res = await fetch(`/api/vouchers/${id}/match`, { method: 'POST' });
+    const res = await apiFetch(`/api/vouchers/${id}/match`, { method: 'POST' });
     if (!res.ok) throw new Error('rematch failed');
     setTimeout(() => {
       appState.matchingLoadedTab = null;
@@ -288,7 +299,7 @@ async function rematchVoucher(id) {
 
 async function redraftVoucherJournal(id) {
   try {
-    const res = await fetch(`/api/vouchers/${id}/draft-journal`, {
+    const res = await apiFetch(`/api/vouchers/${id}/draft-journal`, {
       method: 'POST',
     });
     if (!res.ok) throw new Error('redraft failed');
@@ -303,7 +314,7 @@ async function redraftVoucherJournal(id) {
 
 async function inquireVoucherClient(id) {
   try {
-    const res = await fetch(`/api/vouchers/${id}/inquire`, { method: 'POST' });
+    const res = await apiFetch(`/api/vouchers/${id}/inquire`, { method: 'POST' });
     if (!res.ok) throw new Error('inquire failed');
     setTimeout(() => {
       appState.matchingLoadedTab = null;
@@ -316,7 +327,7 @@ async function inquireVoucherClient(id) {
 
 async function approveVoucherJournal(id) {
   try {
-    const res = await fetch(`/api/vouchers/${id}/journal`, {
+    const res = await apiFetch(`/api/vouchers/${id}/journal`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ status: 'approved' }),
@@ -331,7 +342,7 @@ async function approveVoucherJournal(id) {
 
 async function reassignVoucherClient(id, newClientId) {
   try {
-    const res = await fetch(`/api/vouchers/${id}`, {
+    const res = await apiFetch(`/api/vouchers/${id}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ clientId: newClientId }),
@@ -352,7 +363,7 @@ async function reassignVoucherClient(id, newClientId) {
 
 async function loadDriveStatus() {
   try {
-    const res = await fetch('/api/integrations/drive');
+    const res = await apiFetch('/api/integrations/drive');
     if (!res.ok) throw new Error('drive status failed');
     appState.driveIntegration = await res.json();
   } catch (_err) {
@@ -362,7 +373,7 @@ async function loadDriveStatus() {
 
 async function loadDriveMappings() {
   try {
-    const res = await fetch('/api/integrations/drive/mappings');
+    const res = await apiFetch('/api/integrations/drive/mappings');
     if (!res.ok) return;
     const json = await res.json();
     // Backend wraps the list as { mappings: [...] }
@@ -374,7 +385,7 @@ async function loadDriveMappings() {
 
 async function loadDriveFolders() {
   try {
-    const res = await fetch('/api/integrations/drive/folders');
+    const res = await apiFetch('/api/integrations/drive/folders');
     if (!res.ok) {
       appState.driveFolders = [];
       return;
@@ -388,7 +399,7 @@ async function loadDriveFolders() {
 
 async function triggerDriveSync() {
   try {
-    const res = await fetch('/api/integrations/drive/sync', { method: 'POST' });
+    const res = await apiFetch('/api/integrations/drive/sync', { method: 'POST' });
     if (!res.ok) throw new Error('sync failed');
     appState.driveLastSync = await res.json();
     const s = appState.driveLastSync || {};
@@ -403,7 +414,7 @@ async function triggerDriveSync() {
 
 async function saveDriveMapping(driveFolderId, folderName, clientId) {
   try {
-    const res = await fetch('/api/integrations/drive/mappings', {
+    const res = await apiFetch('/api/integrations/drive/mappings', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ driveFolderId, folderName, clientId }),
@@ -419,7 +430,7 @@ async function saveDriveMapping(driveFolderId, folderName, clientId) {
 
 async function deleteDriveMapping(id) {
   try {
-    const res = await fetch(`/api/integrations/drive/mappings/${id}`, {
+    const res = await apiFetch(`/api/integrations/drive/mappings/${id}`, {
       method: 'DELETE',
     });
     if (!res.ok) throw new Error('delete failed');
@@ -432,7 +443,7 @@ async function deleteDriveMapping(id) {
 
 async function saveDriveSettings(rootFolderId, importedSubfolderName) {
   try {
-    const res = await fetch('/api/integrations/drive/settings', {
+    const res = await apiFetch('/api/integrations/drive/settings', {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ rootFolderId, importedSubfolderName }),
@@ -450,7 +461,7 @@ async function saveDriveSettings(rootFolderId, importedSubfolderName) {
 async function disconnectDrive() {
   if (!confirm('Google Drive 連携を解除しますか？')) return;
   try {
-    const res = await fetch('/api/integrations/drive', { method: 'DELETE' });
+    const res = await apiFetch('/api/integrations/drive', { method: 'DELETE' });
     if (!res.ok) throw new Error('disconnect failed');
     appState.driveIntegration = null;
     appState.driveFolders = [];
@@ -468,7 +479,7 @@ async function disconnectDrive() {
 
 async function loadLineStatus() {
   try {
-    const res = await fetch('/api/integrations/line');
+    const res = await apiFetch('/api/integrations/line');
     if (!res.ok) throw new Error('line status failed');
     appState.lineIntegration = await res.json();
   } catch (_err) {
@@ -478,7 +489,7 @@ async function loadLineStatus() {
 
 async function loadLineUsers() {
   try {
-    const res = await fetch('/api/integrations/line/users');
+    const res = await apiFetch('/api/integrations/line/users');
     if (!res.ok) return;
     const json = await res.json();
     appState.lineUsers = Array.isArray(json) ? json : json.users || [];
@@ -489,7 +500,7 @@ async function loadLineUsers() {
 
 async function verifyLine() {
   try {
-    const res = await fetch('/api/integrations/line/verify', {
+    const res = await apiFetch('/api/integrations/line/verify', {
       method: 'POST',
     });
     appState.lineVerifyResult = await res.json();
@@ -501,7 +512,7 @@ async function verifyLine() {
 
 async function updateLineUser(id, patch) {
   try {
-    const res = await fetch(`/api/integrations/line/users/${id}`, {
+    const res = await apiFetch(`/api/integrations/line/users/${id}`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(patch),
@@ -517,7 +528,7 @@ async function updateLineUser(id, patch) {
 async function deleteLineUser(id) {
   if (!confirm('このユーザの mapping を削除しますか？')) return;
   try {
-    const res = await fetch(`/api/integrations/line/users/${id}`, {
+    const res = await apiFetch(`/api/integrations/line/users/${id}`, {
       method: 'DELETE',
     });
     if (!res.ok) throw new Error('delete failed');
@@ -542,7 +553,7 @@ async function loadTasksForCurrentClient() {
       encodeURIComponent(client.id) +
       "/tasks?role=" +
       encodeURIComponent(appState.currentRole);
-    const res = await fetch(url);
+    const res = await apiFetch(url);
     if (!res.ok) throw new Error("HTTP " + res.status);
     const tasks = await res.json();
     appState.tasks = tasks;
@@ -558,7 +569,7 @@ async function loadTasksForCurrentClient() {
 async function transitionTask(id, action, comment) {
   try {
     const by = appState.currentRole === "staff" ? "鈴木" : "畠山";
-    const res = await fetch(
+    const res = await apiFetch(
       "/api/tasks/" + encodeURIComponent(id) + "/transition",
       {
         method: "POST",
@@ -580,7 +591,7 @@ async function transitionTask(id, action, comment) {
 // Fetch append-only audit history for a single task.
 async function loadTaskHistory(id) {
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       "/api/tasks/" + encodeURIComponent(id) + "/history",
     );
     if (!res.ok) throw new Error("HTTP " + res.status);
@@ -600,7 +611,7 @@ async function loadThreads() {
   const client = currentClient();
   if (!client?.id) return [];
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       "/api/clients/" + encodeURIComponent(client.id) + "/threads",
     );
     if (!res.ok) throw new Error("HTTP " + res.status);
@@ -617,7 +628,7 @@ async function loadThreads() {
 // Create a Thread (queued) and trigger immediate send on the server.
 async function sendMessage(payload) {
   try {
-    const res = await fetch("/api/messages", {
+    const res = await apiFetch("/api/messages", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(payload),
@@ -636,7 +647,7 @@ async function sendMessage(payload) {
 // Re-trigger send for a previously-failed thread.
 async function resendMessage(id) {
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       "/api/messages/" + encodeURIComponent(id) + "/send",
       { method: "POST" },
     );
@@ -657,7 +668,7 @@ async function updateClientMode(mode) {
   const client = currentClient();
   if (!client?.id) return null;
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       "/api/clients/" + encodeURIComponent(client.id) + "/mode",
       {
         method: "PATCH",
@@ -678,7 +689,7 @@ async function loadYearendChecklist() {
   const client = currentClient();
   if (!client?.id) return [];
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       "/api/clients/" +
         encodeURIComponent(client.id) +
         "/yearend-checklist",
@@ -697,7 +708,7 @@ async function loadYearendChecklist() {
 // Update a single yearend checklist row (status / note).
 async function updateYearendCheck(id, body) {
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       "/api/yearend-checks/" + encodeURIComponent(id),
       {
         method: "PATCH",
@@ -722,7 +733,7 @@ async function loadRules() {
   const client = currentClient();
   if (!client?.id) return [];
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       "/api/clients/" + encodeURIComponent(client.id) + "/rules",
     );
     if (!res.ok) throw new Error("HTTP " + res.status);
@@ -739,7 +750,7 @@ async function loadRules() {
 // Fetch the industry rule-template catalog (e.g. "広告制作").
 async function loadRuleTemplates(industry) {
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       "/api/rule-templates?industry=" + encodeURIComponent(industry || ""),
     );
     if (!res.ok) throw new Error("HTTP " + res.status);
@@ -755,7 +766,7 @@ async function addRule(body) {
   const client = currentClient();
   if (!client?.id) return null;
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       "/api/clients/" + encodeURIComponent(client.id) + "/rules",
       {
         method: "POST",
@@ -774,7 +785,7 @@ async function addRule(body) {
 // Update an existing rule (active toggle, title, severity, etc.).
 async function updateRule(id, body) {
   try {
-    const res = await fetch("/api/rules/" + encodeURIComponent(id), {
+    const res = await apiFetch("/api/rules/" + encodeURIComponent(id), {
       method: "PATCH",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
@@ -790,7 +801,7 @@ async function updateRule(id, body) {
 // Delete a rule by id.
 async function deleteRuleById(id) {
   try {
-    const res = await fetch("/api/rules/" + encodeURIComponent(id), {
+    const res = await apiFetch("/api/rules/" + encodeURIComponent(id), {
       method: "DELETE",
     });
     if (!res.ok) throw new Error("HTTP " + res.status);
@@ -804,7 +815,7 @@ async function deleteRuleById(id) {
 // Fetch RuleHit rows (recent firing events) for a single rule.
 async function loadRuleHits(ruleId) {
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       "/api/rules/" + encodeURIComponent(ruleId) + "/hits",
     );
     if (!res.ok) throw new Error("HTTP " + res.status);
@@ -820,7 +831,7 @@ async function updateContact(body) {
   const client = currentClient();
   if (!client?.id) return null;
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       "/api/clients/" + encodeURIComponent(client.id) + "/contact",
       {
         method: "PATCH",
@@ -1658,12 +1669,54 @@ function renderSettings() {
   html += '<div class="setting-row"><div><strong>所長承認必須</strong><p>AI検出事項は承認後に月次完了へ反映</p></div><span class="switch on"></span></div>';
   html += '<div class="setting-row"><div><strong>やさしい表示</strong><p>RAGやMCPなどの技術語を画面に出さない</p></div><span class="switch on"></span></div>';
   html += '<div class="setting-row"><div><strong>ISMS準備モード</strong><p>大手事務所向けにログ、権限、証跡を強化</p></div><span class="switch"></span></div>';
-  html += '</section><section class="rules-list">';
+  html += '</section>';
+
+  // Owner-only: member management
+  if (appState.user && appState.user.role === 'owner') {
+    html += '<section class="settings-card" id="memberSection">';
+    html += '<h3 style="font-size:.95rem;margin-bottom:1rem;color:#1e293b">メンバー管理</h3>';
+    html += '<div id="memberList" style="margin-bottom:1rem"><p style="color:#999;font-size:.85rem">読み込み中…</p></div>';
+    html += '<div class="setting-row" style="align-items:flex-end">';
+    html += '<div style="flex:1"><strong>メンバーを招待</strong><p>メールアドレスを入力してください</p>';
+    html += '<input id="inviteEmail" type="email" placeholder="staff@example.com" style="width:100%;padding:.5rem;border:1px solid #ccc;border-radius:6px;font-size:.9rem;box-sizing:border-box;margin-top:.5rem" /></div>';
+    html += '<button class="primary-action compact" data-action="settings-invite-member" style="margin-left:.75rem;flex-shrink:0">招待送信</button>';
+    html += '</div>';
+    html += '</section>';
+  }
+
+  html += '<section class="rules-list">';
   html += '<article class="message-card"><span class="pill ai">freee / MF</span><h3>会計ソフト連携</h3><p>仕訳、残高、請求、入金、証憑ステータスを読み取り、レビューキューに変換します。</p></article>';
   html += '<article class="message-card"><span class="pill ai">初期導入先</span><h3>30〜50人規模の税理士事務所</h3><p>職員・アルバイトが複数いて、所長レビューと資料不足対応が詰まりやすい事務所に絞ります。</p></article>';
   html += '<article class="message-card"><span class="pill ai">MyKomon Alternative</span><h3>税理士事務所の業務OS</h3><p>顧問先別の進捗、担当者ToDo、顧問先依頼、所長レビューを同じワークフローにまとめます。</p></article>';
   html += '</section></div>';
   return html;
+}
+
+async function loadMemberList() {
+  const listEl = document.getElementById('memberList');
+  if (!listEl) return;
+  try {
+    const res = await apiFetch('/api/firms/current/members');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const members = await res.json();
+    if (!members.length) {
+      listEl.innerHTML = '<p style="color:#999;font-size:.85rem">メンバーはまだいません</p>';
+      return;
+    }
+    const roleLabel = { owner: '所長', member: 'スタッフ' };
+    const statusLabel = { active: '有効', invited: '招待中', removed: '削除済み' };
+    listEl.innerHTML = members.map(m =>
+      '<div class="setting-row" style="font-size:.85rem">' +
+      '<div><strong>' + escapeHtml(m.email || '') + '</strong>' +
+      ' <span style="color:#64748b">(' + (roleLabel[m.role] || m.role) + '・' + (statusLabel[m.status] || m.status) + ')</span></div>' +
+      (m.authUserId !== appState.user.authUserId
+        ? '<button class="row-action" data-action="settings-remove-member" data-member-id="' + escapeHtml(m.id) + '" style="color:#dc2626">削除</button>'
+        : '') +
+      '</div>'
+    ).join('');
+  } catch (e) {
+    listEl.innerHTML = '<p style="color:#dc2626;font-size:.85rem">読み込みに失敗しました</p>';
+  }
 }
 
 // Spec 03 F2: 3-column portal: edit | history | settings
@@ -1991,7 +2044,7 @@ function loadAndRenderCompanyTab() {
         body.innerHTML = '<div class="empty-state">' + cashAccounts.length + ' 件の現預金科目を確認中…</div>';
         const all = [];
         for (const a of cashAccounts) {
-          const r = await fetch("/api/clients/" + cid + "/mf/journal-book?account_id=" + encodeURIComponent(a.id));
+          const r = await apiFetch("/api/clients/" + cid + "/mf/journal-book?account_id=" + encodeURIComponent(a.id));
           const d = await r.json();
           for (const j of (d.journals || [])) all.push(j);
         }
@@ -2016,7 +2069,7 @@ function loadAndRenderCompanyTab() {
         }
         html += '</select></div>';
         if (selected) {
-          const r = await fetch("/api/clients/" + cid + "/mf/journal-book?account_id=" + encodeURIComponent(selected));
+          const r = await apiFetch("/api/clients/" + cid + "/mf/journal-book?account_id=" + encodeURIComponent(selected));
           const d = await r.json();
           const accountName = accounts.find((a) => a.id === selected)?.name || "";
           html += '<p class="eyebrow">' + escapeHtml(accountName) + ' の元帳</p>';
@@ -2047,7 +2100,7 @@ function loadAndRenderCompanyTab() {
         }
         html += '</select></div>';
         if (selected) {
-          const r = await fetch("/api/clients/" + cid + "/mf/journal-book?sub_account_id=" + encodeURIComponent(selected));
+          const r = await apiFetch("/api/clients/" + cid + "/mf/journal-book?sub_account_id=" + encodeURIComponent(selected));
           const d = await r.json();
           const subName = subs.find((s) => s.id === selected)?.name || "";
           html += '<p class="eyebrow">' + escapeHtml(subName) + ' の補助元帳</p>';
@@ -2282,7 +2335,7 @@ async function loadApprovedDraftsIntoSlot(clientId) {
   const slot = document.querySelector('#approvedDraftsSlot');
   if (!slot) return;
   try {
-    const res = await fetch(
+    const res = await apiFetch(
       '/api/vouchers?clientId=' + encodeURIComponent(clientId),
     );
     if (!res.ok) return;
@@ -3179,7 +3232,7 @@ function renderView() {
         e.stopPropagation();
         const id = btn.dataset.voucherRetryOcr;
         try {
-          const res = await fetch(`/api/vouchers/${id}/ocr`, { method: 'POST' });
+          const res = await apiFetch(`/api/vouchers/${id}/ocr`, { method: 'POST' });
           if (!res.ok) throw new Error('retry failed');
           appState.vouchersLoadedTab = null;
           await loadVouchers();
@@ -3193,7 +3246,7 @@ function renderView() {
         e.stopPropagation();
         const id = btn.dataset.voucherRematch;
         try {
-          const res = await fetch(`/api/vouchers/${id}/match`, { method: 'POST' });
+          const res = await apiFetch(`/api/vouchers/${id}/match`, { method: 'POST' });
           if (!res.ok) throw new Error('rematch failed');
           appState.vouchersLoadedTab = null;
           setTimeout(() => loadVouchers(), 800);
@@ -3228,7 +3281,7 @@ function renderView() {
         const targetTab = tab.dataset.voucherTab;
         const newClientId = targetTab === 'unassigned' ? null : targetTab;
         try {
-          const res = await fetch(`/api/vouchers/${voucherId}`, {
+          const res = await apiFetch(`/api/vouchers/${voucherId}`, {
             method: 'PATCH',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify({ clientId: newClientId }),
@@ -3606,8 +3659,45 @@ function renderView() {
         if (portalDraft) portalDraft.value = formatBodyForChannel(draft, appState.portalChannel);
         showToast("顧問先連絡に依頼文を作成しました");
       }
+      if (action === "settings-invite-member") {
+        const emailInput = document.getElementById('inviteEmail');
+        const email = emailInput ? emailInput.value.trim() : '';
+        if (!email) { showToast('メールアドレスを入力してください'); return; }
+        apiFetch('/api/firms/current/invite', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        }).then(async (res) => {
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            showToast('招待失敗: ' + (body.message || res.status));
+            return;
+          }
+          showToast(email + ' に招待メールを送信しました');
+          if (emailInput) emailInput.value = '';
+          loadMemberList();
+        }).catch(() => showToast('招待に失敗しました'));
+      }
+      if (action === "settings-remove-member") {
+        const mid = button.dataset.memberId;
+        if (!mid) return;
+        apiFetch('/api/firms/current/members/' + mid, { method: 'DELETE' })
+          .then(async (res) => {
+            if (!res.ok) {
+              const body = await res.json().catch(() => ({}));
+              showToast('削除失敗: ' + (body.message || res.status));
+              return;
+            }
+            showToast('メンバーを削除しました');
+            loadMemberList();
+          }).catch(() => showToast('削除に失敗しました'));
+      }
     });
   });
+  // settings view: load member list if owner
+  if (appState.activeView === 'settings' && appState.user && appState.user.role === 'owner') {
+    loadMemberList();
+  }
 }
 
 function renderAiPanel() {
@@ -3773,11 +3863,15 @@ if (roleSel) {
   });
 }
 
-// Logout (UI only — no auth implemented yet)
+// Logout
 const logoutBtn = $("#logoutButton");
 if (logoutBtn) {
   logoutBtn.addEventListener("click", () => {
-    showToast("ログアウト機能はまだ未実装です。");
+    if (window.__bookmeeSignOut) {
+      window.__bookmeeSignOut().catch(() => { window.location.href = '/login.html'; });
+    } else {
+      window.location.href = '/login.html';
+    }
   });
 }
 
@@ -3794,5 +3888,26 @@ document.querySelectorAll('[data-view-group="jobs"]').forEach((btn) => {
   });
 });
 
-// Startup: load clients, then apply the URL hash route (which calls render).
-loadClientsFromApi().finally(() => applyHashRoute(true));
+// Startup: await auth session, fetch user info, then load clients.
+(async () => {
+  const session = await (window.__sessionPromise || Promise.resolve(null));
+  if (!session) return; // index.html is redirecting to /login.html
+
+  // Fetch current user's firm/role info.
+  try {
+    const meRes = await apiFetch('/api/auth/me');
+    if (meRes.ok) {
+      appState.user = await meRes.json();
+      const navUserInfo = $('#navUserInfo');
+      if (navUserInfo && appState.user) {
+        navUserInfo.innerHTML =
+          '<span class="nav-user-firm">' + escapeHtml(appState.user.firmName || '') + '</span>' +
+          '<span class="nav-user-email">' + escapeHtml(appState.user.email || '') + '</span>';
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to fetch /api/auth/me', e);
+  }
+
+  loadClientsFromApi().finally(() => applyHashRoute(true));
+})();

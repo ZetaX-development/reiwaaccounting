@@ -9,6 +9,36 @@
       content="税理士事務所向けに、記帳完了後のレビュー・差戻し・進捗管理・顧問先連絡をAIで支援するSaaS。"
     />
     <link rel="stylesheet" href="./styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <script>
+      // Supabase session init — runs before script.js.
+      // Exposes window.__sessionPromise (resolves to session or null) and window.__bookmeeSignOut.
+      (function () {
+        const SUPABASE_URL = 'https://kmgjmlcijhgaqddtjdou.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImttZ2ptbGNpamhnYXFkZHRqZG91Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MDI0MDEsImV4cCI6MjA5NTI3ODQwMX0.oX5bfJ-FRb6LWFmzR479IqPtx3sU_ZWaDtX_S41-EtU';
+        const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        window.__sessionPromise = sb.auth.getSession().then(function (result) {
+          var session = result.data && result.data.session;
+          if (!session) {
+            window.location.href = '/login.html?redirect=' + encodeURIComponent(location.pathname + location.search + location.hash);
+            return null;
+          }
+          window.__bookmeeSession = session;
+          sb.auth.onAuthStateChange(function (event, s) {
+            if (!s) { window.location.href = '/login.html'; }
+            else { window.__bookmeeSession = s; }
+          });
+          return session;
+        });
+
+        window.__bookmeeSignOut = function () {
+          return sb.auth.signOut().then(function () {
+            window.location.href = '/login.html';
+          });
+        };
+      })();
+    </script>
   </head>
   <body>
     <div class="app-shell">
@@ -48,6 +78,7 @@
           <button class="nav-item" data-view="settings">設定</button>
         </nav>
 
+        <div class="nav-user-info" id="navUserInfo"></div>
         <button class="nav-logout" id="logoutButton">ログアウト</button>
       </aside>
 

@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>認証中… — Bookmee</title>
+  <style>
+    body { display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #f5f5f5; font-family: sans-serif; color: #555; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+</head>
+<body>
+  <p>認証中…</p>
+  <script type="module">
+    import { supabase } from '/auth-shared.js';
+
+    // Supabase v2 automatically processes the URL fragment (#access_token=...) on getSession().
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) {
+      const params = new URLSearchParams(location.search);
+      window.location.href = params.get('redirect') || '/';
+    } else {
+      // Retry once after a short wait — the fragment may not be processed yet.
+      await new Promise(r => setTimeout(r, 500));
+      const { data: { session: s2 } } = await supabase.auth.getSession();
+      window.location.href = s2 ? (new URLSearchParams(location.search).get('redirect') || '/') : '/login.html?error=oauth_failed';
+    }
+  </script>
+</body>
+</html>
