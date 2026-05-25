@@ -333,6 +333,7 @@ model Voucher {
   lineSourceMessageId String?  @unique
   lineUserId          String?
   caption             String?
+  lineAnswers         Json?    // Spec 19: { "field": "answer", ... }
 
   inquiries VoucherInquiry[]
 

@@ -154,6 +154,42 @@ describe('generateDraftJournal', () => {
     ).toEqual(['参加者']);
   });
 
+  it('includes lineAnswers as 追加情報 in the user message when present', async () => {
+    const v = await prisma.voucher.create({
+      data: {
+        firmId: 'demo-firm',
+        clientId: 'aoyama-design',
+        filename: 'sample2.jpg',
+        mimeType: 'image/jpeg',
+        size: 4,
+        imageData: Buffer.from([0x00, 0x01, 0x02, 0x03]),
+        ocrStatus: 'done',
+        ocrJson: { issue_date: '2026-05-15', vendor_name: 'テスト食堂', addressee: null, amount: 5000, invoice_number: null } as never,
+        matchStatus: 'unmatched',
+        lineAnswers: { 会食の参加者: '田中部長、鈴木様' } as never,
+      },
+    });
+
+    const create = vi.fn().mockResolvedValue({
+      choices: [{ message: { content: JSON.stringify({
+        transactionDate: '2026-05-15',
+        debit: { account: '接待交際費', subAccount: null, partner: 'テスト食堂', taxClass: '課税仕入10%', invoiceNumber: null, amount: 5000 },
+        credit: { account: '現金', subAccount: null, partner: null, taxClass: '対象外', invoiceNumber: null, amount: 5000 },
+        description: 'テスト食堂 — 会食 田中部長、鈴木様',
+        missingFields: [],
+        reasoning: '追加情報から参加者を確認',
+      }) } }],
+    });
+    MockedOpenAI.mockImplementation(() => ({ chat: { completions: { create } } }));
+
+    await generateDraftJournal(v.id);
+
+    const callArg = create.mock.calls[0][0];
+    const userMsg = callArg.messages.find((m: { role: string }) => m.role === 'user')?.content as string;
+    expect(userMsg).toContain('田中部長');
+    expect(userMsg).toContain('会食の参加者');
+  });
+
   it('skips OpenAI and stays at journalStatus none when ocr amount is missing', async () => {
     const id = await createVoucherFixture({
       issue_date: '2026-05-15',

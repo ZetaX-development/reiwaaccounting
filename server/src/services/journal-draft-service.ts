@@ -45,6 +45,7 @@ const TAX_CLASSES = [
 ].join('、');
 
 const SYSTEM_PROMPT = `あなたは日本の中小企業の経費仕訳を提案するアシスタントです。
+入力に「追加情報」フィールドがある場合は、スタッフが補足した情報です。最優先で仕訳に反映してください。
 日本の複式簿記 + MF クラウド会計の仕訳形式に従い、借方 (debit) と貸方 (credit) の両方を提案してください。
 
 - 借方は経費系の勘定科目。候補: ${DEBIT_ACCOUNTS}
@@ -142,7 +143,7 @@ interface OcrJson {
 export async function generateDraftJournal(voucherId: string): Promise<void> {
   const voucher = await prisma.voucher.findUnique({
     where: { id: voucherId },
-    select: { id: true, clientId: true, ocrJson: true },
+    select: { id: true, clientId: true, ocrJson: true, lineAnswers: true },
   });
   if (!voucher) return;
 
@@ -171,7 +172,9 @@ export async function generateDraftJournal(voucherId: string): Promise<void> {
 
   try {
     const client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
-    const userPayload = {
+    const lineAnswers = (voucher.lineAnswers ?? {}) as Record<string, string>;
+    const hasAnswers = Object.keys(lineAnswers).length > 0;
+    const userPayload: Record<string, unknown> = {
       vendor_name: ocr.vendor_name,
       addressee: ocr.addressee,
       amount: ocr.amount,
@@ -179,6 +182,7 @@ export async function generateDraftJournal(voucherId: string): Promise<void> {
       invoice_number: ocr.invoice_number,
       payment_method: ocr.payment_method ?? null,
       業種: industry,
+      ...(hasAnswers ? { 追加情報: lineAnswers } : {}),
     };
     const completion = await client.chat.completions.create({
       model: env.OPENAI_VISION_MODEL,
