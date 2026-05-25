@@ -62,6 +62,7 @@ export async function syncDriveChanges(opts?: {
     const startPageToken = await driveService.getStartPageToken(token);
     watch = await prisma.driveWatchChannel.create({
       data: {
+        firmId: 'demo-firm',
         channelId: cryptoRandomId(),
         resourceId: '',
         pageToken: startPageToken,

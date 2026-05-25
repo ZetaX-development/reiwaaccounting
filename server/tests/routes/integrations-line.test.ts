@@ -12,6 +12,7 @@ import { buildApp } from '../../src/server.js';
 import { prisma } from '../../src/lib/prisma.js';
 import * as lineImporter from '../../src/services/line-importer.js';
 import { __resetEnvCache } from '../../src/env.js';
+import { authHeaders } from '../helpers/auth.js';
 
 const TEST_SECRET = 'integration-test-channel-secret';
 
@@ -23,6 +24,7 @@ process.env.LINE_WEBHOOK_BASE_URL = 'https://bookmee.example.com';
 __resetEnvCache();
 
 const app = await buildApp();
+const auth = await authHeaders();
 
 beforeEach(async () => {
   await prisma.lineUserMapping.deleteMany();
@@ -49,6 +51,7 @@ function sign(body: string): string {
 }
 
 describe('POST /api/integrations/line/webhook (valid signature)', () => {
+  // Webhook is AUTH_BYPASS — no auth header needed.
   it('returns 200 and schedules handleWebhookEvents', async () => {
     const handlerSpy = vi
       .spyOn(lineImporter, 'handleWebhookEvents')
@@ -82,6 +85,7 @@ describe('POST /api/integrations/line/webhook (valid signature)', () => {
 });
 
 describe('POST /api/integrations/line/webhook (invalid signature)', () => {
+  // Webhook is AUTH_BYPASS — no auth header needed.
   it('returns 401 INVALID_SIGNATURE and does not schedule handler', async () => {
     const handlerSpy = vi
       .spyOn(lineImporter, 'handleWebhookEvents')
@@ -106,14 +110,15 @@ describe('POST /api/integrations/line/webhook (invalid signature)', () => {
 describe('GET /api/integrations/line', () => {
   it('returns connected status with webhookUrl and counts', async () => {
     await prisma.lineUserMapping.create({
-      data: { lineUserId: 'U1', displayName: 'A', enabled: true },
+      data: { firmId: 'demo-firm', lineUserId: 'U1', displayName: 'A', enabled: true },
     });
     await prisma.lineUserMapping.create({
-      data: { lineUserId: 'U2', displayName: 'B', enabled: false },
+      data: { firmId: 'demo-firm', lineUserId: 'U2', displayName: 'B', enabled: false },
     });
     const res = await app.inject({
       method: 'GET',
       url: '/api/integrations/line',
+      headers: auth,
     });
     expect(res.statusCode).toBe(200);
     const body = res.json();
@@ -130,12 +135,12 @@ describe('GET /api/integrations/line', () => {
 describe('PATCH /api/integrations/line/users/:id', () => {
   it('updates staffLabel and enabled', async () => {
     const mapping = await prisma.lineUserMapping.create({
-      data: { lineUserId: 'U3', displayName: 'C', enabled: false },
+      data: { firmId: 'demo-firm', lineUserId: 'U3', displayName: 'C', enabled: false },
     });
     const res = await app.inject({
       method: 'PATCH',
       url: `/api/integrations/line/users/${mapping.id}`,
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...auth },
       payload: { staffLabel: '所長', enabled: true },
     });
     expect(res.statusCode).toBe(200);
@@ -153,11 +158,12 @@ describe('PATCH /api/integrations/line/users/:id', () => {
 describe('DELETE /api/integrations/line/users/:id', () => {
   it('removes the mapping and returns ok', async () => {
     const mapping = await prisma.lineUserMapping.create({
-      data: { lineUserId: 'U4', displayName: 'D', enabled: false },
+      data: { firmId: 'demo-firm', lineUserId: 'U4', displayName: 'D', enabled: false },
     });
     const res = await app.inject({
       method: 'DELETE',
       url: `/api/integrations/line/users/${mapping.id}`,
+      headers: auth,
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ ok: true });

@@ -43,7 +43,7 @@ export async function syncClient(clientId: string): Promise<SyncResult> {
     await prisma.vendorSync.upsert({
       where: { clientId_vendor: { clientId: client.id, vendor } },
       update: { lastSync: new Date(), status: 'ok', count: total, errorMsg: null },
-      create: { clientId: client.id, vendor, lastSync: new Date(), status: 'ok', count: total },
+      create: { firmId: 'demo-firm', clientId: client.id, vendor, lastSync: new Date(), status: 'ok', count: total },
     });
     logger.info({ clientId, vendor, total }, 'sync ok');
     return { clientId, vendor, status: 'ok', count: total };
@@ -52,7 +52,7 @@ export async function syncClient(clientId: string): Promise<SyncResult> {
     await prisma.vendorSync.upsert({
       where: { clientId_vendor: { clientId: client.id, vendor } },
       update: { status: 'error', errorMsg },
-      create: { clientId: client.id, vendor, status: 'error', errorMsg, count: 0 },
+      create: { firmId: 'demo-firm', clientId: client.id, vendor, status: 'error', errorMsg, count: 0 },
     });
     logger.error({ clientId, vendor, errorMsg }, 'sync failed');
     return { clientId, vendor, status: 'error', count: 0, errorMsg };

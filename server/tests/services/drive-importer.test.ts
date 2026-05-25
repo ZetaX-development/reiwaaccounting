@@ -20,6 +20,7 @@ async function clearAll() {
 async function setupIntegration() {
   await prisma.integration.create({
     data: {
+      firmId: 'demo-firm',
       type: 'google_drive',
       creds: {
         accessToken: 'access',
@@ -37,6 +38,7 @@ async function setupIntegration() {
   // (without one, the importer just persists startPageToken and returns).
   await prisma.driveWatchChannel.create({
     data: {
+      firmId: 'demo-firm',
       channelId: 'channel-1',
       resourceId: 'resource-1',
       pageToken: 'page-token-initial',
@@ -48,6 +50,7 @@ async function setupIntegration() {
 async function setupMapping() {
   await prisma.driveFolderMapping.create({
     data: {
+      firmId: 'demo-firm',
       driveFolderId: MAPPED_FOLDER_ID,
       folderName: '青山デザイン_領収書',
       clientId: 'aoyama-design',
@@ -125,6 +128,7 @@ describe('syncDriveChanges', () => {
     await setupMapping();
     await prisma.voucher.create({
       data: {
+        firmId: 'demo-firm',
         clientId: 'aoyama-design',
         filename: 'old.jpg',
         mimeType: 'image/jpeg',

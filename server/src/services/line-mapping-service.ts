@@ -39,9 +39,10 @@ export async function getMapping(
 
 export async function getMappingByLineUserId(
   lineUserId: string,
+  firmId: string = 'demo-firm',
 ): Promise<LineUserMappingDTO | null> {
   const row = await prisma.lineUserMapping.findUnique({
-    where: { lineUserId },
+    where: { firmId_lineUserId: { firmId, lineUserId } },
   });
   return row ? toDTO(row) : null;
 }
@@ -75,10 +76,12 @@ export async function deleteMapping(id: string): Promise<boolean> {
 export async function upsertByLineUserId(
   lineUserId: string,
   displayName: string,
+  firmId: string = 'demo-firm',
 ): Promise<LineUserMappingDTO> {
   const row = await prisma.lineUserMapping.upsert({
-    where: { lineUserId },
+    where: { firmId_lineUserId: { firmId, lineUserId } },
     create: {
+      firmId,
       lineUserId,
       displayName,
       enabled: false,
@@ -93,9 +96,10 @@ export async function upsertByLineUserId(
 export async function setEnabledByLineUserId(
   lineUserId: string,
   enabled: boolean,
+  firmId: string = 'demo-firm',
 ): Promise<void> {
   await prisma.lineUserMapping.updateMany({
-    where: { lineUserId },
+    where: { lineUserId, firmId },
     data: { enabled },
   });
 }

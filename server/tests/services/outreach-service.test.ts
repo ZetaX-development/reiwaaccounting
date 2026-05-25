@@ -19,6 +19,7 @@ afterAll(async () => {
 async function createVoucherFixture(): Promise<string> {
   const v = await prisma.voucher.create({
     data: {
+      firmId: 'demo-firm',
       clientId: 'aoyama-design',
       filename: 'sample.jpg',
       mimeType: 'image/jpeg',

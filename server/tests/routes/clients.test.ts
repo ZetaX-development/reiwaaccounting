@@ -1,7 +1,9 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { buildApp } from '../../src/server.js';
+import { authHeaders } from '../helpers/auth.js';
 
 const app = await buildApp();
+const auth = await authHeaders();
 
 afterAll(async () => {
   await app.close();
@@ -9,7 +11,7 @@ afterAll(async () => {
 
 describe('GET /api/clients', () => {
   it('returns an array including the aoyama-design client (name may change after MF OAuth)', async () => {
-    const res = await app.inject({ method: 'GET', url: '/api/clients' });
+    const res = await app.inject({ method: 'GET', url: '/api/clients', headers: auth });
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(Array.isArray(body)).toBe(true);
@@ -24,13 +26,13 @@ describe('GET /api/clients', () => {
 
 describe('GET /api/clients/:id', () => {
   it('returns a 404 for unknown ids with friendly error envelope', async () => {
-    const res = await app.inject({ method: 'GET', url: '/api/clients/does-not-exist' });
+    const res = await app.inject({ method: 'GET', url: '/api/clients/does-not-exist', headers: auth });
     expect(res.statusCode).toBe(404);
     expect(res.json()).toEqual({ error: { code: 'NOT_FOUND', message: 'client not found' } });
   });
 
   it('returns the client detail with at least the entries collection populated', async () => {
-    const res = await app.inject({ method: 'GET', url: '/api/clients/aoyama-design' });
+    const res = await app.inject({ method: 'GET', url: '/api/clients/aoyama-design', headers: auth });
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.id).toBe('aoyama-design');

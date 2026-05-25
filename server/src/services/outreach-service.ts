@@ -107,6 +107,7 @@ export async function inquireAboutVoucher(voucherId: string): Promise<void> {
 
   await prisma.voucherInquiry.create({
     data: {
+      firmId: 'demo-firm',
       voucherId: voucher.id,
       channel,
       target,

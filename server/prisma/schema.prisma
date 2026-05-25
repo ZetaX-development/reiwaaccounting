@@ -10,8 +10,56 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model Firm {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  isDemo    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members             FirmMember[]
+  clients             Client[]
+  vendorSyncs         VendorSync[]
+  entries             Entry[]
+  receipts            Receipt[]
+  matchings           Matching[]
+  tasks               Task[]
+  rules               Rule[]
+  threads             Thread[]
+  yearendChecks       YearendCheck[]
+  trendData           TrendDatum[]
+  monthlyChecks       MonthlyCheck[]
+  vouchers            Voucher[]
+  voucherInquiries    VoucherInquiry[]
+  lineUserMappings    LineUserMapping[]
+  integrations        Integration[]
+  driveFolderMappings DriveFolderMapping[]
+  driveWatchChannels  DriveWatchChannel[]
+}
+
+model FirmMember {
+  id          String    @id @default(cuid())
+  firm        Firm      @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  firmId      String
+  authUserId  String
+  role        String
+  email       String
+  displayName String?
+  invitedAt   DateTime?
+  joinedAt    DateTime?
+  status      String    @default("invited")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([firmId, authUserId])
+  @@index([authUserId])
+}
+
 model Client {
   id              String   @id @default(cuid())
+  firm            Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  firmId          String
   name            String
   industry        String   @default("その他")
   vendor          String   @default("mf") // 'freee' | 'mf' | 'both'
@@ -62,6 +110,8 @@ model Client {
 
 model VendorSync {
   id        String    @id @default(cuid())
+  firm      Firm      @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  firmId    String
   client    Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
   clientId  String
   vendor    String
@@ -74,6 +124,8 @@ model VendorSync {
 
 model Entry {
   id            String   @id @default(cuid())
+  firm          Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  firmId        String
   client        Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   clientId      String
   source        String
@@ -95,6 +147,8 @@ model Entry {
 
 model Receipt {
   id              String   @id @default(cuid())
+  firm            Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  firmId          String
   client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   clientId        String
   source          String
@@ -109,6 +163,8 @@ model Receipt {
 
 model Matching {
   id            String   @id @default(cuid())
+  firm          Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  firmId        String
   client        Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   clientId      String
   source        String
@@ -124,6 +180,8 @@ model Matching {
 
 model Task {
   id        String   @id @default(cuid())
+  firm      Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  firmId    String
   client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   clientId  String
   title     String
@@ -152,6 +210,8 @@ model TaskHistory {
 
 model Rule {
   id        String   @id @default(cuid())
+  firm      Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  firmId    String
   client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   clientId  String
   type      String   @default("custom")
@@ -176,6 +236,8 @@ model RuleHit {
 
 model Thread {
   id          String   @id @default(cuid())
+  firm        Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  firmId      String
   client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   clientId    String
   channel     String
@@ -201,6 +263,8 @@ model ReceiptPolicy {
 
 model YearendCheck {
   id       String  @id @default(cuid())
+  firm     Firm    @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  firmId   String
   client   Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
   clientId String
   title    String
@@ -211,6 +275,8 @@ model YearendCheck {
 
 model TrendDatum {
   id         String   @id @default(cuid())
+  firm       Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  firmId     String
   client     Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   clientId   String
   account    String
@@ -222,6 +288,8 @@ model TrendDatum {
 
 model MonthlyCheck {
   id       String  @id @default(cuid())
+  firm     Firm    @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  firmId   String
   client   Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
   clientId String
   title    String
@@ -233,6 +301,8 @@ model MonthlyCheck {
 
 model Voucher {
   id         String   @id @default(cuid())
+  firm       Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  firmId     String
   client     Client?  @relation(fields: [clientId], references: [id], onDelete: Cascade)
   clientId   String?
   filename   String
@@ -272,6 +342,8 @@ model Voucher {
 
 model VoucherInquiry {
   id           String   @id @default(cuid())
+  firm         Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  firmId       String
   voucher      Voucher  @relation(fields: [voucherId], references: [id], onDelete: Cascade)
   voucherId    String
   channel      String
@@ -286,6 +358,8 @@ model VoucherInquiry {
 
 model Integration {
   id        String   @id @default(cuid())
+  firm      Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  firmId    String
   type      String
   creds     Json
   settings  Json     @default("{}")
@@ -294,11 +368,13 @@ model Integration {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@unique([type])
+  @@unique([firmId, type])
 }
 
 model DriveFolderMapping {
   id                  String   @id @default(cuid())
+  firm                Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  firmId              String
   driveFolderId       String   @unique
   folderName          String
   importedSubfolderId String?
@@ -312,6 +388,8 @@ model DriveFolderMapping {
 
 model DriveWatchChannel {
   id         String   @id @default(cuid())
+  firm       Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  firmId     String
   channelId  String   @unique
   resourceId String
   pageToken  String
@@ -321,10 +399,14 @@ model DriveWatchChannel {
 
 model LineUserMapping {
   id          String   @id @default(cuid())
-  lineUserId  String   @unique
+  firm        Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  firmId      String
+  lineUserId  String
   displayName String
   staffLabel  String?
   enabled     Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@unique([firmId, lineUserId])
 }

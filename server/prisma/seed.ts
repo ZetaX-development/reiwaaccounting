@@ -343,6 +343,18 @@ const receiptPolicies: Array<{
 ];
 
 async function run() {
+  // Ensure demo-firm exists first (required by all other tables)
+  await prisma.firm.upsert({
+    where: { id: 'demo-firm' },
+    update: { name: 'bookmee デモ事務所', slug: 'demo', isDemo: true },
+    create: {
+      id: 'demo-firm',
+      name: 'bookmee デモ事務所',
+      slug: 'demo',
+      isDemo: true,
+    },
+  });
+
   for (const p of receiptPolicies) {
     await prisma.receiptPolicy.upsert({
       where: { account: p.account },
@@ -355,6 +367,7 @@ async function run() {
     const client = await prisma.client.upsert({
       where: { id: c.externalKey },
       update: {
+        firmId: 'demo-firm',
         name: c.name,
         industry: c.industry,
         vendor: c.vendor,
@@ -375,6 +388,7 @@ async function run() {
       },
       create: {
         id: c.externalKey,
+        firmId: 'demo-firm',
         name: c.name,
         industry: c.industry,
         vendor: c.vendor,
@@ -410,6 +424,7 @@ async function run() {
       entryIdx += 1;
       await prisma.entry.create({
         data: {
+          firmId: 'demo-firm',
           clientId: client.id,
           source: c.vendorSource,
           sourceEntryId: `seed-${c.externalKey}-entry-${entryIdx}`,
@@ -429,6 +444,7 @@ async function run() {
       recIdx += 1;
       await prisma.receipt.create({
         data: {
+          firmId: 'demo-firm',
           clientId: client.id,
           source: c.vendorSource,
           sourceReceiptId: `seed-${c.externalKey}-rec-${recIdx}`,
@@ -442,6 +458,7 @@ async function run() {
     for (const m of c.matchings) {
       await prisma.matching.create({
         data: {
+          firmId: 'demo-firm',
           clientId: client.id,
           source: c.vendorSource,
           invoiceRef: m.invoiceRef,
@@ -457,6 +474,7 @@ async function run() {
     for (const mc of c.monthlyChecks) {
       await prisma.monthlyCheck.create({
         data: {
+          firmId: 'demo-firm',
           clientId: client.id,
           title: mc.title,
           note: mc.note,
@@ -470,6 +488,7 @@ async function run() {
     for (const t of c.trendData) {
       await prisma.trendDatum.create({
         data: {
+          firmId: 'demo-firm',
           clientId: client.id,
           account: t.account,
           prev3: t.prev3,
@@ -483,6 +502,7 @@ async function run() {
     for (const ru of c.rules) {
       await prisma.rule.create({
         data: {
+          firmId: 'demo-firm',
           clientId: client.id,
           type: 'template',
           industry: c.industry,
@@ -496,6 +516,7 @@ async function run() {
     for (const tk of c.tasks) {
       await prisma.task.create({
         data: {
+          firmId: 'demo-firm',
           clientId: client.id,
           title: tk.title,
           note: tk.note,
@@ -511,6 +532,7 @@ async function run() {
 
     await prisma.vendorSync.create({
       data: {
+        firmId: 'demo-firm',
         clientId: client.id,
         vendor: c.vendorSource,
         lastSync: new Date(),

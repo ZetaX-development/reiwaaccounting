@@ -24,8 +24,12 @@ export interface DriveSettings {
   importedSubfolderName?: string;
 }
 
+const DEMO_FIRM_ID = 'demo-firm';
+
 export async function getDriveIntegration(): Promise<Integration | null> {
-  return prisma.integration.findUnique({ where: { type: DRIVE_TYPE } });
+  return prisma.integration.findUnique({
+    where: { firmId_type: { firmId: DEMO_FIRM_ID, type: DRIVE_TYPE } },
+  });
 }
 
 export async function upsertDriveIntegration(
@@ -33,13 +37,14 @@ export async function upsertDriveIntegration(
   settings?: DriveSettings,
 ): Promise<Integration> {
   const existing = await prisma.integration.findUnique({
-    where: { type: DRIVE_TYPE },
+    where: { firmId_type: { firmId: DEMO_FIRM_ID, type: DRIVE_TYPE } },
   });
   const mergedSettings =
     settings ?? (existing?.settings as DriveSettings | null) ?? {};
   return prisma.integration.upsert({
-    where: { type: DRIVE_TYPE },
+    where: { firmId_type: { firmId: DEMO_FIRM_ID, type: DRIVE_TYPE } },
     create: {
+      firmId: DEMO_FIRM_ID,
       type: DRIVE_TYPE,
       creds: creds as unknown as object,
       settings: mergedSettings as unknown as object,
@@ -59,26 +64,28 @@ export async function updateDriveSettings(
   settings: DriveSettings,
 ): Promise<Integration | null> {
   const existing = await prisma.integration.findUnique({
-    where: { type: DRIVE_TYPE },
+    where: { firmId_type: { firmId: DEMO_FIRM_ID, type: DRIVE_TYPE } },
   });
   if (!existing) return null;
   const current = (existing.settings as DriveSettings | null) ?? {};
   const merged = { ...current, ...settings };
   return prisma.integration.update({
-    where: { type: DRIVE_TYPE },
+    where: { firmId_type: { firmId: DEMO_FIRM_ID, type: DRIVE_TYPE } },
     data: { settings: merged as unknown as object },
   });
 }
 
 export async function deleteDriveIntegration(): Promise<void> {
-  await prisma.integration.deleteMany({ where: { type: DRIVE_TYPE } });
+  await prisma.integration.deleteMany({
+    where: { firmId: DEMO_FIRM_ID, type: DRIVE_TYPE },
+  });
 }
 
 export async function markStatus(
   status: 'ok' | 'reauth_required' | 'watch_failed',
 ): Promise<void> {
   await prisma.integration.updateMany({
-    where: { type: DRIVE_TYPE },
+    where: { firmId: DEMO_FIRM_ID, type: DRIVE_TYPE },
     data: { status },
   });
 }
@@ -111,7 +118,7 @@ export async function ensureDriveToken(): Promise<string> {
       expiresAt: refreshed.expiresAt,
     };
     await prisma.integration.update({
-      where: { type: DRIVE_TYPE },
+      where: { firmId_type: { firmId: DEMO_FIRM_ID, type: DRIVE_TYPE } },
       data: {
         creds: updated as unknown as object,
         status: 'ok',

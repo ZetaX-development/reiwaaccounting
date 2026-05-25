@@ -15,6 +15,7 @@ import {
 } from '../../src/services/line-importer.js';
 import * as lineService from '../../src/services/line-service.js';
 import * as voucherService from '../../src/services/voucher-service.js';
+import { __resetEnvCache } from '../../src/env.js';
 
 beforeEach(async () => {
   __clearCaptionCacheForTests();
@@ -25,6 +26,7 @@ beforeEach(async () => {
 afterEach(() => {
   vi.restoreAllMocks();
   delete process.env.OPENAI_API_KEY;
+  __resetEnvCache();
 });
 
 afterAll(async () => {
@@ -55,7 +57,7 @@ describe('handleWebhookEvents — follow', () => {
     await handleWebhookEvents([event]);
 
     const mapping = await prisma.lineUserMapping.findUnique({
-      where: { lineUserId: 'Uaaa' },
+      where: { firmId_lineUserId: { firmId: 'demo-firm', lineUserId: 'Uaaa' } },
     });
     expect(mapping).not.toBeNull();
     expect(mapping?.enabled).toBe(false);
@@ -72,6 +74,7 @@ describe('handleWebhookEvents — unfollow', () => {
   it('sets enabled=false for an existing mapping', async () => {
     await prisma.lineUserMapping.create({
       data: {
+        firmId: 'demo-firm',
         lineUserId: 'Ubbb',
         displayName: 'X',
         enabled: true,
@@ -83,7 +86,7 @@ describe('handleWebhookEvents — unfollow', () => {
     };
     await handleWebhookEvents([event]);
     const mapping = await prisma.lineUserMapping.findUnique({
-      where: { lineUserId: 'Ubbb' },
+      where: { firmId_lineUserId: { firmId: 'demo-firm', lineUserId: 'Ubbb' } },
     });
     expect(mapping?.enabled).toBe(false);
   });
@@ -92,8 +95,9 @@ describe('handleWebhookEvents — unfollow', () => {
 describe('handleWebhookEvents — message.image from enabled user', () => {
   it('creates a Voucher with source=line and kicks runOcrForVoucher', async () => {
     process.env.OPENAI_API_KEY = 'sk-test';
+    __resetEnvCache();
     await prisma.lineUserMapping.create({
-      data: { lineUserId: 'Uccc', displayName: 'C', enabled: true },
+      data: { firmId: 'demo-firm', lineUserId: 'Uccc', displayName: 'C', enabled: true },
     });
     vi.spyOn(lineService, 'getMessageContent').mockResolvedValue({
       buffer: jpgBuffer(),
@@ -129,11 +133,12 @@ describe('handleWebhookEvents — message.image from enabled user', () => {
 describe('handleWebhookEvents — duplicate messageId', () => {
   it('skips when a Voucher already exists for that lineSourceMessageId', async () => {
     await prisma.lineUserMapping.create({
-      data: { lineUserId: 'Uddd', displayName: 'D', enabled: true },
+      data: { firmId: 'demo-firm', lineUserId: 'Uddd', displayName: 'D', enabled: true },
     });
     // pre-existing Voucher from this LINE message
     await prisma.voucher.create({
       data: {
+        firmId: 'demo-firm',
         clientId: null,
         filename: 'line-msg-200.jpg',
         mimeType: 'image/jpeg',
@@ -165,7 +170,7 @@ describe('handleWebhookEvents — duplicate messageId', () => {
 });
 
 describe('handleWebhookEvents — unregistered user sends image', () => {
-  it('auto-creates a disabled mapping and replies 承認待ち without creating Voucher', async () => {
+  it('auto-creates a disabled mapping and replies 承認待ち without creating Voucher (firmId auto-set by service)', async () => {
     const getProfileSpy = vi
       .spyOn(lineService, 'getProfile')
       .mockResolvedValue({ displayName: '不審者' });
@@ -185,7 +190,7 @@ describe('handleWebhookEvents — unregistered user sends image', () => {
     await handleWebhookEvents([event]);
 
     const mapping = await prisma.lineUserMapping.findUnique({
-      where: { lineUserId: 'Ueee' },
+      where: { firmId_lineUserId: { firmId: 'demo-firm', lineUserId: 'Ueee' } },
     });
     expect(mapping).not.toBeNull();
     expect(mapping?.enabled).toBe(false);
@@ -203,7 +208,7 @@ describe('handleWebhookEvents — unregistered user sends image', () => {
 describe('handleWebhookEvents — batch text → image caption', () => {
   it('attaches the caption from a same-user text event in the same batch', async () => {
     await prisma.lineUserMapping.create({
-      data: { lineUserId: 'Ufff', displayName: 'F', enabled: true },
+      data: { firmId: 'demo-firm', lineUserId: 'Ufff', displayName: 'F', enabled: true },
     });
     vi.spyOn(lineService, 'getMessageContent').mockResolvedValue({
       buffer: jpgBuffer(),
@@ -235,7 +240,7 @@ describe('handleWebhookEvents — batch text → image caption', () => {
 describe('handleWebhookEvents — batch image → text (text first wins)', () => {
   it('still attaches the caption because text is processed before image', async () => {
     await prisma.lineUserMapping.create({
-      data: { lineUserId: 'Uggg', displayName: 'G', enabled: true },
+      data: { firmId: 'demo-firm', lineUserId: 'Uggg', displayName: 'G', enabled: true },
     });
     vi.spyOn(lineService, 'getMessageContent').mockResolvedValue({
       buffer: jpgBuffer(),
@@ -268,6 +273,7 @@ describe('handleWebhookEvents — postback action=approve', () => {
   it('updates Voucher.journalStatus to approved', async () => {
     const v = await prisma.voucher.create({
       data: {
+        firmId: 'demo-firm',
         clientId: null,
         filename: 'x.jpg',
         mimeType: 'image/jpeg',

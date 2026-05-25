@@ -1,12 +1,15 @@
 import './bootstrap.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
 import staticPlugin from '@fastify/static';
 import { env } from './env.js';
 import { logger } from './lib/logger.js';
+import { requireAuth } from './middleware/auth.js';
 import { healthRoutes } from './routes/health.js';
+import { authRoutes } from './routes/auth.js';
+import { firmRoutes } from './routes/firms.js';
 import { clientRoutes } from './routes/clients.js';
 import { syncRoutes } from './routes/sync.js';
 import { syncStatusRoutes } from './routes/sync-status.js';
@@ -22,6 +25,14 @@ import { voucherRoutes } from './routes/vouchers.js';
 import { integrationsDriveRoutes } from './routes/integrations-drive.js';
 import { integrationsLineRoutes } from './routes/integrations-line.js';
 import multipart from '@fastify/multipart';
+
+const AUTH_BYPASS = new Set([
+  '/api/health',
+  '/api/mf/oauth/callback',
+  '/api/integrations/drive/oauth/callback',
+  '/api/integrations/drive/webhook',
+  '/api/integrations/line/webhook',
+]);
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger });
@@ -41,7 +52,15 @@ export async function buildApp(): Promise<FastifyInstance> {
     decorateReply: false,
   });
 
+  // Global auth guard — bypass for health, webhooks, and OAuth callbacks.
+  app.addHook('preHandler', async (req: FastifyRequest, reply) => {
+    if (AUTH_BYPASS.has(req.url.split('?')[0])) return;
+    await requireAuth(req, reply);
+  });
+
   await app.register(healthRoutes);
+  await app.register(authRoutes);
+  await app.register(firmRoutes);
   await app.register(clientRoutes);
   await app.register(syncRoutes);
   await app.register(syncStatusRoutes);

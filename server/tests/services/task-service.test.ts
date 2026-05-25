@@ -12,6 +12,7 @@ beforeEach(async () => {
   // Create a fresh task for each test so transitions don't interfere
   const created = await prisma.task.create({
     data: {
+      firmId: 'demo-firm',
       clientId: 'aoyama-design',
       title: 'TEST 承認ワークフロー',
       note: 'transition test',

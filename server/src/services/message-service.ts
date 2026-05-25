@@ -23,6 +23,7 @@ export async function createMessage(input: CreateMessageInput) {
   }
   const thread = await prisma.thread.create({
     data: {
+      firmId: 'demo-firm',
       clientId: input.clientId,
       channel: input.channel,
       direction: 'out',

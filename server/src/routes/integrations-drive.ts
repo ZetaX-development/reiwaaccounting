@@ -108,6 +108,7 @@ export async function integrationsDriveRoutes(app: FastifyInstance) {
               );
               await prisma.driveWatchChannel.create({
                 data: {
+                  firmId: 'demo-firm',
                   channelId,
                   resourceId: watchResult.resourceId,
                   pageToken: startPageToken,
@@ -240,6 +241,7 @@ export async function integrationsDriveRoutes(app: FastifyInstance) {
       const row = await prisma.driveFolderMapping.upsert({
         where: { driveFolderId: body.driveFolderId },
         create: {
+          firmId: 'demo-firm',
           driveFolderId: body.driveFolderId,
           folderName: body.folderName,
           clientId: body.clientId,
@@ -396,6 +398,7 @@ export async function integrationsDriveRoutes(app: FastifyInstance) {
       }
       const created = await prisma.driveWatchChannel.create({
         data: {
+          firmId: 'demo-firm',
           channelId: newChannelId,
           resourceId: watchResult.resourceId,
           pageToken: startPageToken,

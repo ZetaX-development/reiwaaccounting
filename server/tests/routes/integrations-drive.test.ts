@@ -10,8 +10,10 @@ import { buildApp } from '../../src/server.js';
 import { prisma } from '../../src/lib/prisma.js';
 import { __resetEnvCache } from '../../src/env.js';
 import * as driveImporter from '../../src/services/drive-importer.js';
+import { authHeaders } from '../helpers/auth.js';
 
 const app = await buildApp();
+const auth = await authHeaders();
 
 async function clearAll() {
   await prisma.voucher.deleteMany();
@@ -41,7 +43,7 @@ describe('POST /api/integrations/drive/mappings', () => {
         folderName: '青山デザイン_領収書',
         clientId: 'aoyama-design',
       },
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...auth },
     });
     expect(res.statusCode).toBe(201);
     const body = res.json();
@@ -58,6 +60,7 @@ describe('DELETE /api/integrations/drive/mappings/:id', () => {
   it('removes the mapping row', async () => {
     const created = await prisma.driveFolderMapping.create({
       data: {
+        firmId: 'demo-firm',
         driveFolderId: 'folder-delete',
         folderName: 'delete-me',
         clientId: 'shibuya-cafe',
@@ -66,6 +69,7 @@ describe('DELETE /api/integrations/drive/mappings/:id', () => {
     const res = await app.inject({
       method: 'DELETE',
       url: `/api/integrations/drive/mappings/${created.id}`,
+      headers: auth,
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ ok: true });
@@ -77,9 +81,11 @@ describe('DELETE /api/integrations/drive/mappings/:id', () => {
 });
 
 describe('POST /api/integrations/drive/webhook', () => {
+  // Webhook is AUTH_BYPASS — no auth header needed.
   it('returns 404 when X-Goog-Channel-ID does not match', async () => {
     await prisma.driveWatchChannel.create({
       data: {
+        firmId: 'demo-firm',
         channelId: 'channel-known',
         resourceId: 'res',
         pageToken: 'pt',
@@ -112,6 +118,7 @@ describe('POST /api/integrations/drive/webhook', () => {
   it('returns 200 no-op when X-Goog-Resource-State=sync', async () => {
     await prisma.driveWatchChannel.create({
       data: {
+        firmId: 'demo-firm',
         channelId: 'channel-sync',
         resourceId: 'res',
         pageToken: 'pt',
@@ -147,6 +154,7 @@ describe('POST /api/integrations/drive/sync', () => {
   it('returns the importer result when integration is connected', async () => {
     await prisma.integration.create({
       data: {
+        firmId: 'demo-firm',
         type: 'google_drive',
         creds: {
           accessToken: 'a',
@@ -173,6 +181,7 @@ describe('POST /api/integrations/drive/sync', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/integrations/drive/sync',
+      headers: auth,
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({

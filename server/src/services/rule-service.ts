@@ -52,6 +52,7 @@ export async function listTemplates(industry?: string): Promise<RuleTemplate[]> 
 export async function addRule(input: CreateRuleInput) {
   const rule = await prisma.rule.create({
     data: {
+      firmId: 'demo-firm',
       clientId: input.clientId,
       type: input.type,
       industry: input.industry,

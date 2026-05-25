@@ -63,9 +63,11 @@ export async function createVoucher(input: {
   mimeType: string;
   buffer: Buffer;
   uploadedBy: string | null;
+  firmId?: string;
 }): Promise<VoucherMeta> {
   const row = await prisma.voucher.create({
     data: {
+      firmId: input.firmId ?? 'demo-firm',
       clientId: input.clientId,
       filename: input.filename,
       mimeType: input.mimeType,

@@ -24,6 +24,7 @@ export async function setClientMode(clientId: string, mode: 'monthly' | 'yearend
         order += 1;
         await prisma.yearendCheck.create({
           data: {
+            firmId: 'demo-firm',
             clientId,
             title: c.title,
             note: c.note,

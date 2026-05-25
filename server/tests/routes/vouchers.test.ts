@@ -11,8 +11,10 @@ import FormData from 'form-data';
 import { buildApp } from '../../src/server.js';
 import { prisma } from '../../src/lib/prisma.js';
 import * as voucherService from '../../src/services/voucher-service.js';
+import { authHeaders } from '../helpers/auth.js';
 
 const app = await buildApp();
+const auth = await authHeaders();
 
 beforeEach(async () => {
   await prisma.voucher.deleteMany();
@@ -58,7 +60,7 @@ describe('POST /api/vouchers', () => {
       method: 'POST',
       url: '/api/vouchers',
       payload,
-      headers: { ...headers, 'x-uploaded-by': 'スタッフ' },
+      headers: { ...headers, ...auth, 'x-uploaded-by': 'スタッフ' },
     });
     expect(res.statusCode).toBe(201);
     const body = res.json();
@@ -80,7 +82,7 @@ describe('POST /api/vouchers', () => {
       method: 'POST',
       url: '/api/vouchers',
       payload,
-      headers,
+      headers: { ...headers, ...auth },
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().error.code).toBe('INVALID_MIME');
@@ -97,7 +99,7 @@ describe('POST /api/vouchers', () => {
       method: 'POST',
       url: '/api/vouchers',
       payload,
-      headers,
+      headers: { ...headers, ...auth },
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().error.code).toBe('FILE_TOO_LARGE');
@@ -111,7 +113,7 @@ describe('POST /api/vouchers', () => {
       method: 'POST',
       url: '/api/vouchers',
       payload: form.getBuffer(),
-      headers: form.getHeaders() as Record<string, string>,
+      headers: { ...(form.getHeaders() as Record<string, string>), ...auth },
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().error.code).toBe('INVALID_BODY');
@@ -122,6 +124,7 @@ describe('GET /api/vouchers', () => {
   it('returns rows filtered by clientId', async () => {
     await prisma.voucher.create({
       data: {
+        firmId: 'demo-firm',
         clientId: 'aoyama-design',
         filename: 'x.png',
         mimeType: 'image/png',
@@ -132,6 +135,7 @@ describe('GET /api/vouchers', () => {
     const res = await app.inject({
       method: 'GET',
       url: '/api/vouchers?clientId=aoyama-design',
+      headers: auth,
     });
     expect(res.statusCode).toBe(200);
     const body = res.json();
@@ -146,6 +150,7 @@ describe('GET /api/vouchers/:id/image', () => {
   it('streams the raw bytes with original Content-Type', async () => {
     const created = await prisma.voucher.create({
       data: {
+        firmId: 'demo-firm',
         clientId: null,
         filename: 'p.png',
         mimeType: 'image/png',
@@ -156,6 +161,7 @@ describe('GET /api/vouchers/:id/image', () => {
     const res = await app.inject({
       method: 'GET',
       url: `/api/vouchers/${created.id}/image`,
+      headers: auth,
     });
     expect(res.statusCode).toBe(200);
     expect(res.headers['content-type']).toBe('image/png');
@@ -169,6 +175,7 @@ describe('DELETE /api/vouchers/:id', () => {
   it('removes an existing voucher and returns ok: true', async () => {
     const created = await prisma.voucher.create({
       data: {
+        firmId: 'demo-firm',
         clientId: null,
         filename: 'rm.jpg',
         mimeType: 'image/jpeg',
@@ -179,6 +186,7 @@ describe('DELETE /api/vouchers/:id', () => {
     const res = await app.inject({
       method: 'DELETE',
       url: `/api/vouchers/${created.id}`,
+      headers: auth,
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ ok: true });
@@ -190,6 +198,7 @@ describe('DELETE /api/vouchers/:id', () => {
     const res = await app.inject({
       method: 'DELETE',
       url: '/api/vouchers/does-not-exist',
+      headers: auth,
     });
     expect(res.statusCode).toBe(404);
     expect(res.json().error.code).toBe('NOT_FOUND');
@@ -211,7 +220,7 @@ describe('POST /api/vouchers triggers OCR', () => {
       method: 'POST',
       url: '/api/vouchers',
       payload,
-      headers,
+      headers: { ...headers, ...auth },
     });
     expect(res.statusCode).toBe(201);
     await new Promise((r) => setImmediate(r));
@@ -233,7 +242,7 @@ describe('POST /api/vouchers triggers OCR', () => {
       method: 'POST',
       url: '/api/vouchers',
       payload,
-      headers,
+      headers: { ...headers, ...auth },
     });
     expect(res.statusCode).toBe(201);
     await new Promise((r) => setImmediate(r));
@@ -245,6 +254,7 @@ describe('POST /api/vouchers/:id/ocr', () => {
   it('returns 202 and schedules runOcrForVoucher', async () => {
     const created = await prisma.voucher.create({
       data: {
+        firmId: 'demo-firm',
         clientId: null,
         filename: 'r.jpg',
         mimeType: 'image/jpeg',
@@ -258,6 +268,7 @@ describe('POST /api/vouchers/:id/ocr', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/api/vouchers/${created.id}/ocr`,
+      headers: auth,
     });
     expect(res.statusCode).toBe(202);
     expect(res.json()).toEqual({ ok: true });
@@ -269,6 +280,7 @@ describe('POST /api/vouchers/:id/ocr', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/vouchers/does-not-exist/ocr',
+      headers: auth,
     });
     expect(res.statusCode).toBe(404);
     expect(res.json().error.code).toBe('NOT_FOUND');
@@ -279,6 +291,7 @@ describe('PATCH /api/vouchers/:id', () => {
   it('updates clientId and schedules rematch', async () => {
     const created = await prisma.voucher.create({
       data: {
+        firmId: 'demo-firm',
         clientId: null,
         filename: 'p.jpg',
         mimeType: 'image/jpeg',
@@ -290,7 +303,7 @@ describe('PATCH /api/vouchers/:id', () => {
       method: 'PATCH',
       url: `/api/vouchers/${created.id}`,
       payload: { clientId: 'shibuya-cafe' },
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...auth },
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ ok: true });
@@ -302,6 +315,7 @@ describe('PATCH /api/vouchers/:id', () => {
   it('clears clientId when body has clientId=null', async () => {
     const created = await prisma.voucher.create({
       data: {
+        firmId: 'demo-firm',
         clientId: 'shibuya-cafe',
         filename: 'p.jpg',
         mimeType: 'image/jpeg',
@@ -313,7 +327,7 @@ describe('PATCH /api/vouchers/:id', () => {
       method: 'PATCH',
       url: `/api/vouchers/${created.id}`,
       payload: { clientId: null },
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...auth },
     });
     expect(res.statusCode).toBe(200);
     const row = await prisma.voucher.findUnique({ where: { id: created.id } });
@@ -325,7 +339,7 @@ describe('PATCH /api/vouchers/:id', () => {
       method: 'PATCH',
       url: '/api/vouchers/does-not-exist',
       payload: { clientId: 'shibuya-cafe' },
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...auth },
     });
     expect(res.statusCode).toBe(404);
     expect(res.json().error.code).toBe('NOT_FOUND');
@@ -336,6 +350,7 @@ describe('POST /api/vouchers/:id/match', () => {
   it('returns 202 for existing voucher', async () => {
     const created = await prisma.voucher.create({
       data: {
+        firmId: 'demo-firm',
         clientId: null,
         filename: 'm.jpg',
         mimeType: 'image/jpeg',
@@ -346,6 +361,7 @@ describe('POST /api/vouchers/:id/match', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/api/vouchers/${created.id}/match`,
+      headers: auth,
     });
     expect(res.statusCode).toBe(202);
     expect(res.json()).toEqual({ ok: true });
@@ -355,6 +371,7 @@ describe('POST /api/vouchers/:id/match', () => {
     const res = await app.inject({
       method: 'POST',
       url: '/api/vouchers/does-not-exist/match',
+      headers: auth,
     });
     expect(res.statusCode).toBe(404);
     expect(res.json().error.code).toBe('NOT_FOUND');
@@ -365,6 +382,7 @@ describe("POST /api/vouchers/:id/draft-journal", () => {
   it("returns 202 for existing voucher", async () => {
     const created = await prisma.voucher.create({
       data: {
+        firmId: 'demo-firm',
         clientId: null,
         filename: "d.jpg",
         mimeType: "image/jpeg",
@@ -375,6 +393,7 @@ describe("POST /api/vouchers/:id/draft-journal", () => {
     const res = await app.inject({
       method: "POST",
       url: `/api/vouchers/${created.id}/draft-journal`,
+      headers: auth,
     });
     expect(res.statusCode).toBe(202);
     expect(res.json()).toEqual({ ok: true });
@@ -384,6 +403,7 @@ describe("POST /api/vouchers/:id/draft-journal", () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/vouchers/does-not-exist/draft-journal",
+      headers: auth,
     });
     expect(res.statusCode).toBe(404);
   });
@@ -393,6 +413,7 @@ describe("POST /api/vouchers/:id/inquire", () => {
   it("returns 202 for existing voucher", async () => {
     const created = await prisma.voucher.create({
       data: {
+        firmId: 'demo-firm',
         clientId: "shibuya-cafe",
         filename: "i.jpg",
         mimeType: "image/jpeg",
@@ -403,6 +424,7 @@ describe("POST /api/vouchers/:id/inquire", () => {
     const res = await app.inject({
       method: "POST",
       url: `/api/vouchers/${created.id}/inquire`,
+      headers: auth,
     });
     expect(res.statusCode).toBe(202);
   });
@@ -411,6 +433,7 @@ describe("POST /api/vouchers/:id/inquire", () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/vouchers/does-not-exist/inquire",
+      headers: auth,
     });
     expect(res.statusCode).toBe(404);
   });
@@ -420,6 +443,7 @@ describe("PATCH /api/vouchers/:id/journal", () => {
   it("merges partial draft journal updates", async () => {
     const created = await prisma.voucher.create({
       data: {
+        firmId: 'demo-firm',
         clientId: null,
         filename: "j.jpg",
         mimeType: "image/jpeg",
@@ -433,7 +457,7 @@ describe("PATCH /api/vouchers/:id/journal", () => {
       method: "PATCH",
       url: `/api/vouchers/${created.id}/journal`,
       payload: { account: "接待交際費", status: "approved" },
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...auth },
     });
     expect(res.statusCode).toBe(200);
     const row = await prisma.voucher.findUnique({ where: { id: created.id } });
@@ -447,9 +471,8 @@ describe("PATCH /api/vouchers/:id/journal", () => {
       method: "PATCH",
       url: "/api/vouchers/does-not-exist/journal",
       payload: { account: "x" },
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...auth },
     });
     expect(res.statusCode).toBe(404);
   });
 });
-
