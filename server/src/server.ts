@@ -52,9 +52,11 @@ export async function buildApp(): Promise<FastifyInstance> {
     decorateReply: false,
   });
 
-  // Global auth guard — bypass for health, webhooks, and OAuth callbacks.
+  // Global auth guard — only applies to /api/* routes, bypassing static files and OAuth callbacks.
   app.addHook('preHandler', async (req: FastifyRequest, reply) => {
-    if (AUTH_BYPASS.has(req.url.split('?')[0])) return;
+    const path = req.url.split('?')[0];
+    if (!path.startsWith('/api/')) return;
+    if (AUTH_BYPASS.has(path)) return;
     await requireAuth(req, reply);
   });
 

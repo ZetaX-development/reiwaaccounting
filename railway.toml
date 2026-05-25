@@ -1,0 +1,6 @@
+[build]
+dockerfilePath = "server/Dockerfile.prod"
+
+[deploy]
+startCommand = "sh -c 'npx prisma migrate deploy && node dist/server.js'"
+healthcheckPath = "/api/health"

@@ -414,6 +414,13 @@ export async function sendLinePushForVoucherStatus(
     return;
   }
 
+  if (v.journalStatus === 'inquired') {
+    await lineService.pushMessage(v.lineUserId, [
+      { type: 'text', text: '領収書を受け付けました。内容を確認中です。' },
+    ]);
+    return;
+  }
+
   if (v.journalStatus === 'needs_info') {
     const draft = (v.draftJournalJson ?? {}) as { missingFields?: string[] };
     const field = draft.missingFields?.[0];

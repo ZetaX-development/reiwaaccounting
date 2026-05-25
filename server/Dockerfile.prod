@@ -43,8 +43,11 @@ COPY --from=builder /app/server/package.json ./package.json
 
 # Static frontend served by Fastify at the repo root (../..).
 COPY index.html /app/index.html
+COPY login.html /app/login.html
+COPY auth-shared.js /app/auth-shared.js
 COPY script.js /app/script.js
 COPY styles.css /app/styles.css
+COPY auth/ /app/auth/
 
 # Cloud Run injects PORT; fall back to 3000 for local docker run.
 ENV PORT=3000

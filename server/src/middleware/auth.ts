@@ -1,10 +1,17 @@
-import { jwtVerify } from 'jose';
+import { jwtVerify, createRemoteJWKSet } from 'jose';
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../lib/prisma.js';
 import { env } from '../env.js';
 
-function getJwtKey(): Uint8Array {
-  return new TextEncoder().encode(env.SUPABASE_JWT_SECRET);
+// Supabase newer projects use ES256 with JWKS. Cache the key set at module load.
+let _jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
+function getJwks() {
+  if (!_jwks) {
+    _jwks = createRemoteJWKSet(
+      new URL(`${env.SUPABASE_URL}/auth/v1/.well-known/jwks.json`),
+    );
+  }
+  return _jwks;
 }
 
 export async function requireAuth(
@@ -18,7 +25,7 @@ export async function requireAuth(
 
   let payload: { sub?: string };
   try {
-    const result = await jwtVerify(auth.slice(7), getJwtKey(), {
+    const result = await jwtVerify(auth.slice(7), getJwks(), {
       issuer: `${env.SUPABASE_URL}/auth/v1`,
       audience: env.SUPABASE_JWT_AUDIENCE,
     });
