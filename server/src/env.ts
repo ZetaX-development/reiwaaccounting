@@ -49,6 +49,13 @@ const schema = z.object({
   LINE_CHANNEL_SECRET: z.string().default(''),
   LINE_WEBHOOK_BASE_URL: z.string().default(''),
   LINE_CHANNEL_ID: z.string().default(''),
+
+  // Spec 17b: Supabase Auth
+  SUPABASE_URL: z.string().default(''),
+  SUPABASE_ANON_KEY: z.string().default(''),
+  SUPABASE_SERVICE_ROLE_KEY: z.string().default(''),
+  SUPABASE_JWT_SECRET: z.string().default(''),
+  SUPABASE_JWT_AUDIENCE: z.string().default('authenticated'),
 });
 
 export type Env = z.infer<typeof schema>;
