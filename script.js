@@ -1684,6 +1684,30 @@ function renderSettings() {
     html += '</section>';
   }
 
+  // Client management section
+  html += '<section class="settings-card" id="clientMgmtSection">';
+  html += '<h3 style="font-size:.95rem;margin-bottom:1rem;color:#1e293b">顧問先管理</h3>';
+  html += '<div id="clientMgmtList" style="margin-bottom:1rem"><p style="color:#999;font-size:.85rem">読み込み中…</p></div>';
+  html += '<div id="clientMgmtForm" style="display:none;background:#f8fafc;border:1px solid #e3e7ee;border-radius:8px;padding:1rem;margin-bottom:1rem">';
+  html += '<input type="hidden" id="clientMgmtEditId" value="" />';
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:.75rem">';
+  html += '<div><label style="font-size:.8rem;color:#64748b">顧問先名 *</label><input id="clientMgmtName" type="text" placeholder="○○株式会社" style="width:100%;padding:.45rem;border:1px solid #ccc;border-radius:6px;font-size:.9rem;box-sizing:border-box;margin-top:.25rem" /></div>';
+  html += '<div><label style="font-size:.8rem;color:#64748b">業種</label><select id="clientMgmtIndustry" style="width:100%;padding:.45rem;border:1px solid #ccc;border-radius:6px;font-size:.9rem;margin-top:.25rem">';
+  html += '<option value="その他">その他</option><option value="製造業">製造業</option><option value="小売業">小売業</option><option value="サービス業">サービス業</option><option value="飲食業">飲食業</option><option value="医療・介護">医療・介護</option><option value="不動産">不動産</option><option value="建設業">建設業</option>';
+  html += '</select></div>';
+  html += '<div><label style="font-size:.8rem;color:#64748b">会計ソフト</label><select id="clientMgmtVendor" style="width:100%;padding:.45rem;border:1px solid #ccc;border-radius:6px;font-size:.9rem;margin-top:.25rem"><option value="mf">MoneyForward</option><option value="freee">freee</option></select></div>';
+  html += '<div><label style="font-size:.8rem;color:#64748b">モード</label><select id="clientMgmtMode" style="width:100%;padding:.45rem;border:1px solid #ccc;border-radius:6px;font-size:.9rem;margin-top:.25rem"><option value="monthly">月次</option><option value="yearend">期末</option></select></div>';
+  html += '<div><label style="font-size:.8rem;color:#64748b">事業年度開始日 *</label><input id="clientMgmtFyStart" type="date" style="width:100%;padding:.45rem;border:1px solid #ccc;border-radius:6px;font-size:.9rem;box-sizing:border-box;margin-top:.25rem" /></div>';
+  html += '<div><label style="font-size:.8rem;color:#64748b">事業年度終了日 *</label><input id="clientMgmtFyEnd" type="date" style="width:100%;padding:.45rem;border:1px solid #ccc;border-radius:6px;font-size:.9rem;box-sizing:border-box;margin-top:.25rem" /></div>';
+  html += '</div>';
+  html += '<div style="display:flex;gap:.5rem">';
+  html += '<button class="primary-action compact" data-action="settings-save-client">保存</button>';
+  html += '<button class="row-action" data-action="settings-cancel-client">キャンセル</button>';
+  html += '</div>';
+  html += '</div>';
+  html += '<button class="row-action" data-action="settings-add-client" style="font-size:.85rem">+ 顧問先を追加</button>';
+  html += '</section>';
+
   html += '<section class="rules-list">';
   html += '<article class="message-card"><span class="pill ai">freee / MF</span><h3>会計ソフト連携</h3><p>仕訳、残高、請求、入金、証憑ステータスを読み取り、レビューキューに変換します。</p></article>';
   html += '<article class="message-card"><span class="pill ai">初期導入先</span><h3>30〜50人規模の税理士事務所</h3><p>職員・アルバイトが複数いて、所長レビューと資料不足対応が詰まりやすい事務所に絞ります。</p></article>';
@@ -1713,6 +1737,32 @@ async function loadMemberList() {
         ? '<button class="row-action" data-action="settings-remove-member" data-member-id="' + escapeHtml(m.id) + '" style="color:#dc2626">削除</button>'
         : '') +
       '</div>'
+    ).join('');
+  } catch (e) {
+    listEl.innerHTML = '<p style="color:#dc2626;font-size:.85rem">読み込みに失敗しました</p>';
+  }
+}
+
+async function loadClientList() {
+  const listEl = document.getElementById('clientMgmtList');
+  if (!listEl) return;
+  try {
+    const res = await apiFetch('/api/clients');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const clients = await res.json();
+    if (!clients.length) {
+      listEl.innerHTML = '<p style="color:#999;font-size:.85rem">顧問先はまだありません</p>';
+      return;
+    }
+    const modeLabel = { monthly: '月次', yearend: '期末' };
+    listEl.innerHTML = clients.map(c =>
+      '<div class="setting-row" style="font-size:.85rem">' +
+      '<div><strong>' + escapeHtml(c.name) + '</strong>' +
+      ' <span style="color:#64748b">(' + escapeHtml(c.industry || '') + '・' + (modeLabel[c.mode] || c.mode) + ')</span></div>' +
+      '<div style="display:flex;gap:.5rem">' +
+      '<button class="row-action" data-action="settings-edit-client" data-client-id="' + escapeHtml(c.id) + '">編集</button>' +
+      '<button class="row-action" data-action="settings-delete-client" data-client-id="' + escapeHtml(c.id) + '" data-client-name="' + escapeHtml(c.name) + '" style="color:#dc2626">削除</button>' +
+      '</div></div>'
     ).join('');
   } catch (e) {
     listEl.innerHTML = '<p style="color:#dc2626;font-size:.85rem">読み込みに失敗しました</p>';
@@ -3692,11 +3742,98 @@ function renderView() {
             loadMemberList();
           }).catch(() => showToast('削除に失敗しました'));
       }
+      if (action === "settings-add-client") {
+        const form = document.getElementById('clientMgmtForm');
+        const editId = document.getElementById('clientMgmtEditId');
+        if (form && editId) {
+          editId.value = '';
+          document.getElementById('clientMgmtName').value = '';
+          document.getElementById('clientMgmtIndustry').value = 'その他';
+          document.getElementById('clientMgmtVendor').value = 'mf';
+          document.getElementById('clientMgmtMode').value = 'monthly';
+          document.getElementById('clientMgmtFyStart').value = '';
+          document.getElementById('clientMgmtFyEnd').value = '';
+          form.style.display = 'block';
+        }
+      }
+      if (action === "settings-cancel-client") {
+        const form = document.getElementById('clientMgmtForm');
+        if (form) form.style.display = 'none';
+      }
+      if (action === "settings-edit-client") {
+        const cid = button.dataset.clientId;
+        if (!cid) return;
+        apiFetch('/api/clients/' + cid).then(async (res) => {
+          if (!res.ok) { showToast('読み込みに失敗しました'); return; }
+          const c = await res.json();
+          const form = document.getElementById('clientMgmtForm');
+          if (!form) return;
+          document.getElementById('clientMgmtEditId').value = c.id;
+          document.getElementById('clientMgmtName').value = c.name || '';
+          document.getElementById('clientMgmtIndustry').value = c.industry || 'その他';
+          document.getElementById('clientMgmtVendor').value = c.vendor || 'mf';
+          document.getElementById('clientMgmtMode').value = c.mode || 'monthly';
+          document.getElementById('clientMgmtFyStart').value = c.fiscalYearStart ? c.fiscalYearStart.slice(0, 10) : '';
+          document.getElementById('clientMgmtFyEnd').value = c.fiscalYearEnd ? c.fiscalYearEnd.slice(0, 10) : '';
+          form.style.display = 'block';
+        }).catch(() => showToast('読み込みに失敗しました'));
+      }
+      if (action === "settings-save-client") {
+        const editId = document.getElementById('clientMgmtEditId');
+        const name = document.getElementById('clientMgmtName').value.trim();
+        const industry = document.getElementById('clientMgmtIndustry').value;
+        const vendor = document.getElementById('clientMgmtVendor').value;
+        const mode = document.getElementById('clientMgmtMode').value;
+        const fiscalYearStart = document.getElementById('clientMgmtFyStart').value;
+        const fiscalYearEnd = document.getElementById('clientMgmtFyEnd').value;
+        if (!name) { showToast('顧問先名を入力してください'); return; }
+        if (!fiscalYearStart || !fiscalYearEnd) { showToast('事業年度を入力してください'); return; }
+        const cid = editId ? editId.value : '';
+        const payload = { name, industry, vendor, mode, fiscalYearStart, fiscalYearEnd };
+        const url = cid ? '/api/clients/' + cid : '/api/clients';
+        const method = cid ? 'PATCH' : 'POST';
+        apiFetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        }).then(async (res) => {
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            showToast('保存失敗: ' + ((body.error && body.error.message) || res.status));
+            return;
+          }
+          showToast(cid ? '顧問先を更新しました' : '顧問先を追加しました');
+          const form = document.getElementById('clientMgmtForm');
+          if (form) form.style.display = 'none';
+          loadClientList();
+          loadClientsFromApi();
+        }).catch(() => showToast('保存に失敗しました'));
+      }
+      if (action === "settings-delete-client") {
+        const cid = button.dataset.clientId;
+        const cname = button.dataset.clientName || '顧問先';
+        if (!cid) return;
+        if (!confirm(cname + ' を削除しますか？\nこの操作は元に戻せません。')) return;
+        apiFetch('/api/clients/' + cid, { method: 'DELETE' }).then(async (res) => {
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            showToast('削除失敗: ' + ((body.error && body.error.message) || res.status));
+            return;
+          }
+          showToast(cname + ' を削除しました');
+          loadClientList();
+          loadClientsFromApi();
+        }).catch(() => showToast('削除に失敗しました'));
+      }
     });
   });
   // settings view: load member list if owner
   if (appState.activeView === 'settings' && appState.user && appState.user.role === 'owner') {
     loadMemberList();
+  }
+  // settings view: always load client management list
+  if (appState.activeView === 'settings') {
+    loadClientList();
   }
 }
 
