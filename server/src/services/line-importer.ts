@@ -9,6 +9,7 @@ import {
   getMappingByLineUserId,
 } from './line-mapping-service.js';
 import { createVoucher, runOcrForVoucher } from './voucher-service.js';
+import { generateDraftJournal } from './journal-draft-service.js';
 
 // ---- LINE webhook payload shapes (only the fields we touch) -------------
 
@@ -48,6 +49,16 @@ interface CachedCaption {
 }
 const captionCache = new Map<string, CachedCaption>();
 const CAPTION_TTL_MS = 60_000;
+
+// ---- pending question cache (in-memory, TTL 10 min) --------------------
+
+interface PendingQuestion {
+  voucherId: string;
+  field: string;
+  askedAt: number;
+}
+const pendingQuestionCache = new Map<string, PendingQuestion>();
+const PENDING_TTL_MS = 10 * 60 * 1000;
 
 const MAX_CONTENT_BYTES = 10 * 1024 * 1024;
 const ALLOWED_MIMES = new Set(['image/jpeg', 'image/png']);
@@ -138,7 +149,7 @@ async function handleMessage(event: LineWebhookEvent): Promise<void> {
   if (!userId || !message) return;
 
   if (message.type === 'text') {
-    handleTextMessage(userId, (message as LineTextMessage).text);
+    await handleTextMessage(userId, (message as LineTextMessage).text);
     return;
   }
   if (message.type === 'image') {
@@ -148,9 +159,35 @@ async function handleMessage(event: LineWebhookEvent): Promise<void> {
   // other message types: ignore
 }
 
-function handleTextMessage(userId: string, text: string): void {
+async function handleTextMessage(userId: string, text: string): Promise<void> {
   if (!text) return;
+  const answered = await answerPendingQuestion(userId, text);
+  if (answered) return;
   captionCache.set(userId, { text, capturedAt: Date.now() });
+}
+
+async function answerPendingQuestion(userId: string, text: string): Promise<boolean> {
+  const pending = pendingQuestionCache.get(userId);
+  if (!pending) return false;
+  pendingQuestionCache.delete(userId);
+  if (Date.now() - pending.askedAt > PENDING_TTL_MS) return false;
+
+  const current = await prisma.voucher.findUnique({
+    where: { id: pending.voucherId },
+    select: { lineAnswers: true },
+  });
+  if (!current) return false;
+
+  const existing = (current.lineAnswers ?? {}) as Record<string, string>;
+  await prisma.voucher.update({
+    where: { id: pending.voucherId },
+    data: { lineAnswers: { ...existing, [pending.field]: text } },
+  });
+
+  setImmediate(() => {
+    generateDraftJournal(pending.voucherId).catch(() => {});
+  });
+  return true;
 }
 
 function consumeCaption(userId: string): string | null {
@@ -377,6 +414,17 @@ export async function sendLinePushForVoucherStatus(
     return;
   }
 
+  if (v.journalStatus === 'needs_info') {
+    const draft = (v.draftJournalJson ?? {}) as { missingFields?: string[] };
+    const field = draft.missingFields?.[0];
+    if (!field) return;
+    pendingQuestionCache.set(v.lineUserId, { voucherId: v.id, field, askedAt: Date.now() });
+    await lineService.pushMessage(v.lineUserId, [
+      { type: 'text', text: buildQuestion(field) },
+    ]);
+    return;
+  }
+
   if (v.journalStatus === 'drafted') {
     const draft = (v.draftJournalJson ?? {}) as Record<string, unknown>;
     const account =
@@ -449,8 +497,25 @@ export async function sendLinePushForVoucherStatus(
   }
 }
 
+function buildQuestion(field: string): string {
+  return `仕訳の確認のため教えてください：${field}`;
+}
+
 // ---- test helpers ------------------------------------------------------
 
 export function __clearCaptionCacheForTests(): void {
   captionCache.clear();
+}
+
+export function __clearPendingQuestionCacheForTests(): void {
+  pendingQuestionCache.clear();
+}
+
+export function __primePendingCacheForTests(
+  userId: string,
+  voucherId: string,
+  field: string,
+  askedAt: number = Date.now(),
+): void {
+  pendingQuestionCache.set(userId, { voucherId, field, askedAt });
 }

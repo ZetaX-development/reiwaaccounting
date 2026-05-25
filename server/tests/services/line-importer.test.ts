@@ -11,14 +11,19 @@ import { prisma } from '../../src/lib/prisma.js';
 import {
   handleWebhookEvents,
   __clearCaptionCacheForTests,
+  __clearPendingQuestionCacheForTests,
+  __primePendingCacheForTests,
+  sendLinePushForVoucherStatus,
   type LineWebhookEvent,
 } from '../../src/services/line-importer.js';
 import * as lineService from '../../src/services/line-service.js';
 import * as voucherService from '../../src/services/voucher-service.js';
+import * as journalDraftService from '../../src/services/journal-draft-service.js';
 import { __resetEnvCache } from '../../src/env.js';
 
 beforeEach(async () => {
   __clearCaptionCacheForTests();
+  __clearPendingQuestionCacheForTests();
   await prisma.voucher.deleteMany();
   await prisma.lineUserMapping.deleteMany();
 });
@@ -26,6 +31,7 @@ beforeEach(async () => {
 afterEach(() => {
   vi.restoreAllMocks();
   delete process.env.OPENAI_API_KEY;
+  delete process.env.LINE_CHANNEL_ACCESS_TOKEN;
   __resetEnvCache();
 });
 
@@ -296,5 +302,166 @@ describe('handleWebhookEvents — postback action=approve', () => {
 
     const row = await prisma.voucher.findUnique({ where: { id: v.id } });
     expect(row?.journalStatus).toBe('approved');
+  });
+});
+
+describe('sendLinePushForVoucherStatus — needs_info', () => {
+  it('pushes a question and caches it when journalStatus is needs_info', async () => {
+    process.env.LINE_CHANNEL_ACCESS_TOKEN = 'tok';
+    __resetEnvCache();
+
+    const v = await prisma.voucher.create({
+      data: {
+        firmId: 'demo-firm',
+        clientId: null,
+        filename: 'q.jpg',
+        mimeType: 'image/jpeg',
+        size: 3,
+        imageData: jpgBuffer(),
+        source: 'line',
+        lineUserId: 'Uiii',
+        journalStatus: 'needs_info',
+        draftJournalJson: {
+          transactionDate: '2026-05-25',
+          debit: { account: '接待交際費', subAccount: null, partner: 'テスト', taxClass: '課税仕入10%', invoiceNumber: null, amount: 5000 },
+          credit: { account: '現金', subAccount: null, partner: null, taxClass: '対象外', invoiceNumber: null, amount: 5000 },
+          description: 'テスト',
+          missingFields: ['参加者'],
+          reasoning: 'テスト',
+        } as never,
+      },
+    });
+
+    const pushSpy = vi.spyOn(lineService, 'pushMessage').mockResolvedValue(undefined);
+
+    await sendLinePushForVoucherStatus(v.id);
+
+    expect(pushSpy).toHaveBeenCalledOnce();
+    const [userId, messages] = pushSpy.mock.calls[0];
+    expect(userId).toBe('Uiii');
+    expect(messages[0].type).toBe('text');
+    expect((messages[0] as { type: string; text: string }).text).toContain('参加者');
+  });
+});
+
+describe('handleWebhookEvents — text reply answers pending question', () => {
+  it('saves lineAnswers and triggers generateDraftJournal', async () => {
+    process.env.LINE_CHANNEL_ACCESS_TOKEN = 'tok';
+    __resetEnvCache();
+
+    await prisma.lineUserMapping.create({
+      data: { firmId: 'demo-firm', lineUserId: 'Ujjj', displayName: 'J', enabled: true },
+    });
+    const v = await prisma.voucher.create({
+      data: {
+        firmId: 'demo-firm',
+        clientId: null,
+        filename: 'pq.jpg',
+        mimeType: 'image/jpeg',
+        size: 3,
+        imageData: jpgBuffer(),
+        source: 'line',
+        lineUserId: 'Ujjj',
+        journalStatus: 'needs_info',
+        draftJournalJson: {
+          transactionDate: '2026-05-25',
+          debit: { account: '接待交際費', subAccount: null, partner: 'テスト', taxClass: '課税仕入10%', invoiceNumber: null, amount: 5000 },
+          credit: { account: '現金', subAccount: null, partner: null, taxClass: '対象外', invoiceNumber: null, amount: 5000 },
+          description: 'テスト',
+          missingFields: ['参加者'],
+          reasoning: 'テスト',
+        } as never,
+      },
+    });
+
+    // Prime the pending cache via sendLinePushForVoucherStatus
+    vi.spyOn(lineService, 'pushMessage').mockResolvedValue(undefined);
+    await sendLinePushForVoucherStatus(v.id);
+
+    const generateSpy = vi
+      .spyOn(journalDraftService, 'generateDraftJournal')
+      .mockResolvedValue(undefined);
+
+    const event: LineWebhookEvent = {
+      type: 'message',
+      source: { type: 'user', userId: 'Ujjj' },
+      message: { id: 'txt-ans-1', type: 'text', text: '田中部長と鈴木様' },
+    };
+    await handleWebhookEvents([event]);
+
+    const row = await prisma.voucher.findUnique({ where: { id: v.id } });
+    expect(row?.lineAnswers).toMatchObject({ '参加者': '田中部長と鈴木様' });
+
+    await new Promise((r) => setImmediate(r));
+    expect(generateSpy).toHaveBeenCalledWith(v.id);
+  });
+});
+
+describe('handleWebhookEvents — text after pending TTL expires falls back to caption', () => {
+  it('treats expired text as caption and does not save lineAnswers', async () => {
+    process.env.LINE_CHANNEL_ACCESS_TOKEN = 'tok';
+    __resetEnvCache();
+
+    await prisma.lineUserMapping.create({
+      data: { firmId: 'demo-firm', lineUserId: 'Ukkk', displayName: 'K', enabled: true },
+    });
+    const v = await prisma.voucher.create({
+      data: {
+        firmId: 'demo-firm',
+        clientId: null,
+        filename: 'stale.jpg',
+        mimeType: 'image/jpeg',
+        size: 3,
+        imageData: jpgBuffer(),
+        source: 'line',
+        lineUserId: 'Ukkk',
+        journalStatus: 'needs_info',
+        draftJournalJson: {
+          transactionDate: '2026-05-25',
+          debit: { account: '接待交際費', subAccount: null, partner: 'テスト', taxClass: '課税仕入10%', invoiceNumber: null, amount: 5000 },
+          credit: { account: '現金', subAccount: null, partner: null, taxClass: '対象外', invoiceNumber: null, amount: 5000 },
+          description: 'テスト',
+          missingFields: ['参加者'],
+          reasoning: 'テスト',
+        } as never,
+      },
+    });
+
+    // Prime with an already-expired timestamp (11 minutes ago)
+    __primePendingCacheForTests('Ukkk', v.id, '参加者', Date.now() - 11 * 60 * 1000);
+
+    const generateSpy = vi
+      .spyOn(journalDraftService, 'generateDraftJournal')
+      .mockResolvedValue(undefined);
+    vi.spyOn(lineService, 'getMessageContent').mockResolvedValue({
+      buffer: jpgBuffer(),
+      mimeType: 'image/jpeg',
+    });
+    vi.spyOn(voucherService, 'runOcrForVoucher').mockResolvedValue(undefined);
+
+    const textEvent: LineWebhookEvent = {
+      type: 'message',
+      source: { type: 'user', userId: 'Ukkk' },
+      message: { id: 'txt-expired', type: 'text', text: '期限切れ回答' },
+    };
+    const imgEvent: LineWebhookEvent = {
+      type: 'message',
+      source: { type: 'user', userId: 'Ukkk' },
+      message: { id: 'img-expired', type: 'image' },
+    };
+    await handleWebhookEvents([textEvent, imgEvent]);
+
+    // lineAnswers on original voucher must be untouched (TTL expired)
+    const row = await prisma.voucher.findUnique({ where: { id: v.id } });
+    expect(row?.lineAnswers).toBeNull();
+
+    // generateDraftJournal must NOT have been called
+    expect(generateSpy).not.toHaveBeenCalled();
+
+    // The text should have been used as caption for the new image
+    const newVoucher = await prisma.voucher.findUnique({
+      where: { lineSourceMessageId: 'img-expired' },
+    });
+    expect(newVoucher?.caption).toBe('期限切れ回答');
   });
 });
