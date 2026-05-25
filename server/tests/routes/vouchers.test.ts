@@ -16,8 +16,12 @@ import { authHeaders } from '../helpers/auth.js';
 const app = await buildApp();
 const auth = await authHeaders();
 
+const ISOLATION_FIRMS = ['tenant-isolation-firm-1', 'tenant-isolation-firm-2'];
+
 beforeEach(async () => {
   await prisma.voucher.deleteMany();
+  // Remove any leftover cross-tenant test firms (cascade deletes vouchers/clients too).
+  await prisma.firm.deleteMany({ where: { id: { in: ISOLATION_FIRMS } } });
 });
 
 afterEach(() => {
@@ -168,6 +172,27 @@ describe('GET /api/vouchers/:id/image', () => {
     expect(res.rawPayload.equals(Buffer.from([0x89, 0x50, 0x4e, 0x47]))).toBe(
       true,
     );
+  });
+
+  it('returns 404 for voucher belonging to another firm', async () => {
+    await prisma.firm.create({ data: { id: 'tenant-isolation-firm-1', name: 'Other 1', slug: 'tenant-isolation-firm-1' } });
+    const v = await prisma.voucher.create({
+      data: {
+        firmId: 'tenant-isolation-firm-1',
+        clientId: null,
+        filename: 'cross.png',
+        mimeType: 'image/png',
+        size: 4,
+        imageData: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+      },
+    });
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/vouchers/${v.id}/image`,
+      headers: auth,
+    });
+    expect(res.statusCode).toBe(404);
+    await prisma.firm.delete({ where: { id: 'tenant-isolation-firm-1' } });
   });
 });
 
@@ -343,6 +368,36 @@ describe('PATCH /api/vouchers/:id', () => {
     });
     expect(res.statusCode).toBe(404);
     expect(res.json().error.code).toBe('NOT_FOUND');
+  });
+
+  it('returns 404 when assigning clientId from another firm', async () => {
+    await prisma.firm.create({ data: { id: 'tenant-isolation-firm-2', name: 'Other 2', slug: 'tenant-isolation-firm-2' } });
+    const otherClient = await prisma.client.create({
+      data: {
+        firmId: 'tenant-isolation-firm-2',
+        name: 'Cross Client',
+        fiscalYearStart: new Date('2025-01-01'),
+        fiscalYearEnd: new Date('2025-12-31'),
+      },
+    });
+    const voucher = await prisma.voucher.create({
+      data: {
+        firmId: 'demo-firm',
+        clientId: null,
+        filename: 'v.jpg',
+        mimeType: 'image/jpeg',
+        size: 1,
+        imageData: Buffer.from([0xff]),
+      },
+    });
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/vouchers/${voucher.id}`,
+      payload: { clientId: otherClient.id },
+      headers: { 'content-type': 'application/json', ...auth },
+    });
+    expect(res.statusCode).toBe(404);
+    await prisma.firm.delete({ where: { id: 'tenant-isolation-firm-2' } });
   });
 });
 

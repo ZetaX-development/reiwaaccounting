@@ -81,13 +81,14 @@ export async function createVoucher(input: {
 
 export async function listVouchers(filter: {
   clientId: string | 'unassigned' | null;
+  firmId: string;
 }): Promise<VoucherMeta[]> {
-  const where =
+  const where: Record<string, unknown> =
     filter.clientId === null
-      ? {}
+      ? { firmId: filter.firmId }
       : filter.clientId === 'unassigned'
-        ? { clientId: null }
-        : { clientId: filter.clientId };
+        ? { clientId: null, firmId: filter.firmId }
+        : { clientId: filter.clientId, firmId: filter.firmId };
   const rows = await prisma.voucher.findMany({
     where,
     orderBy: { uploadedAt: 'desc' },
@@ -120,17 +121,18 @@ export async function listVouchers(filter: {
 
 export async function getVoucherImage(
   id: string,
+  firmId: string,
 ): Promise<{ mimeType: string; data: Buffer } | null> {
-  const row = await prisma.voucher.findUnique({
-    where: { id },
+  const row = await prisma.voucher.findFirst({
+    where: { id, firmId },
     select: { mimeType: true, imageData: true },
   });
   if (!row) return null;
   return { mimeType: row.mimeType, data: Buffer.from(row.imageData) };
 }
 
-export async function deleteVoucher(id: string): Promise<boolean> {
-  const result = await prisma.voucher.deleteMany({ where: { id } });
+export async function deleteVoucher(id: string, firmId: string): Promise<boolean> {
+  const result = await prisma.voucher.deleteMany({ where: { id, firmId } });
   return result.count > 0;
 }
 

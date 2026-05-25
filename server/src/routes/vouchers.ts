@@ -103,6 +103,7 @@ export async function voucherRoutes(app: FastifyInstance) {
       mimeType: data.mimetype,
       buffer,
       uploadedBy,
+      firmId: req.user!.firmId,
     });
     if (process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY.length > 0) {
       setImmediate(() => {
@@ -117,18 +118,18 @@ export async function voucherRoutes(app: FastifyInstance) {
     Querystring: { clientId?: string };
   }>('/api/vouchers', async (req) => {
     const q = req.query.clientId;
-    const filter: { clientId: string | 'unassigned' | null } = !q
-      ? { clientId: null }
+    const filter: { clientId: string | 'unassigned' | null; firmId: string } = !q
+      ? { clientId: null, firmId: req.user!.firmId }
       : q === 'unassigned'
-        ? { clientId: 'unassigned' }
-        : { clientId: q };
+        ? { clientId: 'unassigned', firmId: req.user!.firmId }
+        : { clientId: q, firmId: req.user!.firmId };
     return listVouchers(filter);
   });
 
   app.get<{ Params: { id: string } }>(
     '/api/vouchers/:id/image',
     async (req, reply) => {
-      const image = await getVoucherImage(req.params.id);
+      const image = await getVoucherImage(req.params.id, req.user!.firmId);
       if (!image) {
         reply.code(404);
         return { error: { code: 'NOT_FOUND', message: 'voucher not found' } };
@@ -143,7 +144,7 @@ export async function voucherRoutes(app: FastifyInstance) {
   app.delete<{ Params: { id: string } }>(
     '/api/vouchers/:id',
     async (req, reply) => {
-      const ok = await deleteVoucher(req.params.id);
+      const ok = await deleteVoucher(req.params.id, req.user!.firmId);
       if (!ok) {
         reply.code(404);
         return { error: { code: 'NOT_FOUND', message: 'voucher not found' } };
@@ -155,8 +156,8 @@ export async function voucherRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string } }>(
     '/api/vouchers/:id/ocr',
     async (req, reply) => {
-      const row = await prisma.voucher.findUnique({
-        where: { id: req.params.id },
+      const row = await prisma.voucher.findFirst({
+        where: { id: req.params.id, firmId: req.user!.firmId },
         select: { id: true },
       });
       if (!row) {
@@ -175,8 +176,8 @@ export async function voucherRoutes(app: FastifyInstance) {
     Params: { id: string };
     Body: { clientId?: string | null };
   }>('/api/vouchers/:id', async (req, reply) => {
-    const row = await prisma.voucher.findUnique({
-      where: { id: req.params.id },
+    const row = await prisma.voucher.findFirst({
+      where: { id: req.params.id, firmId: req.user!.firmId },
       select: { id: true },
     });
     if (!row) {
@@ -184,6 +185,17 @@ export async function voucherRoutes(app: FastifyInstance) {
       return { error: { code: 'NOT_FOUND', message: 'voucher not found' } };
     }
     const newClientId = req.body?.clientId ?? null;
+    // Validate that the target client belongs to the same firm.
+    if (newClientId) {
+      const client = await prisma.client.findFirst({
+        where: { id: newClientId, firmId: req.user!.firmId },
+        select: { id: true },
+      });
+      if (!client) {
+        reply.code(404);
+        return { error: { code: 'NOT_FOUND', message: 'client not found' } };
+      }
+    }
     await prisma.voucher.update({
       where: { id: req.params.id },
       data: { clientId: newClientId, matchedClientReason: 'manual' },
@@ -197,8 +209,8 @@ export async function voucherRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string } }>(
     '/api/vouchers/:id/match',
     async (req, reply) => {
-      const row = await prisma.voucher.findUnique({
-        where: { id: req.params.id },
+      const row = await prisma.voucher.findFirst({
+        where: { id: req.params.id, firmId: req.user!.firmId },
         select: { id: true },
       });
       if (!row) {
@@ -216,8 +228,8 @@ export async function voucherRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string } }>(
     '/api/vouchers/:id/draft-journal',
     async (req, reply) => {
-      const row = await prisma.voucher.findUnique({
-        where: { id: req.params.id },
+      const row = await prisma.voucher.findFirst({
+        where: { id: req.params.id, firmId: req.user!.firmId },
         select: { id: true },
       });
       if (!row) {
@@ -235,8 +247,8 @@ export async function voucherRoutes(app: FastifyInstance) {
   app.post<{ Params: { id: string } }>(
     '/api/vouchers/:id/inquire',
     async (req, reply) => {
-      const row = await prisma.voucher.findUnique({
-        where: { id: req.params.id },
+      const row = await prisma.voucher.findFirst({
+        where: { id: req.params.id, firmId: req.user!.firmId },
         select: { id: true },
       });
       if (!row) {
@@ -262,8 +274,8 @@ export async function voucherRoutes(app: FastifyInstance) {
       status?: string;
     };
   }>('/api/vouchers/:id/journal', async (req, reply) => {
-    const row = await prisma.voucher.findUnique({
-      where: { id: req.params.id },
+    const row = await prisma.voucher.findFirst({
+      where: { id: req.params.id, firmId: req.user!.firmId },
       select: { id: true, draftJournalJson: true },
     });
     if (!row) {

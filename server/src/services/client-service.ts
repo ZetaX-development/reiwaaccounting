@@ -3,8 +3,9 @@ import { mfApiAdapter } from '../adapters/mf-api.js';
 import { logger } from '../lib/logger.js';
 import type { RawEntry } from '../adapters/vendor-adapter.js';
 
-export async function listClients() {
+export async function listClients(firmId: string) {
   return prisma.client.findMany({
+    where: { firmId },
     orderBy: { name: 'asc' },
     select: {
       id: true,
@@ -28,9 +29,9 @@ export async function listClients() {
   });
 }
 
-export async function getClientById(id: string) {
-  const client = await prisma.client.findUnique({
-    where: { id },
+export async function getClientById(id: string, firmId: string) {
+  const client = await prisma.client.findFirst({
+    where: { id, firmId },
     include: {
       entries: { orderBy: { occurredAt: 'desc' } },
       receipts: { orderBy: { occurredAt: 'desc' } },
