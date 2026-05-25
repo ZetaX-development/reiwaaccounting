@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { listClients, getClientById, createClient } from '../services/client-service.js';
+import { listClients, getClientById, createClient, updateClient, deleteClient } from '../services/client-service.js';
 
 const createClientSchema = z.object({
   name: z.string().min(1).max(100),
@@ -35,6 +35,35 @@ export async function clientRoutes(app: FastifyInstance) {
     );
     reply.code(201);
     return client;
+  });
+
+  app.patch<{
+    Params: { id: string };
+    Body: { name?: string; industry?: string; vendor?: string; mode?: string; fiscalYearStart?: string; fiscalYearEnd?: string };
+  }>('/api/clients/:id', async (req, reply) => {
+    const body = req.body || {};
+    const data: Record<string, unknown> = {};
+    if (body.name !== undefined) data.name = body.name;
+    if (body.industry !== undefined) data.industry = body.industry;
+    if (body.vendor !== undefined) data.vendor = body.vendor;
+    if (body.mode !== undefined) data.mode = body.mode;
+    if (body.fiscalYearStart !== undefined) data.fiscalYearStart = new Date(body.fiscalYearStart);
+    if (body.fiscalYearEnd !== undefined) data.fiscalYearEnd = new Date(body.fiscalYearEnd);
+    const ok = await updateClient(req.params.id, req.user!.firmId, data);
+    if (!ok) {
+      reply.code(404);
+      return { error: { code: 'NOT_FOUND', message: 'client not found' } };
+    }
+    return { ok: true };
+  });
+
+  app.delete<{ Params: { id: string } }>('/api/clients/:id', async (req, reply) => {
+    const ok = await deleteClient(req.params.id, req.user!.firmId);
+    if (!ok) {
+      reply.code(404);
+      return { error: { code: 'NOT_FOUND', message: 'client not found' } };
+    }
+    return { ok: true };
   });
 
   app.get<{ Params: { id: string } }>('/api/clients/:id', async (req, reply) => {

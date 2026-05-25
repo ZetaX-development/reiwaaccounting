@@ -125,3 +125,111 @@ describe('GET /api/clients/:id', () => {
     await prisma.firm.delete({ where: { id: 'tenant-isolation-firm-3' } });
   });
 });
+
+describe('PATCH /api/clients/:id', () => {
+  let patchClientId: string;
+  let otherFirmClientId: string;
+
+  beforeAll(async () => {
+    const c = await prisma.client.create({
+      data: {
+        firmId: 'demo-firm',
+        name: 'PATCH対象会社',
+        fiscalYearStart: new Date('2025-01-01'),
+        fiscalYearEnd: new Date('2025-12-31'),
+      },
+    });
+    patchClientId = c.id;
+
+    await prisma.firm.create({ data: { id: 'tenant-isolation-firm-4', name: 'Other 4', slug: 'tenant-isolation-firm-4' } });
+    const oc = await prisma.client.create({
+      data: {
+        firmId: 'tenant-isolation-firm-4',
+        name: 'Other Firm Client',
+        fiscalYearStart: new Date('2025-01-01'),
+        fiscalYearEnd: new Date('2025-12-31'),
+      },
+    });
+    otherFirmClientId = oc.id;
+  });
+
+  afterAll(async () => {
+    await prisma.client.deleteMany({ where: { id: patchClientId } }).catch(() => {});
+    await prisma.firm.deleteMany({ where: { id: 'tenant-isolation-firm-4' } }).catch(() => {});
+  });
+
+  it('updates client fields and returns 200', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/clients/${patchClientId}`,
+      headers: { ...auth, 'content-type': 'application/json' },
+      payload: { name: '更新後会社名', industry: '製造業' },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true });
+    const updated = await prisma.client.findUnique({ where: { id: patchClientId } });
+    expect(updated?.name).toBe('更新後会社名');
+    expect(updated?.industry).toBe('製造業');
+  });
+
+  it('returns 404 for unknown id', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: '/api/clients/does-not-exist',
+      headers: { ...auth, 'content-type': 'application/json' },
+      payload: { name: 'X' },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe('NOT_FOUND');
+  });
+
+  it('returns 404 for client belonging to another firm', async () => {
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/clients/${otherFirmClientId}`,
+      headers: { ...auth, 'content-type': 'application/json' },
+      payload: { name: 'Hacked' },
+    });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe('NOT_FOUND');
+  });
+});
+
+describe('DELETE /api/clients/:id', () => {
+  it('deletes a client and returns 200', async () => {
+    const c = await prisma.client.create({
+      data: {
+        firmId: 'demo-firm',
+        name: '削除対象会社',
+        fiscalYearStart: new Date('2025-01-01'),
+        fiscalYearEnd: new Date('2025-12-31'),
+      },
+    });
+    const res = await app.inject({ method: 'DELETE', url: `/api/clients/${c.id}`, headers: auth });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true });
+    const gone = await prisma.client.findUnique({ where: { id: c.id } });
+    expect(gone).toBeNull();
+  });
+
+  it('returns 404 for unknown id', async () => {
+    const res = await app.inject({ method: 'DELETE', url: '/api/clients/does-not-exist', headers: auth });
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error.code).toBe('NOT_FOUND');
+  });
+
+  it('returns 404 for client belonging to another firm', async () => {
+    await prisma.firm.create({ data: { id: 'tenant-isolation-firm-5', name: 'Other 5', slug: 'tenant-isolation-firm-5' } });
+    const oc = await prisma.client.create({
+      data: {
+        firmId: 'tenant-isolation-firm-5',
+        name: 'Other Client 5',
+        fiscalYearStart: new Date('2025-01-01'),
+        fiscalYearEnd: new Date('2025-12-31'),
+      },
+    });
+    const res = await app.inject({ method: 'DELETE', url: `/api/clients/${oc.id}`, headers: auth });
+    expect(res.statusCode).toBe(404);
+    await prisma.firm.delete({ where: { id: 'tenant-isolation-firm-5' } });
+  });
+});

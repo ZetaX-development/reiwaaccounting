@@ -35,6 +35,27 @@ export async function createClient(data: CreateClientInput, firmId: string) {
   });
 }
 
+export interface UpdateClientInput {
+  name?: string;
+  industry?: string;
+  vendor?: string;
+  mode?: string;
+  fiscalYearStart?: Date;
+  fiscalYearEnd?: Date;
+}
+
+export async function updateClient(id: string, firmId: string, data: UpdateClientInput): Promise<boolean> {
+  const existing = await prisma.client.findFirst({ where: { id, firmId }, select: { id: true } });
+  if (!existing) return false;
+  await prisma.client.update({ where: { id }, data });
+  return true;
+}
+
+export async function deleteClient(id: string, firmId: string): Promise<boolean> {
+  const result = await prisma.client.deleteMany({ where: { id, firmId } });
+  return result.count > 0;
+}
+
 export async function listClients(firmId: string) {
   return prisma.client.findMany({
     where: { firmId },
