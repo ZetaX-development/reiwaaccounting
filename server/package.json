@@ -12,7 +12,8 @@
     "test:db:setup": "DATABASE_URL=postgresql://bookmee:bookmee_test@localhost:5433/bookmee_test prisma migrate deploy",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "seed": "tsx prisma/seed.ts"
+    "seed": "tsx prisma/seed.ts",
+    "create-firm": "tsx scripts/create-firm.ts"
   },
   "dependencies": {
     "@fastify/cors": "^9.0.1",
