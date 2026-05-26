@@ -270,10 +270,15 @@ async function handleImageMessage(
   // 4. caption
   const caption = consumeCaption(userId);
 
-  // 5. createVoucher
+  // 5. createVoucher — inherit clientId from the most recent LINE voucher by same user
+  const prevVoucher = await prisma.voucher.findFirst({
+    where: { source: 'line', lineUserId: userId, clientId: { not: null } },
+    orderBy: { createdAt: 'desc' },
+    select: { clientId: true },
+  });
   const filename = `line-${message.id}.${content.mimeType === 'image/png' ? 'png' : 'jpg'}`;
   const meta = await createVoucher({
-    clientId: null,
+    clientId: prevVoucher?.clientId ?? null,
     filename,
     mimeType: content.mimeType,
     buffer: content.buffer,
