@@ -335,6 +335,11 @@ model Voucher {
   caption             String?
   lineAnswers         Json?    // Spec 19: { "field": "answer", ... }
 
+  // Spec 20: MF自動入力
+  mfWriteStatus String?   // null | 'pending' | 'writing' | 'done' | 'failed'
+  mfWriteError  String?
+  mfWriteAt     DateTime?
+
   inquiries VoucherInquiry[]
 
   @@index([clientId, uploadedAt])

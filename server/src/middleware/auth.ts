@@ -14,6 +14,27 @@ function getJwks() {
   return _jwks;
 }
 
+/**
+ * Verify a Supabase JWT. Two modes:
+ *  - Production / development: JWKS endpoint (ES256, new Supabase projects).
+ *  - Test: HS256 with SUPABASE_JWT_SECRET (avoids hitting Supabase network in CI).
+ */
+async function verifyToken(token: string): Promise<{ sub?: string }> {
+  if (env.NODE_ENV === 'test' && env.SUPABASE_JWT_SECRET) {
+    const secret = new TextEncoder().encode(env.SUPABASE_JWT_SECRET);
+    const result = await jwtVerify(token, secret, {
+      issuer: `${env.SUPABASE_URL}/auth/v1`,
+      audience: env.SUPABASE_JWT_AUDIENCE,
+    });
+    return result.payload as { sub?: string };
+  }
+  const result = await jwtVerify(token, getJwks(), {
+    issuer: `${env.SUPABASE_URL}/auth/v1`,
+    audience: env.SUPABASE_JWT_AUDIENCE,
+  });
+  return result.payload as { sub?: string };
+}
+
 export async function requireAuth(
   req: FastifyRequest,
   reply: FastifyReply,
@@ -25,11 +46,7 @@ export async function requireAuth(
 
   let payload: { sub?: string };
   try {
-    const result = await jwtVerify(auth.slice(7), getJwks(), {
-      issuer: `${env.SUPABASE_URL}/auth/v1`,
-      audience: env.SUPABASE_JWT_AUDIENCE,
-    });
-    payload = result.payload as { sub?: string };
+    payload = await verifyToken(auth.slice(7));
   } catch {
     return reply.code(401).send({ error: { code: 'INVALID_TOKEN' } });
   }

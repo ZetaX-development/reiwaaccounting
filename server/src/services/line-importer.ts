@@ -10,6 +10,7 @@ import {
 } from './line-mapping-service.js';
 import { createVoucher, runOcrForVoucher } from './voucher-service.js';
 import { generateDraftJournal } from './journal-draft-service.js';
+import { writeJournalToMf } from './mf-browser-service.js';
 
 // ---- LINE webhook payload shapes (only the fields we touch) -------------
 
@@ -360,6 +361,25 @@ async function handlePostback(event: LineWebhookEvent): Promise<void> {
     return;
   }
 
+  // Spec 20: MoneyForward 自動入力
+  if (action === 'mf_write') {
+    await prisma.voucher.update({
+      where: { id: voucherId },
+      data: { mfWriteStatus: 'pending' },
+    });
+    if (event.replyToken) {
+      await lineService.replyMessage(event.replyToken, [
+        { type: 'text', text: 'MoneyForwardへの入力を開始します...' },
+      ]);
+    }
+    setImmediate(() => {
+      writeJournalToMf(voucherId).catch((err) => {
+        logger.warn({ err, voucherId }, 'mf_write setImmediate failed');
+      });
+    });
+    return;
+  }
+
   const newStatus = JOURNAL_STATUS_BY_ACTION[action];
   if (newStatus) {
     await prisma.voucher.update({
@@ -440,37 +460,37 @@ export async function sendLinePushForVoucherStatus(
       typeof draft.amount === 'number'
         ? `¥${draft.amount.toLocaleString('ja-JP')}`
         : '';
-    const text = `${account} ${amount} で計上しました。よろしいですか？`.trim();
-    const items: QuickReplyItem[] = [
+    const summaryText = `${account} ${amount} で仕訳を作成しました。`.trim();
+
+    // 1. 仕訳サマリ
+    await lineService.pushMessage(v.lineUserId, [{ type: 'text', text: summaryText }]);
+
+    // 2. MF入力確認 (Spec 20)
+    const mfItems: QuickReplyItem[] = [
       {
         type: 'action',
         action: {
           type: 'postback',
-          label: '✅ OK',
+          label: '✍️ はい',
+          data: `voucherId=${voucherId}&action=mf_write`,
+          displayText: 'MoneyForwardに入力する',
+        },
+      },
+      {
+        type: 'action',
+        action: {
+          type: 'postback',
+          label: '⏭️ いいえ',
           data: `voucherId=${voucherId}&action=approve`,
-          displayText: 'OK',
-        },
-      },
-      {
-        type: 'action',
-        action: {
-          type: 'postback',
-          label: '🔄 直す',
-          data: `voucherId=${voucherId}&action=rework`,
-          displayText: '直す',
-        },
-      },
-      {
-        type: 'action',
-        action: {
-          type: 'postback',
-          label: '❓ あとで',
-          data: `voucherId=${voucherId}&action=later`,
-          displayText: 'あとで',
+          displayText: 'スキップ',
         },
       },
     ];
-    await lineService.pushQuickReply(v.lineUserId, text, items);
+    await lineService.pushQuickReply(
+      v.lineUserId,
+      'MoneyForwardに入力しますか？',
+      mfItems,
+    );
     return;
   }
 

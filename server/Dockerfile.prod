@@ -10,6 +10,9 @@ FROM node:20-alpine AS builder
 RUN apk add --no-cache openssl libc6-compat
 WORKDIR /app/server
 
+# Playwright: skip downloading bundled browser in CI (use system Chromium at runtime).
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+
 # Install ALL deps (incl. devDeps for tsc + prisma generate).
 COPY server/package.json server/package-lock.json ./
 RUN npm ci
@@ -29,8 +32,20 @@ RUN npm prune --omit=dev
 # ---------- Stage 2: runtime ----------
 FROM node:20-alpine AS runtime
 
-# OpenSSL is required by the Prisma engine at runtime.
-RUN apk add --no-cache openssl libc6-compat
+# OpenSSL for Prisma, Chromium for Playwright browser automation.
+RUN apk add --no-cache \
+    openssl libc6-compat \
+    chromium \
+    nss \
+    freetype \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont
+
+# Tell Playwright to use the system Chromium instead of downloading its own.
+ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+
 WORKDIR /app/server
 
 ENV NODE_ENV=production

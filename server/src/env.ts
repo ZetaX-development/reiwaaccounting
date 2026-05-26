@@ -50,6 +50,10 @@ const schema = z.object({
   LINE_WEBHOOK_BASE_URL: z.string().default(''),
   LINE_CHANNEL_ID: z.string().default(''),
 
+  // Spec 20: MF自動入力用ブラウザログイン
+  MF_EMAIL: z.string().default(''),
+  MF_PASSWORD: z.string().default(''),
+
   // Spec 17b: Supabase Auth
   SUPABASE_URL: z.string().default(''),
   SUPABASE_ANON_KEY: z.string().default(''),
