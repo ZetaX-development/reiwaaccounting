@@ -3903,10 +3903,11 @@ function renderIntegrationsLine() {
                      style="width:120px; padding:4px 6px; font-size:12px;" />
             </td>
             <td>
-              <label style="display:inline-flex; align-items:center; gap:4px;">
-                <input type="checkbox" data-line-user-enabled="${escapeHtml(u.id)}" ${u.enabled ? 'checked' : ''} />
-                <span style="font-size:11px;">${u.enabled ? '有効' : '無効'}</span>
-              </label>
+              ${
+                u.enabled
+                  ? `<button class="row-action" data-action="line-disable-user" data-user-id="${escapeHtml(u.id)}">無効にする</button>`
+                  : `<button class="primary-action compact" data-action="line-enable-user" data-user-id="${escapeHtml(u.id)}">有効にする</button>`
+              }
             </td>
             <td><button class="ghost-btn" data-line-user-delete="${escapeHtml(u.id)}">削除</button></td>
           </tr>
@@ -4372,13 +4373,22 @@ function renderView() {
           });
         });
       });
-    // User rows: enabled toggle
+    // User rows: enable/disable actions
     viewContent
-      .querySelectorAll('[data-line-user-enabled]')
-      .forEach((cb) => {
-        cb.addEventListener('change', () => {
-          updateLineUser(cb.dataset.lineUserEnabled, {
-            enabled: cb.checked,
+      .querySelectorAll('[data-action="line-enable-user"]')
+      .forEach((btn) => {
+        btn.addEventListener('click', () => {
+          updateLineUser(btn.dataset.userId, {
+            enabled: true,
+          });
+        });
+      });
+    viewContent
+      .querySelectorAll('[data-action="line-disable-user"]')
+      .forEach((btn) => {
+        btn.addEventListener('click', () => {
+          updateLineUser(btn.dataset.userId, {
+            enabled: false,
           });
         });
       });
