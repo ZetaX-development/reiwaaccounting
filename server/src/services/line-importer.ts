@@ -186,7 +186,14 @@ async function answerPendingQuestion(userId: string, text: string): Promise<bool
   });
 
   setImmediate(() => {
-    generateDraftJournal(pending.voucherId).catch(() => {});
+    void (async () => {
+      try {
+        await generateDraftJournal(pending.voucherId);
+        await sendLinePushForVoucherStatus(pending.voucherId);
+      } catch (err) {
+        logger.warn({ err }, 'line answer re-draft failed');
+      }
+    })();
   });
   return true;
 }
