@@ -31,6 +31,7 @@ export interface SyncDriveResult {
   skipped: number;
   failed: number;
   lastPageToken: string;
+  importedFiles: ImportedFile[];
 }
 
 export async function syncDriveChanges(opts?: {
@@ -44,6 +45,7 @@ export async function syncDriveChanges(opts?: {
     skipped: 0,
     failed: 0,
     lastPageToken: '',
+    importedFiles: [],
   };
 
   const integration = await getDriveIntegration();
@@ -83,6 +85,7 @@ export async function syncDriveChanges(opts?: {
   let skipped = 0;
   let failed = 0;
   let pageToken = watch.pageToken;
+  const syncImportedFiles: ImportedFile[] = [];
 
   const { changes, nextPageToken } = await driveService.listChanges(
     token,
@@ -183,6 +186,11 @@ export async function syncDriveChanges(opts?: {
         mapping.driveFolderId,
       );
       imported++;
+      syncImportedFiles.push({
+        voucherId: createdVoucherId!,
+        filename: file.name || file.id,
+        clientId: mapping.clientId,
+      });
     } catch (err) {
       logger.warn({ err, fileId: file.id }, 'drive: move failed');
       if (createdVoucherId) {
@@ -217,6 +225,7 @@ export async function syncDriveChanges(opts?: {
     skipped,
     failed,
     lastPageToken: pageToken,
+    importedFiles: syncImportedFiles,
   };
 }
 
@@ -224,15 +233,34 @@ export async function syncDriveChanges(opts?: {
 // backfillDriveFiles: マッピング済みフォルダの既存ファイルを一括取り込む
 // ---------------------------------------------------------------------------
 
+export interface SkipReasons {
+  duplicate: number;   // 既に取り込み済み
+  tooLarge: number;    // ファイルサイズ超過
+  wrongType: number;   // 非対応形式
+}
+
+export interface ImportedFile {
+  voucherId: string;
+  filename: string;
+  clientId: string;
+}
+
 export interface BackfillResult {
   imported: number;
   skipped: number;
   failed: number;
+  skipReasons: SkipReasons;
+  importedFiles: ImportedFile[];
 }
 
 export async function backfillDriveFiles(): Promise<BackfillResult> {
+  const emptyResult: BackfillResult = {
+    imported: 0, skipped: 0, failed: 0,
+    skipReasons: { duplicate: 0, tooLarge: 0, wrongType: 0 },
+    importedFiles: [],
+  };
   const integration = await getDriveIntegration();
-  if (!integration) return { imported: 0, skipped: 0, failed: 0 };
+  if (!integration) return emptyResult;
 
   const token = await ensureDriveToken();
   const settings = (integration.settings as DriveSettings | null) ?? {};
@@ -243,6 +271,8 @@ export async function backfillDriveFiles(): Promise<BackfillResult> {
   let imported = 0;
   let skipped = 0;
   let failed = 0;
+  const skipReasons: SkipReasons = { duplicate: 0, tooLarge: 0, wrongType: 0 };
+  const importedFiles: ImportedFile[] = [];
 
   for (const mapping of mappings) {
     let files: DriveChangeFile[];
@@ -260,14 +290,14 @@ export async function backfillDriveFiles(): Promise<BackfillResult> {
         where: { driveFileId: file.id },
         select: { id: true },
       });
-      if (dup) { skipped++; continue; }
-      if (!ALLOWED_MIMES.has(file.mimeType)) { skipped++; continue; }
-      if (file.size > MAX_SIZE_BYTES) { skipped++; continue; }
+      if (dup) { skipped++; skipReasons.duplicate++; continue; }
+      if (!ALLOWED_MIMES.has(file.mimeType)) { skipped++; skipReasons.wrongType++; continue; }
+      if (file.size > MAX_SIZE_BYTES) { skipped++; skipReasons.tooLarge++; continue; }
 
       let createdVoucherId: string | null = null;
       try {
         const blob = await driveService.getFileBinary(token, file.id);
-        if (blob.buffer.byteLength > MAX_SIZE_BYTES) { skipped++; continue; }
+        if (blob.buffer.byteLength > MAX_SIZE_BYTES) { skipped++; skipReasons.tooLarge++; continue; }
         const meta = await createVoucher({
           clientId: mapping.clientId,
           filename: file.name || file.id,
@@ -300,6 +330,11 @@ export async function backfillDriveFiles(): Promise<BackfillResult> {
         }
         await driveService.moveFile(token, file.id, importedSubfolderId, mapping.driveFolderId);
         imported++;
+        importedFiles.push({
+          voucherId: createdVoucherId!,
+          filename: file.name || file.id,
+          clientId: mapping.clientId,
+        });
       } catch (err) {
         logger.warn({ err, fileId: file.id }, 'backfill: move failed');
         if (createdVoucherId) {
@@ -320,7 +355,7 @@ export async function backfillDriveFiles(): Promise<BackfillResult> {
     }
   }
 
-  return { imported, skipped, failed };
+  return { imported, skipped, failed, skipReasons, importedFiles };
 }
 
 function cryptoRandomId(): string {

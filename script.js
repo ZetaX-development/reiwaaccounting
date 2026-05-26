@@ -423,10 +423,23 @@ async function triggerDriveSync() {
     if (!res.ok) throw new Error('sync failed');
     appState.driveLastSync = await res.json();
     const s = appState.driveLastSync || {};
-    showToast(
-      `同期完了: imported=${s.imported ?? 0} skipped=${s.skipped ?? 0} failed=${s.failed ?? 0}`,
-    );
+    const importedCount = s.imported ?? 0;
+    if (importedCount > 0) {
+      showToast(`${importedCount}件の新しいファイルを取り込みました。`);
+    } else {
+      showToast('新着ファイルはありませんでした。');
+    }
     renderView();
+    if (importedCount > 0 && s.importedFiles?.length > 0) {
+      const clientId = s.importedFiles[0].clientId;
+      const idx = clients.findIndex(c => c.id === clientId);
+      if (idx >= 0) {
+        appState.activeClient = idx;
+        appState.voucherTab = clientId;
+        appState.vouchersLoadedTab = null;
+        location.hash = '#/vouchers';
+      }
+    }
   } catch (err) {
     showToast(friendlyError(err));
   }
