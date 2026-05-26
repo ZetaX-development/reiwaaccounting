@@ -20,6 +20,9 @@ function buildUserPrompt(args: {
   targetMonth: string;
   unmatchedCount: number;
   ownerLabel: string | null;
+  tasksOpen: number | null;
+  risk: number | null;
+  chatMessage: string | null;
 }): string {
   const countDesc =
     args.unmatchedCount > 0
@@ -32,6 +35,9 @@ function buildUserPrompt(args: {
 対象月: ${args.targetMonth}
 状況: ${countDesc}
 担当者名: ${args.ownerLabel || ''}
+タスク残数: ${args.tasksOpen || 0} 件
+リスクレベル: ${args.risk || '通常'}
+最終確認メモ: ${args.chatMessage || 'なし'}
 
 出力形式（JSON のみ、他のテキスト不要）:
 {"subject":"件名（50文字以内）","body":"本文（署名含む、300文字程度）"}`;
@@ -40,7 +46,15 @@ function buildUserPrompt(args: {
 export async function generateReminderDraft(clientId: string): Promise<ReminderDraft | null> {
   const client = await prisma.client.findUnique({
     where: { id: clientId },
-    select: { id: true, name: true, ownerLabel: true },
+    select: {
+      id: true,
+      name: true,
+      ownerLabel: true,
+      tasksOpen: true,
+      risk: true,
+      missing: true,
+      chatMessage: true,
+    },
   });
   if (!client) return null;
 
@@ -54,6 +68,9 @@ export async function generateReminderDraft(clientId: string): Promise<ReminderD
     targetMonth,
     unmatchedCount,
     ownerLabel: client.ownerLabel,
+    tasksOpen: client.tasksOpen,
+    risk: client.risk,
+    chatMessage: client.chatMessage,
   });
 
   const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });

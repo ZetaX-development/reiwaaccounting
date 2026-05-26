@@ -2,6 +2,7 @@ const appState = {
   activeClient: 0,
   activeView: "dashboard",
   activeFilter: "all",
+  mfReviewStatus: "pending",
   search: "",
   currentRole: (typeof localStorage !== "undefined" && localStorage.getItem("bookmee.role")) || "tax_accountant",
   expandedHistory: {}, // taskId -> bool
@@ -153,6 +154,23 @@ const viewContent = $("#viewContent");
 const toast = $("#toast");
 
 function currentClient() { return clients[appState.activeClient]; }
+
+function updateClientContextBar() {
+  const bar = document.getElementById('clientContextBar');
+  const nameEl = document.getElementById('clientContextName');
+  const eyebrowEl = document.getElementById('topbarEyebrow');
+  const defaultEyebrow = '2026年5月 月次レビュー';
+  if (!bar || !nameEl) return;
+  const c = currentClient();
+  if (c) {
+    nameEl.textContent = c.name;
+    bar.style.display = 'block';
+    if (eyebrowEl) eyebrowEl.textContent = `[${c.name}] · ${defaultEyebrow}`;
+  } else {
+    bar.style.display = 'none';
+    if (eyebrowEl) eyebrowEl.textContent = defaultEyebrow;
+  }
+}
 
 async function loadClientsFromApi() {
   try {
@@ -1089,9 +1107,11 @@ function renderClients() {
   clientChips.querySelectorAll("[data-client]").forEach((btn) => {
     btn.addEventListener("click", () => {
       appState.activeClient = Number(btn.dataset.client);
+      updateClientContextBar();
       render();
     });
   });
+  updateClientContextBar();
 }
 
 function vendorBadgeHtml(vendor) {
@@ -1962,13 +1982,15 @@ async function loadAndRenderMfReview(clientId) {
   const listEl = document.getElementById('mfReviewList');
   const processBtn = document.getElementById('mfReviewProcessBtn');
   const statusEl = document.getElementById('mfReviewStatus');
+  const status = appState.mfReviewStatus === 'approved' ? 'approved' : 'pending';
+  const isApprovedView = status === 'approved';
 
   if (!listEl) return;
 
-  // Fetch pending reviews
+  // Fetch reviews by selected status.
   let data;
   try {
-    const res = await apiFetch(`/api/clients/${clientId}/mf/journal-reviews?status=pending`);
+    const res = await apiFetch(`/api/clients/${clientId}/mf/journal-reviews?status=${encodeURIComponent(status)}`);
     if (!res.ok) throw new Error('fetch failed');
     data = await res.json();
   } catch (err) {
@@ -1980,11 +2002,17 @@ async function loadAndRenderMfReview(clientId) {
   const pendingCount = data.pendingCount ?? 0;
 
   if (statusEl) {
-    statusEl.textContent = pendingCount > 0 ? `確認待ち ${pendingCount} 件` : '確認待ちなし';
+    if (isApprovedView) {
+      statusEl.textContent = reviews.length > 0 ? `完了 ${reviews.length} 件` : '完了一覧はありません';
+    } else {
+      statusEl.textContent = pendingCount > 0 ? `確認待ち ${pendingCount} 件` : '確認待ちなし';
+    }
   }
 
   if (reviews.length === 0) {
-    listEl.innerHTML = '<div class="empty-state">レビュー待ちの仕訳はありません。AI処理を実行すると摘要が空の仕訳を自動チェックします。</div>';
+    listEl.innerHTML = isApprovedView
+      ? '<div class="empty-state">完了一覧はまだありません。</div>'
+      : '<div class="empty-state">レビュー待ちの仕訳はありません。AI処理を実行すると摘要が空の仕訳を自動チェックします。</div>';
   } else {
     let h = '<table class="data-table" style="width:100%">';
     h += '<thead><tr>';
@@ -1999,11 +2027,19 @@ async function loadAndRenderMfReview(clientId) {
       h += `<td>${escapeHtml(r.debitAccount ?? '')}</td>`;
       h += `<td>${escapeHtml(r.creditAccount ?? '')}</td>`;
       h += `<td style="text-align:right">¥${(r.amount ?? 0).toLocaleString('ja-JP')}</td>`;
-      h += `<td><input class="mf-review-memo-input" style="width:100%;box-sizing:border-box;padding:2px 6px;font-size:13px;border:1px solid #ddd;border-radius:4px" value="${escapeHtml(r.aiMemo ?? '')}" data-review-id="${r.id}" /></td>`;
+      if (isApprovedView) {
+        h += `<td>${escapeHtml(r.aiMemo ?? '—')}</td>`;
+      } else {
+        h += `<td><input class="mf-review-memo-input" style="width:100%;box-sizing:border-box;padding:2px 6px;font-size:13px;border:1px solid #ddd;border-radius:4px" value="${escapeHtml(r.aiMemo ?? '')}" data-review-id="${r.id}" /></td>`;
+      }
       h += `<td style="${confClass};text-align:right">${conf}%</td>`;
       h += `<td>`;
-      h += `<button class="row-action" style="margin-right:4px" data-action="mf-review-approve" data-review-id="${r.id}">承認してMFへ</button>`;
-      h += `<button class="row-action" style="color:#666" data-action="mf-review-skip" data-review-id="${r.id}">スキップ</button>`;
+      if (isApprovedView) {
+        h += `<span style="color:#666">完了</span>`;
+      } else {
+        h += `<button class="row-action" style="margin-right:4px" data-action="mf-review-approve" data-review-id="${r.id}">承認してMFへ</button>`;
+        h += `<button class="row-action" style="color:#666" data-action="mf-review-skip" data-review-id="${r.id}">スキップ</button>`;
+      }
       h += `</td>`;
       h += '</tr>';
     }
@@ -2877,8 +2913,10 @@ function renderVoucherRegister() {
       }
 
       return `
-      <div class="voucher-card" data-voucher-id="${v.id}" draggable="true">
-        <img src="/api/vouchers/${v.id}/image" alt="${escapeHtml(v.filename)}" />
+      <div class="voucher-card" data-voucher-id="${v.id}" data-mime-type="${escapeHtml(v.mimeType || '')}" draggable="true">
+        ${String(v.mimeType || '').toLowerCase().includes('pdf')
+          ? '<div class="voucher-pdf-thumb">📄</div>'
+          : `<img src="/api/vouchers/${v.id}/image" alt="${escapeHtml(v.filename)}" />`}
         <button class="voucher-delete" data-voucher-delete="${v.id}" aria-label="削除">×</button>
         <div class="voucher-meta">
           <div class="voucher-filename">${escapeHtml(v.filename)}${sourceBadge}</div>
@@ -3698,6 +3736,11 @@ function renderView() {
       card.addEventListener('click', (e) => {
         if (e.target.closest('[data-voucher-delete]')) return;
         const id = card.dataset.voucherId;
+        const mimeType = String(card.dataset.mimeType || '').toLowerCase();
+        if (mimeType.includes('pdf')) {
+          window.open(`/api/vouchers/${id}/image`, '_blank');
+          return;
+        }
         const modal = document.querySelector('#voucherModal');
         const img = document.querySelector('#voucherModalImg');
         if (modal && img) {
@@ -4266,7 +4309,21 @@ function renderNav() {
     button.classList.toggle("active", button.dataset.view === appState.activeView);
   });
   document.querySelectorAll(".segment").forEach((button) => {
-    button.classList.toggle("active", button.dataset.filter === appState.activeFilter);
+    const filter = button.dataset.filter;
+    const isMfReview = appState.activeView === "mf-review";
+    if (isMfReview) {
+      if (filter === "all") {
+        button.style.display = "none";
+        button.classList.remove("active");
+        return;
+      }
+      button.style.display = "";
+      const currentFilter = appState.mfReviewStatus === "approved" ? "done" : "urgent";
+      button.classList.toggle("active", filter === currentFilter);
+      return;
+    }
+    button.style.display = "";
+    button.classList.toggle("active", filter === appState.activeFilter);
   });
 }
 
@@ -4295,7 +4352,18 @@ document.querySelectorAll(".nav-item").forEach((button) => {
 });
 
 document.querySelectorAll(".segment").forEach((button) => {
-  button.addEventListener("click", () => { appState.activeFilter = button.dataset.filter; render(); });
+  button.addEventListener("click", () => {
+    const selectedFilter = button.dataset.filter;
+    if (appState.activeView === "mf-review") {
+      appState.mfReviewStatus = selectedFilter === "done" ? "approved" : "pending";
+      renderNav();
+      const c = currentClient();
+      if (c?.id) loadAndRenderMfReview(c.id);
+      return;
+    }
+    appState.activeFilter = selectedFilter;
+    render();
+  });
 });
 
 $("#searchInput").addEventListener("input", (event) => {
@@ -4405,6 +4473,15 @@ if (logoutBtn) {
   });
 }
 
+const clientContextClear = $("#clientContextClear");
+if (clientContextClear) {
+  clientContextClear.addEventListener("click", () => {
+    appState.activeClient = 0;
+    updateClientContextBar();
+    render();
+  });
+}
+
 // Sidebar accordion: 月次業務 parent toggles its sub-items, then jumps to 仕訳.
 const jobsSub = $("#jobsSub");
 document.querySelectorAll('[data-view-group="jobs"]').forEach((btn) => {
@@ -4439,5 +4516,8 @@ document.querySelectorAll('[data-view-group="jobs"]').forEach((btn) => {
     console.warn('Failed to fetch /api/auth/me', e);
   }
 
-  loadClientsFromApi().finally(() => applyHashRoute(true));
+  loadClientsFromApi().finally(() => {
+    updateClientContextBar();
+    applyHashRoute(true);
+  });
 })();

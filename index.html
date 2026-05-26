@@ -59,6 +59,14 @@
           </span>
         </a>
 
+        <div id="clientContextBar" style="display:none;padding:.5rem 1rem .5rem;border-bottom:1px solid #e3e7ee;margin-bottom:.5rem">
+          <p style="font-size:.7rem;color:#8899aa;margin:0 0 2px">選択中の顧問先</p>
+          <div style="display:flex;align-items:center;gap:.4rem">
+            <strong id="clientContextName" style="font-size:.9rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:140px"></strong>
+            <button id="clientContextClear" style="font-size:.7rem;color:#8899aa;border:none;background:none;cursor:pointer;padding:0;flex-shrink:0">✕</button>
+          </div>
+        </div>
+
         <nav class="main-nav" aria-label="メイン">
           <p class="nav-group-label">今日</p>
           <button class="nav-item active" data-view="dashboard">ToDo</button>
@@ -70,6 +78,7 @@
           </button>
           <div class="nav-sub" id="jobsSub">
             <button class="nav-item nav-sub-item" data-view="jobs-journal">仕訳</button>
+            <button class="nav-item nav-sub-item" data-view="mf-review">摘要レビュー</button>
             <button class="nav-item nav-sub-item" data-view="jobs-vouchers">証憑</button>
             <button class="nav-item nav-sub-item" data-view="jobs-monthly-check">月次チェック</button>
           </div>
@@ -93,7 +102,7 @@
       <main class="workspace">
         <header class="topbar">
           <div>
-            <p class="eyebrow">2026年5月 月次レビュー</p>
+            <p class="eyebrow" id="topbarEyebrow">2026年5月 月次レビュー</p>
             <h1 id="topbarTitle">
               <span class="mode-toggle" id="modeToggle">
                 <button class="mode-btn active" data-mode="monthly">月次</button>
