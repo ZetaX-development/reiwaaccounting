@@ -349,7 +349,12 @@ async function writeMfJournal(id) {
     }
     showToast('MoneyForwardへの入力を開始しました。');
     appState.matchingLoadedTab = null;
-    await loadMatchingData();
+    appState.vouchersLoadedTab = null;
+    if (appState.activeView === 'vouchers-register') {
+      await loadVouchers();
+    } else {
+      await loadMatchingData();
+    }
   } catch (err) {
     showToast(friendlyError(err));
   }
@@ -2635,6 +2640,27 @@ function renderVoucherRegister() {
       const captionHtml = v.caption
         ? `<div class="voucher-caption">${escapeHtml(v.caption)}</div>`
         : '';
+
+      // MF 仕訳登録状態
+      const mfStatus = v.mfWriteStatus;
+      let mfHtml = '';
+      const js = v.journalStatus || 'none';
+      if (js !== 'none' && js !== 'drafting') {
+        const mfBadge = mfStatus === 'done'
+          ? '<span class="voucher-mf-badge mf-done">MF登録済</span>'
+          : mfStatus === 'writing' || mfStatus === 'pending'
+            ? '<span class="voucher-mf-badge mf-writing"><span class="spinner-sm"></span>MF入力中</span>'
+            : mfStatus === 'failed'
+              ? `<span class="voucher-mf-badge mf-failed" title="${escapeHtml(v.mfWriteError || '')}">MF失敗</span>`
+              : '';
+        const mfBtn = mfStatus !== 'done' && mfStatus !== 'writing' && mfStatus !== 'pending'
+          ? `<button class="voucher-mfwrite-btn" data-voucher-mfwrite="${v.id}">MFに登録</button>`
+          : '';
+        if (mfBadge || mfBtn) {
+          mfHtml = `<div class="voucher-mf-row">${mfBadge}${mfBtn}</div>`;
+        }
+      }
+
       return `
       <div class="voucher-card" data-voucher-id="${v.id}" draggable="true">
         <img src="/api/vouchers/${v.id}/image" alt="${escapeHtml(v.filename)}" />
@@ -2646,6 +2672,7 @@ function renderVoucherRegister() {
         ${captionHtml}
         ${ocrHtml}
         ${matchHtml}
+        ${mfHtml}
       </div>
     `;
     })
@@ -3330,6 +3357,12 @@ function renderView() {
         } catch (err) {
           showToast(friendlyError(err));
         }
+      });
+    });
+    viewContent.querySelectorAll('[data-voucher-mfwrite]').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        writeMfJournal(btn.dataset.voucherMfwrite);
       });
     });
     viewContent.querySelectorAll('.voucher-card').forEach((card) => {
