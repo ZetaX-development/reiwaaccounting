@@ -30,7 +30,6 @@ const AUTH_BYPASS = new Set([
   '/api/health',
   '/api/mf/oauth/start',
   '/api/mf/oauth/callback',
-  '/api/integrations/drive/debug-env',
   '/api/integrations/drive/oauth/authorize',
   '/api/integrations/drive/oauth/callback',
   '/api/integrations/drive/webhook',

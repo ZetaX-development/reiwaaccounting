@@ -31,16 +31,6 @@ function webhookUrl(): string {
 }
 
 export async function integrationsDriveRoutes(app: FastifyInstance) {
-  // Temporary debug endpoint — remove after confirming env vars on Railway.
-  app.get('/api/integrations/drive/debug-env', async () => {
-    return {
-      GOOGLE_CLIENT_ID_length: env.GOOGLE_CLIENT_ID?.length ?? 0,
-      GOOGLE_CLIENT_SECRET_length: env.GOOGLE_CLIENT_SECRET?.length ?? 0,
-      GOOGLE_REDIRECT_URI: env.GOOGLE_REDIRECT_URI,
-      GOOGLE_DRIVE_WEBHOOK_BASE_URL: env.GOOGLE_DRIVE_WEBHOOK_BASE_URL,
-    };
-  });
-
   // -------------------------------------------------------------------------
   // Connection status
   // -------------------------------------------------------------------------
