@@ -60,6 +60,9 @@ const schema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().default(''),
   SUPABASE_JWT_SECRET: z.string().default(''),
   SUPABASE_JWT_AUDIENCE: z.string().default('authenticated'),
+
+  // Local dev only: bypass Supabase auth and use demo-firm
+  DEV_BYPASS_AUTH: z.coerce.boolean().default(false),
 });
 
 export type Env = z.infer<typeof schema>;

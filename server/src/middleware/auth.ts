@@ -39,6 +39,17 @@ export async function requireAuth(
   req: FastifyRequest,
   reply: FastifyReply,
 ): Promise<void> {
+  // Local dev bypass: skip JWT and use demo-firm
+  if (env.DEV_BYPASS_AUTH && env.NODE_ENV !== 'production') {
+    req.user = {
+      authUserId: 'dev-user',
+      firmId: 'demo-firm',
+      role: 'owner',
+      email: 'dev@localhost',
+    };
+    return;
+  }
+
   const auth = req.headers.authorization;
   if (!auth?.startsWith('Bearer ')) {
     return reply.code(401).send({ error: { code: 'UNAUTHORIZED' } });

@@ -384,7 +384,7 @@ interface MfAccountsResponse {
 
 /** 勘定科目名 → IDのマップを返す */
 export async function fetchAccountMap(token: string): Promise<Map<string, string>> {
-  const res = await mfGet<MfAccountsResponse>(token, '/api/v3/accounts?per_page=200');
+  const res = await mfGet<MfAccountsResponse>(token, '/api/v3/accounts');
   const map = new Map<string, string>();
   for (const a of res?.accounts ?? []) {
     map.set(a.name, a.id);
@@ -420,14 +420,19 @@ export async function createJournalEntry(
   const body = {
     journal: {
       transaction_date: input.transactionDate,
+      journal_type: 'journal_entry',
       memo: input.description,
-      branches_attributes: [
+      branches: [
         {
-          debitor_account_id: input.debitAccountId,
-          debitor_value: input.amount,
-          ...(input.debitTaxName ? { debitor_tax_name: input.debitTaxName } : {}),
-          creditor_account_id: input.creditAccountId,
-          creditor_value: input.amount,
+          remark: input.description,
+          debitor: {
+            account_id: input.debitAccountId,
+            value: input.amount,
+          },
+          creditor: {
+            account_id: input.creditAccountId,
+            value: input.amount,
+          },
         },
       ],
     },

@@ -18,19 +18,27 @@
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImttZ2ptbGNpamhnYXFkZHRqZG91Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MDI0MDEsImV4cCI6MjA5NTI3ODQwMX0.oX5bfJ-FRb6LWFmzR479IqPtx3sU_ZWaDtX_S41-EtU';
         const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-        window.__sessionPromise = sb.auth.getSession().then(function (result) {
-          var session = result.data && result.data.session;
-          if (!session) {
-            window.location.href = '/login.html?redirect=' + encodeURIComponent(location.pathname + location.search + location.hash);
-            return null;
-          }
-          window.__bookmeeSession = session;
-          sb.auth.onAuthStateChange(function (event, s) {
-            if (!s) { window.location.href = '/login.html'; }
-            else { window.__bookmeeSession = s; }
+        // localhost では Supabase 認証をバイパス（DEV_BYPASS_AUTH と対になる）
+        var isLocalDev = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+        if (isLocalDev) {
+          var devSession = { user: { id: 'dev-user', email: 'dev@localhost' }, access_token: 'dev-token' };
+          window.__bookmeeSession = devSession;
+          window.__sessionPromise = Promise.resolve(devSession);
+        } else {
+          window.__sessionPromise = sb.auth.getSession().then(function (result) {
+            var session = result.data && result.data.session;
+            if (!session) {
+              window.location.href = '/login.html?redirect=' + encodeURIComponent(location.pathname + location.search + location.hash);
+              return null;
+            }
+            window.__bookmeeSession = session;
+            sb.auth.onAuthStateChange(function (event, s) {
+              if (!s) { window.location.href = '/login.html'; }
+              else { window.__bookmeeSession = s; }
+            });
+            return session;
           });
-          return session;
-        });
+        }
 
         window.__bookmeeSignOut = function () {
           return sb.auth.signOut().then(function () {

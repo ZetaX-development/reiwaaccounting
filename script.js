@@ -18,6 +18,8 @@ const appState = {
   driveFolders: [],
   driveMappings: [],
   driveLastSync: null,
+  driveLastBackfill: null,
+  driveVouchers: [],
   driveLoadedAt: null,
   lineIntegration: null,
   lineUsers: [],
@@ -350,7 +352,10 @@ async function writeMfJournal(id) {
     showToast('MoneyForwardへの入力を開始しました。');
     appState.matchingLoadedTab = null;
     appState.vouchersLoadedTab = null;
-    if (appState.activeView === 'vouchers-register') {
+    if (appState.activeView === 'integrations-drive') {
+      await loadDriveVouchers();
+      renderView();
+    } else if (appState.activeView === 'vouchers-register') {
       await loadVouchers();
     } else {
       await loadMatchingData();
@@ -417,6 +422,24 @@ async function loadDriveFolders() {
   }
 }
 
+async function loadDriveVouchers() {
+  const mappings = appState.driveMappings || [];
+  if (mappings.length === 0) { appState.driveVouchers = []; return; }
+  const clientIds = [...new Set(mappings.map(m => m.clientId).filter(Boolean))];
+  let all = [];
+  for (const cid of clientIds) {
+    try {
+      const res = await apiFetch(`/api/vouchers?clientId=${encodeURIComponent(cid)}`);
+      if (!res.ok) continue;
+      const data = await res.json();
+      const list = Array.isArray(data) ? data : (data.vouchers || data);
+      all = all.concat(list.filter(v => v.source === 'drive'));
+    } catch (_) {}
+  }
+  all.sort((a, b) => new Date(b.uploadedAt) - new Date(a.uploadedAt));
+  appState.driveVouchers = all;
+}
+
 async function triggerDriveSync() {
   try {
     const res = await apiFetch('/api/integrations/drive/sync', { method: 'POST' });
@@ -430,16 +453,8 @@ async function triggerDriveSync() {
       showToast('新着ファイルはありませんでした。');
     }
     renderView();
-    if (importedCount > 0 && s.importedFiles?.length > 0) {
-      const clientId = s.importedFiles[0].clientId;
-      const idx = clients.findIndex(c => c.id === clientId);
-      if (idx >= 0) {
-        appState.activeClient = idx;
-        appState.voucherTab = clientId;
-        appState.vouchersLoadedTab = null;
-        location.hash = '#/vouchers';
-      }
-    }
+    await loadDriveVouchers();
+    renderView();
   } catch (err) {
     showToast(friendlyError(err));
   }
@@ -452,35 +467,22 @@ async function triggerDriveBackfill() {
     const s = await res.json();
     appState.driveLastBackfill = s;
     const r = s.skipReasons || {};
-    let skipDetail = '';
-    if ((s.skipped ?? 0) > 0) {
+    const importedCount = s.imported ?? 0;
+    const skippedCount = s.skipped ?? 0;
+    if (importedCount > 0) {
+      showToast(`${importedCount}件の画像を取り込みました。`);
+    } else if (skippedCount > 0) {
       const parts = [];
       if (r.duplicate) parts.push(`重複${r.duplicate}件`);
       if (r.tooLarge) parts.push(`容量超${r.tooLarge}件`);
       if (r.wrongType) parts.push(`形式NG${r.wrongType}件`);
-      if (parts.length) skipDetail = ` (${parts.join('、')})`;
-    }
-    const importedCount = s.imported ?? 0;
-    const skippedCount = s.skipped ?? 0;
-    if (importedCount > 0) {
-      showToast(`${importedCount}件取り込みました。証憑一覧で確認できます。`);
-    } else if (skippedCount > 0) {
-      showToast(`スキップ: ${skippedCount}件${skipDetail}`);
+      const detail = parts.length ? ` (${parts.join('、')})` : '';
+      showToast(`スキップ: ${skippedCount}件${detail}`);
     } else {
       showToast('取込対象ファイルがありませんでした。');
     }
+    await loadDriveVouchers();
     renderView();
-    // 取込成功時は該当顧問先の証憑一覧へ遷移
-    if (importedCount > 0 && s.importedFiles?.length > 0) {
-      const clientId = s.importedFiles[0].clientId;
-      const idx = clients.findIndex(c => c.id === clientId);
-      if (idx >= 0) {
-        appState.activeClient = idx;
-        appState.voucherTab = clientId;
-        appState.vouchersLoadedTab = null;
-        location.hash = '#/vouchers';
-      }
-    }
   } catch (err) {
     showToast(friendlyError(err));
   }
@@ -515,18 +517,22 @@ async function deleteDriveMapping(id) {
   }
 }
 
-async function saveDriveSettings(rootFolderId, importedSubfolderName) {
+async function saveDriveSettings(rootFolderInput) {
   try {
+    // URL形式 (https://drive.google.com/drive/folders/XXXX) からIDを抽出
+    let rootFolderId = (rootFolderInput || '').trim();
+    const urlMatch = rootFolderId.match(/\/folders\/([a-zA-Z0-9_-]+)/);
+    if (urlMatch) rootFolderId = urlMatch[1];
     const res = await apiFetch('/api/integrations/drive/settings', {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ rootFolderId, importedSubfolderName }),
+      body: JSON.stringify({ rootFolderId }),
     });
     if (!res.ok) throw new Error('save settings failed');
     await loadDriveStatus();
     await loadDriveFolders();
     renderView();
-    showToast('Drive 設定を保存しました');
+    showToast('フォルダを設定しました');
   } catch (err) {
     showToast(friendlyError(err));
   }
@@ -2999,154 +3005,203 @@ function renderIntegrationsDrive() {
   const integ = appState.driveIntegration;
   const folders = appState.driveFolders || [];
   const mappings = appState.driveMappings || [];
-  const last = appState.driveLastSync;
+  const driveVouchers = appState.driveVouchers || [];
 
-  let connectionPanel;
+  // 未接続
   if (!integ || !integ.connected) {
-    connectionPanel = `
-      <div class="integration-panel integration-drive-connection">
-        <h3>接続</h3>
-        <p class="muted">Google Drive と連携すると、指定したフォルダの画像が自動で Voucher として取り込まれます。</p>
-        <p><a class="primary-btn" href="/api/integrations/drive/oauth/authorize">Google と連携</a></p>
-      </div>
-    `;
-  } else {
-    const settings = integ.settings || {};
-    const expires = integ.watchExpiresAt
-      ? new Date(integ.watchExpiresAt).toLocaleString('ja-JP')
-      : '未登録';
-    const statusBadgeClass =
-      integ.status === 'ok'
-        ? 'ok'
-        : integ.status === 'reauth_required' || integ.status === 'watch_failed'
-          ? 'error'
-          : 'warn';
-    connectionPanel = `
-      <div class="integration-panel integration-drive-connection">
-        <h3>接続</h3>
-        <p>
-          <span class="muted">アカウント:</span> <strong>${escapeHtml(integ.email || '—')}</strong>
-          <span class="integration-status-badge ${statusBadgeClass}">${escapeHtml(integ.status || 'ok')}</span>
-        </p>
-        <p class="muted">watch channel 期限: ${escapeHtml(expires)}</p>
-        <div style="margin-top: 12px;">
-          <label style="display:block; font-size:12px; margin-bottom:4px;">ルートフォルダ ID</label>
-          <input type="text" id="driveRootFolderId" value="${escapeHtml(settings.rootFolderId || '')}"
-                 placeholder="folder id (空欄なら My Drive ルート)"
-                 style="width:100%; padding:6px 8px; font-family:monospace; font-size:12px;" />
+    return `
+      <section class="integrations-drive">
+        <div class="integration-panel">
+          <h3>Google Drive 連携</h3>
+          <p class="muted">レシート画像を保存しているフォルダを連携すると、自動で証憑として取り込まれます。</p>
+          <a class="primary-btn" href="/api/integrations/drive/oauth/authorize">Google アカウントで連携する</a>
         </div>
-        <div style="margin-top: 8px;">
-          <label style="display:block; font-size:12px; margin-bottom:4px;">取り込み済みフォルダ名</label>
-          <input type="text" id="driveImportedSubfolderName"
-                 value="${escapeHtml(settings.importedSubfolderName || '')}"
-                 placeholder="例: 取り込み済"
-                 style="width:100%; padding:6px 8px; font-size:12px;" />
-        </div>
-        <div style="margin-top: 12px; display:flex; gap:8px;">
-          <button class="primary-btn" data-drive-action="save-settings">保存</button>
-          <button class="ghost-btn" data-drive-action="disconnect">切断</button>
-        </div>
-      </div>
+      </section>
     `;
   }
 
-  let mappingsPanel = '';
-  if (integ && integ.connected) {
-    const mappingByFolderId = Object.fromEntries(
-      mappings.map((m) => [m.driveFolderId, m]),
-    );
+  const settings = integ.settings || {};
+  const expires = integ.watchExpiresAt
+    ? new Date(integ.watchExpiresAt).toLocaleString('ja-JP')
+    : null;
+
+  // Step 1: フォルダ設定
+  const folderSettingsPanel = `
+    <div class="integration-panel">
+      <h3>フォルダ設定</h3>
+      <p class="muted">レシートを保存している Google Drive フォルダの URL を貼り付けてください。</p>
+      <div style="display:flex;gap:8px;align-items:flex-end;">
+        <div style="flex:1;">
+          <input type="text" id="driveRootFolderUrl"
+            value="${escapeHtml(settings.rootFolderId || '')}"
+            placeholder="https://drive.google.com/drive/folders/..."
+            style="width:100%;padding:8px;font-size:13px;border:1px solid var(--line);border-radius:6px;" />
+        </div>
+        <button class="primary-btn" data-drive-action="save-settings">設定</button>
+      </div>
+      <div style="margin-top:12px;display:flex;justify-content:space-between;align-items:center;font-size:12px;">
+        <span class="muted">${escapeHtml(integ.email || '')} で接続中${expires ? ' · watch 期限: ' + escapeHtml(expires) : ''}</span>
+        <button class="ghost-btn" style="font-size:11px;" data-drive-action="disconnect">連携解除</button>
+      </div>
+    </div>
+  `;
+
+  // Step 2: 顧問先の割り当て
+  let mappingPanel = '';
+  if (settings.rootFolderId) {
+    const mappingByFolderId = Object.fromEntries(mappings.map(m => [m.driveFolderId, m]));
+
     const clientOptionsHtml = (selectedId) => {
       const head = `<option value="">— 顧問先を選択 —</option>`;
-      const rest = (clients || [])
-        .map(
-          (c) =>
-            `<option value="${escapeHtml(c.id)}"${c.id === selectedId ? ' selected' : ''}>${escapeHtml(c.name)}</option>`,
-        )
-        .join('');
+      const rest = (clients || []).map(c =>
+        `<option value="${escapeHtml(c.id)}"${c.id === selectedId ? ' selected' : ''}>${escapeHtml(c.name)}</option>`
+      ).join('');
       return head + rest;
     };
 
-    const folderRows = folders
-      .map((f) => {
+    let mappingContent;
+    if (folders.length === 0) {
+      // サブフォルダなし → ルートフォルダ直接マッピング
+      const existingRoot = mappingByFolderId[settings.rootFolderId];
+      const assignedName = existingRoot
+        ? escapeHtml((clients || []).find(c => c.id === existingRoot.clientId)?.name || existingRoot.clientId)
+        : '';
+      mappingContent = `
+        <p class="muted" style="font-size:13px;margin-bottom:8px;">このフォルダ内の画像を取り込む顧問先を選択してください：</p>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <select id="driveRootClientSelect" style="flex:1;min-width:160px;padding:8px;border:1px solid var(--line);border-radius:6px;">
+            ${clientOptionsHtml(existingRoot?.clientId)}
+          </select>
+          <button class="primary-btn" data-drive-action="map-root-folder">割り当てる</button>
+          ${existingRoot ? `<button class="ghost-btn" data-drive-mapping-delete="${escapeHtml(existingRoot.id)}">解除</button>` : ''}
+        </div>
+        ${existingRoot ? `<p style="font-size:12px;color:var(--green);margin-top:8px;">✓ ${assignedName} に割り当て済み</p>` : ''}
+      `;
+    } else {
+      const rows = folders.map(f => {
         const existing = mappingByFolderId[f.id];
-        return `
-        <tr>
-          <td>${escapeHtml(f.name)}</td>
-          <td><code style="font-size:11px;">${escapeHtml(f.id)}</code></td>
-          <td>
-            <select data-drive-mapping-select="${escapeHtml(f.id)}" data-drive-folder-name="${escapeHtml(f.name)}">
+        return `<tr>
+          <td style="padding:8px 4px;">${escapeHtml(f.name)}</td>
+          <td style="padding:8px 4px;">
+            <select data-drive-mapping-select="${escapeHtml(f.id)}" data-drive-folder-name="${escapeHtml(f.name)}"
+                    style="width:100%;padding:6px;border:1px solid var(--line);border-radius:4px;">
               ${clientOptionsHtml(existing?.clientId)}
             </select>
           </td>
-          <td>
-            <button class="primary-btn" data-drive-mapping-save="${escapeHtml(f.id)}">保存</button>
-            ${existing ? `<button class="ghost-btn" data-drive-mapping-delete="${escapeHtml(existing.id)}" title="解除">×</button>` : ''}
+          <td style="padding:8px 4px;white-space:nowrap;">
+            <button class="primary-btn" style="font-size:12px;" data-drive-mapping-save="${escapeHtml(f.id)}">保存</button>
+            ${existing ? `<button class="ghost-btn" style="font-size:12px;" data-drive-mapping-delete="${escapeHtml(existing.id)}">×</button>` : ''}
           </td>
-        </tr>
+        </tr>`;
+      }).join('');
+      const orphanRows = mappings
+        .filter(m => !folders.find(f => f.id === m.driveFolderId))
+        .map(m => `<tr>
+          <td style="padding:8px 4px;">${escapeHtml(m.folderName)}<span class="muted"> (非表示)</span></td>
+          <td style="padding:8px 4px;">${escapeHtml((clients||[]).find(c=>c.id===m.clientId)?.name||m.clientId)}</td>
+          <td style="padding:8px 4px;"><button class="ghost-btn" style="font-size:12px;" data-drive-mapping-delete="${escapeHtml(m.id)}">×</button></td>
+        </tr>`).join('');
+      mappingContent = `
+        <table style="width:100%;border-collapse:collapse;">
+          <thead><tr style="font-size:12px;color:var(--muted);">
+            <th style="text-align:left;padding:4px;">フォルダ名</th>
+            <th style="text-align:left;padding:4px;">顧問先</th>
+            <th></th>
+          </tr></thead>
+          <tbody>${rows}${orphanRows}</tbody>
+        </table>
       `;
-      })
-      .join('');
+    }
 
-    const orphanRows = mappings
-      .filter((m) => !folders.find((f) => f.id === m.driveFolderId))
-      .map(
-        (m) => `
-          <tr>
-            <td>${escapeHtml(m.folderName)} <span class="muted">(未表示)</span></td>
-            <td><code style="font-size:11px;">${escapeHtml(m.driveFolderId)}</code></td>
-            <td>${escapeHtml((clients || []).find((c) => c.id === m.clientId)?.name || m.clientId)}</td>
-            <td><button class="ghost-btn" data-drive-mapping-delete="${escapeHtml(m.id)}">×</button></td>
-          </tr>
-        `,
-      )
-      .join('');
-
-    mappingsPanel = `
-      <div class="integration-panel drive-folder-mappings">
-        <h3>フォルダ → 顧問先 mapping</h3>
-        <p class="muted">ルートフォルダ直下のサブフォルダを bookmee の顧問先に割り当てます。割当てたフォルダに画像を入れると Voucher として取り込まれます。</p>
-        ${
-          folders.length === 0 && orphanRows.length === 0
-            ? '<p class="muted">サブフォルダが見つかりません。ルートフォルダ ID を確認してください。</p>'
-            : `<table class="drive-mappings-table">
-              <thead>
-                <tr><th>フォルダ名</th><th>Drive ID</th><th>顧問先</th><th></th></tr>
-              </thead>
-              <tbody>${folderRows}${orphanRows}</tbody>
-            </table>`
-        }
+    mappingPanel = `
+      <div class="integration-panel">
+        <h3>顧問先の割り当て</h3>
+        ${mappingContent}
       </div>
     `;
   }
 
+  // Step 3: 同期ボタン（マッピングがある場合のみ）
   let syncPanel = '';
-  if (integ && integ.connected) {
-    const lastHtml = last
-      ? `<ul class="muted" style="margin:8px 0 0; padding-left:16px; font-size:12px;">
-          <li>imported: <strong>${last.imported ?? 0}</strong></li>
-          <li>skipped: <strong>${last.skipped ?? 0}</strong></li>
-          <li>failed: <strong>${last.failed ?? 0}</strong></li>
-          <li>pageToken: <code>${escapeHtml(last.lastPageToken || last.pageToken || '—')}</code></li>
-        </ul>`
-      : '<p class="muted" style="font-size:12px;">まだ同期されていません。</p>';
+  if (mappings.length > 0) {
     syncPanel = `
-      <div class="integration-panel drive-sync">
-        <h3>同期</h3>
+      <div class="integration-panel">
+        <h3>取り込み</h3>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="primary-btn" data-drive-action="sync">今すぐ同期</button>
-          <button class="secondary-btn" data-drive-action="backfill">既存ファイルを取り込む</button>
+          <button class="primary-btn" data-drive-action="backfill">フォルダの画像をすべて取り込む</button>
+          <button class="ghost-btn" data-drive-action="sync">新着のみ同期</button>
         </div>
-        <p class="muted" style="font-size:11px;margin-top:6px;">「今すぐ同期」は連携後の新着のみ。「既存ファイルを取り込む」は連携前からあるファイルを対象にします。</p>
-        ${lastHtml}
+        <p class="muted" style="font-size:11px;margin-top:6px;">初回は「すべて取り込む」を押してください。</p>
+      </div>
+    `;
+  }
+
+  // Step 4: 取り込み済み証憑一覧
+  let vouchersPanel = '';
+  if (driveVouchers.length > 0) {
+    const rows = driveVouchers.slice(0, 20).map(v => {
+      const ocrBadge = v.ocrStatus === 'done'
+        ? '<span style="color:var(--green);font-size:11px;">OCR済</span>'
+        : v.ocrStatus === 'failed'
+        ? '<span style="color:var(--red);font-size:11px;">OCR失敗</span>'
+        : '<span style="color:var(--amber);font-size:11px;">処理中</span>';
+
+      const mfBadge = v.mfWriteStatus === 'done'
+        ? '<span style="color:var(--green);font-size:11px;">MF登録済</span>'
+        : v.mfWriteStatus === 'failed'
+        ? `<span style="color:var(--red);font-size:11px;" title="${escapeHtml(v.mfWriteError||'')}">MF失敗</span>`
+        : v.mfWriteStatus === 'writing' || v.mfWriteStatus === 'pending'
+        ? '<span style="color:var(--amber);font-size:11px;">MF登録中</span>'
+        : '';
+
+      const canMfWrite = v.journalStatus && v.journalStatus !== 'none'
+        && v.mfWriteStatus !== 'done' && v.mfWriteStatus !== 'writing' && v.mfWriteStatus !== 'pending';
+      const mfBtn = canMfWrite
+        ? `<button class="primary-btn" style="font-size:11px;padding:3px 8px;" data-voucher-mf-write="${escapeHtml(v.id)}">MFに登録</button>`
+        : '';
+
+      const clientName = escapeHtml((clients||[]).find(c=>c.id===v.clientId)?.name||'');
+      const fname = escapeHtml((v.filename||v.id).replace(/^drive_/, ''));
+
+      return `<tr style="border-bottom:1px solid var(--line);">
+        <td style="padding:6px 4px;font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(v.filename||'')}">
+          <a href="/api/vouchers/${escapeHtml(v.id)}/image" target="_blank" style="color:var(--blue);">${fname}</a>
+        </td>
+        <td style="padding:6px 4px;font-size:11px;color:var(--muted);">${clientName}</td>
+        <td style="padding:6px 4px;">${ocrBadge}</td>
+        <td style="padding:6px 4px;">${mfBadge} ${mfBtn}</td>
+      </tr>`;
+    }).join('');
+
+    vouchersPanel = `
+      <div class="integration-panel">
+        <h3>取り込み済み証憑 <span class="muted" style="font-weight:normal;font-size:12px;">${driveVouchers.length}件</span></h3>
+        <table style="width:100%;border-collapse:collapse;">
+          <thead><tr style="font-size:11px;color:var(--muted);border-bottom:1px solid var(--line);">
+            <th style="text-align:left;padding:4px;">ファイル名</th>
+            <th style="text-align:left;padding:4px;">顧問先</th>
+            <th style="padding:4px;">OCR</th>
+            <th style="padding:4px;">MF</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        ${driveVouchers.length > 20 ? `<p class="muted" style="font-size:11px;margin-top:4px;">他 ${driveVouchers.length-20} 件</p>` : ''}
+      </div>
+    `;
+  } else if (mappings.length > 0) {
+    vouchersPanel = `
+      <div class="integration-panel">
+        <p class="muted" style="font-size:13px;">まだ取り込まれた証憑がありません。「フォルダの画像をすべて取り込む」を押してください。</p>
       </div>
     `;
   }
 
   return `
     <section class="integrations-drive">
-      ${connectionPanel}
-      ${mappingsPanel}
+      ${folderSettingsPanel}
+      ${mappingPanel}
       ${syncPanel}
+      ${vouchersPanel}
     </section>
   `;
 }
@@ -3564,6 +3619,7 @@ function renderView() {
         await loadDriveStatus();
         if (appState.driveIntegration?.connected) {
           await Promise.all([loadDriveMappings(), loadDriveFolders()]);
+          await loadDriveVouchers();
         }
         renderView();
       })();
@@ -3579,13 +3635,19 @@ function renderView() {
         } else if (action === 'disconnect') {
           disconnectDrive();
         } else if (action === 'save-settings') {
-          const rootEl = document.getElementById('driveRootFolderId');
-          const impEl = document.getElementById('driveImportedSubfolderName');
-          saveDriveSettings(rootEl?.value || '', impEl?.value || '');
+          const urlEl = document.getElementById('driveRootFolderUrl');
+          saveDriveSettings(urlEl?.value || '');
+        } else if (action === 'map-root-folder') {
+          const sel = document.getElementById('driveRootClientSelect');
+          const clientId = sel?.value || '';
+          const rootId = (appState.driveIntegration?.settings || {}).rootFolderId || '';
+          if (!clientId) { showToast('顧問先を選んでください'); return; }
+          if (!rootId) { showToast('フォルダIDが未設定です'); return; }
+          saveDriveMapping(rootId, 'メインフォルダ', clientId);
         }
       });
     });
-    // Mapping save buttons
+    // Mapping save buttons (subfolder mode)
     viewContent.querySelectorAll('[data-drive-mapping-save]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const folderId = btn.dataset.driveMappingSave;
@@ -3594,10 +3656,7 @@ function renderView() {
         );
         const clientId = sel?.value || '';
         const folderName = sel?.dataset.driveFolderName || folderId;
-        if (!clientId) {
-          showToast('顧問先を選んでください');
-          return;
-        }
+        if (!clientId) { showToast('顧問先を選んでください'); return; }
         saveDriveMapping(folderId, folderName, clientId);
       });
     });
@@ -3605,6 +3664,12 @@ function renderView() {
     viewContent.querySelectorAll('[data-drive-mapping-delete]').forEach((btn) => {
       btn.addEventListener('click', () => {
         deleteDriveMapping(btn.dataset.driveMappingDelete);
+      });
+    });
+    // MF write buttons on drive voucher list
+    viewContent.querySelectorAll('[data-voucher-mf-write]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        writeMfJournal(btn.dataset.voucherMfWrite);
       });
     });
   }
