@@ -2,10 +2,15 @@ const appState = {
   activeClient: 0,
   activeView: "dashboard",
   activeFilter: "all",
+  dashboardTodos: [],
+  dashboardAiPendingCount: 0,
+  dashboardMissingReceipts: [],
+  dashboardMissingCount: 0,
   mfReviewStatus: "pending",
   search: "",
   currentRole: (typeof localStorage !== "undefined" && localStorage.getItem("bookmee.role")) || "tax_accountant",
   expandedHistory: {}, // taskId -> bool
+  pendingDraftBody: null,
   vouchers: [],
   voucherTab: 'unassigned',
   voucherCounts: {},
@@ -188,10 +193,36 @@ async function loadClientsFromApi() {
       })
     );
     const filtered = detailed.filter(Boolean);
-    if (filtered.length > 0) clients = filtered;
+    if (filtered.length > 0) {
+      clients = filtered;
+      restoreClientOrder();
+    }
   } catch (err) {
     console.warn("Failed to load clients from API; using inline fallback", err);
   }
+}
+
+function saveClientOrder() {
+  try {
+    localStorage.setItem("clientOrder", JSON.stringify(clients.map((c) => c.id)));
+  } catch (e) {}
+}
+
+function restoreClientOrder() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("clientOrder") || "[]");
+    if (!saved.length) return;
+    const ordered = [];
+    for (const id of saved) {
+      const c = clients.find((cl) => cl.id === id);
+      if (c) ordered.push(c);
+    }
+    for (const c of clients) {
+      if (!ordered.find((o) => o.id === c.id)) ordered.push(c);
+    }
+    clients.length = 0;
+    ordered.forEach((c) => clients.push(c));
+  } catch (e) {}
 }
 
 async function loadVouchers() {
@@ -1094,11 +1125,18 @@ function makeConfidence(score) {
 // Each chip is a pill showing the company name + vendor + channel.
 // Click → switch the active client and re-render every view bound to it.
 function renderClients() {
+  if (!document.getElementById("chipDragStyle")) {
+    const s = document.createElement("style");
+    s.id = "chipDragStyle";
+    s.textContent = ".chip.dragging { opacity: 0.4; } .chip.drag-over { outline: 2px solid #4f8ef7; }";
+    document.head.appendChild(s);
+  }
+
   let html = "";
   for (let i = 0; i < clients.length; i++) {
     const c = clients[i];
     const active = i === appState.activeClient ? " active" : "";
-    html += '<button class="chip' + active + '" data-client="' + i + '">';
+    html += '<button class="chip' + active + '" data-client="' + i + '" draggable="true">';
     html += escapeHtml(c.name);
     html += " " + vendorBadgeHtml(c.vendor);
     html += "</button>";
@@ -1108,6 +1146,42 @@ function renderClients() {
     btn.addEventListener("click", () => {
       appState.activeClient = Number(btn.dataset.client);
       updateClientContextBar();
+      render();
+    });
+  });
+
+  // drag-and-drop reorder
+  let dragSrcIdx = null;
+  clientChips.querySelectorAll("[data-client]").forEach((btn) => {
+    btn.addEventListener("dragstart", (e) => {
+      dragSrcIdx = Number(btn.dataset.client);
+      if (e.dataTransfer) {
+        e.dataTransfer.effectAllowed = "move";
+      }
+      btn.classList.add("dragging");
+    });
+    btn.addEventListener("dragend", () => {
+      btn.classList.remove("dragging");
+      clientChips.querySelectorAll("[data-client]").forEach((b) => b.classList.remove("drag-over"));
+    });
+    btn.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = "move";
+      }
+      clientChips.querySelectorAll("[data-client]").forEach((b) => b.classList.remove("drag-over"));
+      btn.classList.add("drag-over");
+    });
+    btn.addEventListener("drop", (e) => {
+      e.preventDefault();
+      const destIdx = Number(btn.dataset.client);
+      if (dragSrcIdx === null || dragSrcIdx === destIdx) return;
+      const activeClientId = currentClient()?.id;
+      const moved = clients.splice(dragSrcIdx, 1)[0];
+      clients.splice(destIdx, 0, moved);
+      appState.activeClient = clients.findIndex((c) => c.id === activeClientId);
+      saveClientOrder();
+      renderClients();
       render();
     });
   });
@@ -1252,38 +1326,46 @@ function loadAndRenderThreads(opts) {
     if (!wrap) return;
     if (!Array.isArray(threads) || threads.length === 0) {
       wrap.innerHTML = '<div class="thread-item out"><span class="thread-header">まだやり取りはありません</span></div>';
-      return;
-    }
-    let html = "";
-    const channelLabels = { email: "メール", slack: "Slack", chatwork: "Chatwork", line_works: "LINE WORKS", messenger: "Messenger" };
-    for (const t of threads) {
-      html += '<div class="thread-item ' + t.direction + '">';
-      html += '<span class="thread-header">';
-      html += channelBadgeHtml(t.channel);
-      html += ' <span class="pill thread-' + t.status + '">' + (t.status === "sent" ? "送信済み" : t.status === "queued" ? "送信待ち" : t.status === "failed" ? "うまく届かず" : t.status) + '</span>';
-      html += ' ' + formatRelative(new Date(t.createdAt));
-      if (t.direction === "out") html += " · " + (channelLabels[t.channel] || t.channel) + "へ送信";
-      html += '</span>';
-      if (t.subject) html += '<span class="thread-preview"><strong>' + escapeHtml(t.subject) + '</strong></span>';
-      html += '<span class="thread-preview">' + escapeHtml(t.preview || t.body.slice(0, 120)) + '</span>';
-      if (t.status === "failed" && t.errorMsg) {
-        html += '<span class="thread-header" style="color:#9a3040">失敗: ' + escapeHtml(t.errorMsg) + '</span>';
-        html += '<button class="row-action" data-portal-resend data-thread-id="' + t.id + '">再送する</button>';
+    } else {
+      let html = "";
+      const channelLabels = { email: "メール", slack: "Slack", chatwork: "Chatwork", line_works: "LINE WORKS", messenger: "Messenger" };
+      for (const t of threads) {
+        html += '<div class="thread-item ' + t.direction + '">';
+        html += '<span class="thread-header">';
+        html += channelBadgeHtml(t.channel);
+        html += ' <span class="pill thread-' + t.status + '">' + (t.status === "sent" ? "送信済み" : t.status === "queued" ? "送信待ち" : t.status === "failed" ? "うまく届かず" : t.status) + '</span>';
+        html += ' ' + formatRelative(new Date(t.createdAt));
+        if (t.direction === "out") html += " · " + (channelLabels[t.channel] || t.channel) + "へ送信";
+        html += '</span>';
+        if (t.subject) html += '<span class="thread-preview"><strong>' + escapeHtml(t.subject) + '</strong></span>';
+        html += '<span class="thread-preview">' + escapeHtml(t.preview || t.body.slice(0, 120)) + '</span>';
+        if (t.status === "failed" && t.errorMsg) {
+          html += '<span class="thread-header" style="color:#9a3040">失敗: ' + escapeHtml(t.errorMsg) + '</span>';
+          html += '<button class="row-action" data-portal-resend data-thread-id="' + t.id + '">再送する</button>';
+        }
+        html += '</div>';
       }
-      html += '</div>';
-    }
-    wrap.innerHTML = html;
-    // Re-bind resend handlers via the data-portal-resend attribute.
-    wrap.querySelectorAll('[data-portal-resend]').forEach((btn) => {
-      btn.addEventListener("click", () => {
-        resendMessage(btn.dataset.threadId)
-          .then((t2) => {
-            showToast(t2.status === "sent" ? "再送しました" : "再送失敗: " + (t2.errorMsg || ""));
-            loadAndRenderThreads();
-          })
-          .catch(() => {});
+      wrap.innerHTML = html;
+      // Re-bind resend handlers via the data-portal-resend attribute.
+      wrap.querySelectorAll('[data-portal-resend]').forEach((btn) => {
+        btn.addEventListener("click", () => {
+          resendMessage(btn.dataset.threadId)
+            .then((t2) => {
+              showToast(t2.status === "sent" ? "再送しました" : "再送失敗: " + (t2.errorMsg || ""));
+              loadAndRenderThreads();
+            })
+            .catch(() => {});
+        });
       });
-    });
+    }
+
+    if (appState.pendingDraftBody) {
+      const portalDraft = $("#portalDraft");
+      if (portalDraft) {
+        portalDraft.value = formatBodyForChannel(appState.pendingDraftBody, appState.portalChannel);
+        appState.pendingDraftBody = null;
+      }
+    }
   });
 }
 
@@ -1338,70 +1420,301 @@ function renderDashboard() {
   if (client.mode === "yearend") {
     return renderYearendDashboard();
   }
-  const [stage, stageClass] = progressStatus(client);
-  const role = appState.currentRole;
-  const rawTasks = client.rawTasks || [];
-
-  // Spec 02 F2: filter tasks by role + stage
-  const filtered = rawTasks
-    .map((t, index) => ({ task: t, index }))
-    .filter(({ task }) => {
-      if (role === "tax_accountant") return task.stage === "awaiting_approval";
-      // staff sees their own work-in-progress + things sent back
-      return task.stage === "staff_doing" || task.stage === "rejected";
-    })
-    .filter(({ task }) => matchesSearch([task.title, task.note, task.category]))
-    .sort((a, b) => b.task.score - a.task.score);
-
-  const heroTitle = role === "tax_accountant"
-    ? "今日確認すべきレビュー"
-    : "あなたが今やる作業";
-  const heroDesc = role === "tax_accountant"
-    ? "スタッフが完了して所長確認待ちになった件だけを表示しています。"
-    : "あなたが進行中の作業と、所長から戻ってきた差戻しが見えます。";
-
-  let html = '<div class="review-hero">';
-  html += '<div><p class="eyebrow">' + (role === "tax_accountant" ? "所長確認" : "あなたの作業") + '</p><h3>' + heroTitle + '</h3>';
-  html += '<p>' + heroDesc + '</p></div>';
-  html += '<div class="review-run-card"><span class="pill ' + stageClass + '">' + stage + '</span><strong>' + filtered.length + '件</strong><small>あなたに来ている件数</small></div>';
-  html += "</div>";
-
-  html += '<div class="review-list">';
-  if (!filtered.length) {
-    html += '<div class="empty-state">' + (role === "tax_accountant" ? "今日はありません。スタッフからの確認依頼を待ちましょう。" : "あなたの作業はありません。お疲れさまでした！") + '</div>';
-  }
-  for (const item of filtered) {
-    const t = item.task;
-    html += '<article class="review-card ' + t.status + '">';
-    html += '<div class="review-main"><div class="review-title-row">';
-    html += '<span class="pill ' + t.status + '">' + t.category + '</span>';
-    html += '<span class="pill stage-' + t.stage + '">' + stageJpLabel(t.stage) + '</span>';
-    html += '<strong>' + escapeHtml(t.title) + '</strong></div>';
-    html += '<p>' + escapeHtml(t.note) + '</p>';
-    html += '<div class="review-evidence">';
-    html += '<span><b>担当</b>' + (t.assignee || "—") + '</span>';
-    html += '<span><b>承認者</b>' + (t.approver || "—") + '</span>';
-    html += '<span><b>優先度</b>' + t.score + '%</span>';
-    html += '</div>';
-    if (appState.expandedHistory[t.id]) {
-      html += '<div data-history-for="' + t.id + '"><ol class="task-history"><li>読み込み中…</li></ol></div>';
-    } else {
-      html += '<button class="vendor-link" data-action="toggle-history" data-task-id="' + t.id + '" style="margin-top:6px">履歴を見る</button>';
-    }
-    html += '</div>';
-    html += '<div class="review-score">' + makeConfidence(t.score) + '</div>';
-    html += '<div class="review-actions">';
-    if (role === "staff") {
-      html += '<button class="row-action" data-action="task-transition" data-task-id="' + t.id + '" data-task-action="staff_complete">記帳完了 → 確認依頼</button>';
-    } else {
-      html += '<button class="row-action" data-action="task-transition" data-task-id="' + t.id + '" data-task-action="approve">承認</button>';
-      html += '<button class="row-action reject" data-action="task-transition" data-task-id="' + t.id + '" data-task-action="reject">差戻し</button>';
-      html += '<button class="row-action" data-action="ask-thread" data-task-id="' + t.id + '">依頼文</button>';
-    }
-    html += '</div></article>';
-  }
-  html += "</div>";
+  let html = '<section class="todo-dashboard">';
+  html += '<div id="aiPendingBanner">' + renderDashboardAiPendingBannerHtml(appState.dashboardAiPendingCount || 0) + '</div>';
+  html += '<div id="missingReceiptsBanner">' + renderDashboardMissingBannerHtml(appState.dashboardMissingCount || 0, appState.dashboardMissingReceipts || []) + '</div>';
+  html += '<div id="todoList">' + renderDashboardTodoListHtml(appState.dashboardTodos || []) + '</div>';
+  html += '<div class="review-card" style="margin-top:12px;padding:12px">';
+  html += '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end">';
+  html += '<label style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:220px"><span class="eyebrow" style="margin:0">タイトル</span><input id="todoTitleInput" type="text" placeholder="ToDoタイトル" style="padding:8px;border:1px solid #d5dbe6;border-radius:8px"></label>';
+  html += '<label style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:220px"><span class="eyebrow" style="margin:0">メモ</span><input id="todoNoteInput" type="text" placeholder="補足メモ（任意）" style="padding:8px;border:1px solid #d5dbe6;border-radius:8px"></label>';
+  html += '<button class="row-action" data-action="todo-add" style="height:38px">追加</button>';
+  html += '</div></div></section>';
   return html;
+}
+
+function dashboardTodoDone(todo) {
+  return (
+    todo?.done === true ||
+    todo?.done === 1 ||
+    todo?.done === "true" ||
+    todo?.status === "done"
+  );
+}
+
+function dashboardTodoVisible(todo) {
+  if (appState.activeFilter === "urgent") return !dashboardTodoDone(todo);
+  if (appState.activeFilter === "done") return dashboardTodoDone(todo);
+  return true;
+}
+
+function decodeDataToken(token) {
+  try {
+    return decodeURIComponent(token || "");
+  } catch (_) {
+    return token || "";
+  }
+}
+
+function renderDashboardAiPendingBannerHtml(aiPendingCount) {
+  const count = Number(aiPendingCount) || 0;
+  if (count <= 0) return "";
+  let html = '<div class="review-card" style="margin-bottom:12px;padding:12px;display:flex;justify-content:flex-end;align-items:center;gap:8px;flex-wrap:wrap">';
+  html += '<button class="primary-action" data-action="ai-auto-classify">AI自動仕訳（' + count + '件）</button>';
+  html += '<button class="row-action" data-action="go-mf-review">詳細を見る →</button>';
+  html += '</div>';
+  return html;
+}
+
+function renderDashboardMissingBannerHtml(missingCount, missingReceipts) {
+  const count = Number(missingCount) || 0;
+  if (count <= 0) return "";
+  const rows = Array.isArray(missingReceipts) ? missingReceipts.slice(0, 5) : [];
+  let html = '<div class="review-card" style="margin-bottom:12px;padding:12px;background:#fff8f0;border:1px solid #f0d9bf">';
+  html += '<strong>証憑なし ' + count + '件</strong>';
+  if (rows.length > 0) {
+    html += '<table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:.88rem">';
+    html += '<tbody>';
+    for (const r of rows) {
+      const occurredAt = r?.occurredAt ? new Date(r.occurredAt).toLocaleDateString('ja-JP') : '-';
+      const account = escapeHtml(r?.account || "-");
+      const description = escapeHtml(r?.description || "-");
+      const amount = Number(r?.amount) || 0;
+      html += '<tr>';
+      html += '<td style="padding:4px 0;white-space:nowrap">' + occurredAt + '</td>';
+      html += '<td style="padding:4px 0 4px 12px;white-space:nowrap">' + account + '</td>';
+      html += '<td style="padding:4px 0 4px 12px">' + description + '</td>';
+      html += '<td style="padding:4px 0 4px 12px;text-align:right;white-space:nowrap">¥' + amount.toLocaleString('ja-JP') + '</td>';
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+  }
+  html += '<div style="margin-top:8px;display:flex;justify-content:flex-end">';
+  html += '<button class="row-action" data-action="missing-send-request">依頼文を送る → メッセージへ</button>';
+  html += '</div></div>';
+  return html;
+}
+
+function renderDashboardTodoListHtml(todos) {
+  const rows = (Array.isArray(todos) ? todos.slice() : [])
+    .sort((a, b) => Number(dashboardTodoDone(a)) - Number(dashboardTodoDone(b)))
+    .filter((t) => dashboardTodoVisible(t))
+    .filter((t) => matchesSearch([t.title || "", t.note || ""]));
+
+  if (rows.length === 0) {
+    return '<div class="empty-state">表示できるToDoはありません</div>';
+  }
+
+  let html = '<div style="border:1px solid #d5dbe6;border-radius:10px;background:#fff;overflow:hidden">';
+  for (const todo of rows) {
+    const todoId = encodeURIComponent(String(todo.id || ""));
+    const note = String(todo.note || "");
+    const done = dashboardTodoDone(todo);
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 12px;border-top:1px solid #edf0f5' + (done ? ';opacity:.55' : '') + '">';
+    html += '<label style="display:flex;align-items:center;gap:10px;flex:1;min-width:0;cursor:pointer">';
+    html += '<input type="checkbox" data-action="todo-toggle" data-todo-id="' + todoId + '"' + (done ? " checked" : "") + '>';
+    html += '<span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;' + (done ? "text-decoration:line-through;" : "") + '">' + escapeHtml(todo.title || "Untitled") + '</span>';
+    html += '</label>';
+    html += '<div style="display:flex;gap:6px;flex-shrink:0">';
+    html += '<button class="vendor-link" data-action="todo-note" data-note="' + encodeURIComponent(note) + '"' + (note ? "" : " disabled") + '>メモ</button>';
+    html += '<button class="row-action reject" data-action="todo-delete" data-todo-id="' + todoId + '">削除</button>';
+    html += '</div></div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+async function addTodo(clientId, title, note) {
+  try {
+    const res = await apiFetch(
+      "/api/clients/" + encodeURIComponent(clientId) + "/todos",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: title, note: note }),
+      },
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error?.message || err.message || "HTTP " + res.status);
+    }
+    return await res.json().catch(() => ({}));
+  } catch (err) {
+    showToast(friendlyError(err));
+    throw err;
+  }
+}
+
+async function toggleTodo(todoId, done) {
+  try {
+    const res = await apiFetch("/api/todos/" + encodeURIComponent(todoId), {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ done: done }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error?.message || err.message || "HTTP " + res.status);
+    }
+    return await res.json().catch(() => ({}));
+  } catch (err) {
+    showToast(friendlyError(err));
+    throw err;
+  }
+}
+
+async function deleteTodo(todoId) {
+  try {
+    const res = await apiFetch("/api/todos/" + encodeURIComponent(todoId), {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error?.message || err.message || "HTTP " + res.status);
+    }
+    return true;
+  } catch (err) {
+    showToast(friendlyError(err));
+    throw err;
+  }
+}
+
+async function loadAndRenderDashboard(clientId) {
+  if (!clientId) return;
+  try {
+    const res = await apiFetch(
+      "/api/clients/" + encodeURIComponent(clientId) + "/todos",
+    );
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const payload = await res.json();
+    appState.dashboardTodos = Array.isArray(payload.todos) ? payload.todos : [];
+    appState.dashboardAiPendingCount = Number(payload.aiPendingCount) || 0;
+    appState.dashboardMissingCount = Number(payload.missingReceiptCount) || 0;
+    appState.dashboardMissingReceipts = Array.isArray(payload.missingReceipts) ? payload.missingReceipts : [];
+  } catch (err) {
+    appState.dashboardMissingCount = 0;
+    appState.dashboardMissingReceipts = [];
+    showToast(friendlyError(err));
+  }
+
+  const bannerSlot = $("#aiPendingBanner");
+  if (bannerSlot) {
+    bannerSlot.innerHTML = renderDashboardAiPendingBannerHtml(appState.dashboardAiPendingCount || 0);
+    const autoClassifyBtn = bannerSlot.querySelector('[data-action="ai-auto-classify"]');
+    if (autoClassifyBtn) {
+      autoClassifyBtn.addEventListener("click", async () => {
+        const originalText = autoClassifyBtn.textContent;
+        const pendingCount = Number(appState.dashboardAiPendingCount) || 0;
+        autoClassifyBtn.disabled = true;
+        autoClassifyBtn.textContent = "処理中…";
+        try {
+          const res = await apiFetch(
+            "/api/clients/" + encodeURIComponent(clientId) + "/mf/journal-reviews/auto-classify",
+            { method: "POST" },
+          );
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error?.message || err.message || "HTTP " + res.status);
+          }
+          showToast(pendingCount + "件を自動仕訳しました");
+          await loadAndRenderDashboard(clientId);
+        } catch (err) {
+          showToast(friendlyError(err));
+          autoClassifyBtn.disabled = false;
+          autoClassifyBtn.textContent = originalText;
+        }
+      });
+    }
+    const mfReviewBtn = bannerSlot.querySelector('[data-action="go-mf-review"]');
+    if (mfReviewBtn) {
+      mfReviewBtn.addEventListener("click", () => {
+        location.hash = "#/mf-review";
+      });
+    }
+  }
+
+  const missingSlot = $("#missingReceiptsBanner");
+  if (missingSlot) {
+    missingSlot.innerHTML = renderDashboardMissingBannerHtml(
+      appState.dashboardMissingCount || 0,
+      appState.dashboardMissingReceipts || [],
+    );
+    const requestBtn = missingSlot.querySelector('[data-action="missing-send-request"]');
+    if (requestBtn) {
+      requestBtn.addEventListener("click", async () => {
+        const client = currentClient();
+        if (!client?.id) return;
+        const targets = (appState.dashboardMissingReceipts || [])
+          .slice(0, 5)
+          .map((r) => r?.entryId)
+          .filter(Boolean);
+        if (targets.length === 0) return;
+        const channel = client.contactPrimary || "email";
+        requestBtn.disabled = true;
+        try {
+          const res = await apiFetch(
+            "/api/clients/" + encodeURIComponent(client.id) + "/receipt-requests",
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ entryIds: targets, channel }),
+            },
+          );
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error?.message || err.message || "HTTP " + res.status);
+          }
+          const draftRes = await res.json().catch(() => ({}));
+          appState.portalChannel = channel;
+          appState.pendingDraftBody = draftRes?.draft?.body || "";
+          location.hash = "#/portal";
+        } catch (err) {
+          showToast(friendlyError(err));
+        } finally {
+          requestBtn.disabled = false;
+        }
+      });
+    }
+  }
+
+  const listSlot = $("#todoList");
+  if (!listSlot) return;
+  listSlot.innerHTML = renderDashboardTodoListHtml(appState.dashboardTodos || []);
+  listSlot.querySelectorAll('[data-action="todo-note"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const note = decodeDataToken(btn.dataset.note);
+      if (!note) return;
+      window.alert(note);
+    });
+  });
+  listSlot.querySelectorAll('[data-action="todo-toggle"]').forEach((checkbox) => {
+    checkbox.addEventListener("change", () => {
+      const todoId = decodeDataToken(checkbox.dataset.todoId);
+      if (!todoId) return;
+      checkbox.disabled = true;
+      toggleTodo(todoId, checkbox.checked)
+        .then(() => loadAndRenderDashboard(clientId))
+        .catch(() => {
+          checkbox.checked = !checkbox.checked;
+        })
+        .finally(() => {
+          checkbox.disabled = false;
+        });
+    });
+  });
+  listSlot.querySelectorAll('[data-action="todo-delete"]').forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const todoId = decodeDataToken(btn.dataset.todoId);
+      if (!todoId) return;
+      btn.disabled = true;
+      deleteTodo(todoId)
+        .then(() => loadAndRenderDashboard(clientId))
+        .catch(() => {})
+        .finally(() => {
+          btn.disabled = false;
+        });
+    });
+  });
 }
 
 function renderYearendDashboard() {
@@ -3639,6 +3952,44 @@ function renderView() {
   }
   if (appState.activeView === "dashboard") {
     loadAndRenderYearend();
+    const c = currentClient();
+    if (c?.id) loadAndRenderDashboard(c.id);
+    const addButton = viewContent.querySelector('[data-action="todo-add"]');
+    const titleInput = viewContent.querySelector("#todoTitleInput");
+    const noteInput = viewContent.querySelector("#todoNoteInput");
+    const submitTodo = () => {
+      const client = currentClient();
+      if (!client?.id || !addButton) return;
+      const title = (titleInput?.value || "").trim();
+      const note = (noteInput?.value || "").trim();
+      if (!title) {
+        showToast("タイトルを入力してください");
+        return;
+      }
+      addButton.disabled = true;
+      addTodo(client.id, title, note)
+        .then(() => {
+          if (titleInput) titleInput.value = "";
+          if (noteInput) noteInput.value = "";
+          showToast("ToDoを追加しました");
+          return loadAndRenderDashboard(client.id);
+        })
+        .catch(() => {})
+        .finally(() => {
+          addButton.disabled = false;
+        });
+    };
+    if (addButton) {
+      addButton.addEventListener("click", submitTodo);
+    }
+    [titleInput, noteInput].forEach((input) => {
+      if (!input) return;
+      input.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        submitTodo();
+      });
+    });
   }
   if (appState.activeView === "mf-review") {
     const c = currentClient();
