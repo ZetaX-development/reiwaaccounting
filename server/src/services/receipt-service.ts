@@ -4,6 +4,7 @@ import { getLiveMfEntries } from './client-service.js';
 export interface MissingReceipt {
   entryId: string;
   account: string;
+  description: string;
   amount: number;
   vendor: string | null;
   occurredAt: Date;
@@ -134,6 +135,7 @@ export async function computeMissingReceipts(clientId: string): Promise<MissingR
     missing.push({
       entryId: c.entryId,
       account: c.account,
+      description: c.description,
       amount: c.amount,
       vendor: extractVendor(c.description),
       occurredAt: c.occurredAt,

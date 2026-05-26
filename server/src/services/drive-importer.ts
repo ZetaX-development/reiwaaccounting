@@ -20,6 +20,7 @@ const ALLOWED_MIMES = new Set([
   'image/png',
   'image/gif',
   'image/webp',
+  'application/pdf',
 ]);
 const MAX_SIZE_BYTES = 10 * 1024 * 1024;
 const DEFAULT_IMPORTED_SUBFOLDER_NAME = '取り込み済';
@@ -260,6 +261,7 @@ export async function backfillDriveFiles(): Promise<BackfillResult> {
     importedFiles: [],
   };
   const integration = await getDriveIntegration();
+  logger.info({ hasIntegration: !!integration }, 'backfill: integration check');
   if (!integration) return emptyResult;
 
   const token = await ensureDriveToken();
@@ -268,6 +270,7 @@ export async function backfillDriveFiles(): Promise<BackfillResult> {
     settings.importedSubfolderName?.trim() || DEFAULT_IMPORTED_SUBFOLDER_NAME;
 
   const mappings = await prisma.driveFolderMapping.findMany();
+  logger.info({ mappingCount: mappings.length, mappings: mappings.map(m => m.driveFolderId) }, 'backfill: mappings');
   let imported = 0;
   let skipped = 0;
   let failed = 0;
@@ -275,16 +278,76 @@ export async function backfillDriveFiles(): Promise<BackfillResult> {
   const importedFiles: ImportedFile[] = [];
 
   for (const mapping of mappings) {
-    let files: DriveChangeFile[];
+    const filesToProcess: Array<{
+      file: DriveChangeFile;
+      alreadyInImportedSubfolder: boolean;
+    }> = [];
+
     try {
-      files = await driveService.listFilesInFolder(token, mapping.driveFolderId);
+      const rootFiles = await driveService.listFilesInFolder(
+        token,
+        mapping.driveFolderId,
+        false,
+      );
+      filesToProcess.push(
+        ...rootFiles.map((file) => ({
+          file,
+          alreadyInImportedSubfolder: false,
+        })),
+      );
+      logger.info(
+        {
+          folderId: mapping.driveFolderId,
+          count: rootFiles.length,
+          files: rootFiles.map((f) => f.name),
+        },
+        'backfill: listed root files',
+      );
     } catch (err) {
-      logger.warn({ err, folderId: mapping.driveFolderId }, 'backfill: listFilesInFolder failed');
+      logger.warn(
+        { err, folderId: mapping.driveFolderId },
+        'backfill: root listFilesInFolder failed',
+      );
       failed++;
-      continue;
     }
 
-    for (const file of files) {
+    if (mapping.importedSubfolderId) {
+      try {
+        const importedSubfolderFiles = await driveService.listFilesInFolder(
+          token,
+          mapping.importedSubfolderId,
+          false,
+        );
+        filesToProcess.push(
+          ...importedSubfolderFiles.map((file) => ({
+            file,
+            alreadyInImportedSubfolder: true,
+          })),
+        );
+        logger.info(
+          {
+            folderId: mapping.importedSubfolderId,
+            count: importedSubfolderFiles.length,
+            files: importedSubfolderFiles.map((f) => f.name),
+          },
+          'backfill: listed imported-subfolder files',
+        );
+      } catch (err) {
+        logger.warn(
+          { err, folderId: mapping.importedSubfolderId },
+          'backfill: imported-subfolder listFilesInFolder failed',
+        );
+        failed++;
+      }
+    }
+
+    const seenFileIds = new Set<string>();
+    let importedSubfolderIdForMapping = mapping.importedSubfolderId;
+
+    for (const { file, alreadyInImportedSubfolder } of filesToProcess) {
+      if (seenFileIds.has(file.id)) continue;
+      seenFileIds.add(file.id);
+
       // 既取込みチェック
       const dup = await prisma.voucher.findUnique({
         where: { driveFileId: file.id },
@@ -316,36 +379,46 @@ export async function backfillDriveFiles(): Promise<BackfillResult> {
         continue;
       }
 
-      // Drive 上のファイルを取り込み済みフォルダへ移動
-      try {
-        let importedSubfolderId = mapping.importedSubfolderId;
-        if (!importedSubfolderId) {
-          importedSubfolderId = await driveService.ensureImportedSubfolder(
-            token, mapping.driveFolderId, importedSubfolderName,
+      if (!alreadyInImportedSubfolder) {
+        // Drive 上のファイルを取り込み済みフォルダへ移動
+        try {
+          if (!importedSubfolderIdForMapping) {
+            importedSubfolderIdForMapping =
+              await driveService.ensureImportedSubfolder(
+                token,
+                mapping.driveFolderId,
+                importedSubfolderName,
+              );
+            await prisma.driveFolderMapping.update({
+              where: { id: mapping.id },
+              data: { importedSubfolderId: importedSubfolderIdForMapping },
+            });
+          }
+          await driveService.moveFile(
+            token,
+            file.id,
+            importedSubfolderIdForMapping,
+            mapping.driveFolderId,
           );
-          await prisma.driveFolderMapping.update({
-            where: { id: mapping.id },
-            data: { importedSubfolderId },
-          });
+        } catch (err) {
+          logger.warn({ err, fileId: file.id }, 'backfill: move failed');
+          if (createdVoucherId) {
+            await prisma.voucher.update({
+              where: { id: createdVoucherId },
+              data: { driveImportStatus: 'move_failed' },
+            });
+          }
+          failed++;
+          continue;
         }
-        await driveService.moveFile(token, file.id, importedSubfolderId, mapping.driveFolderId);
-        imported++;
-        importedFiles.push({
-          voucherId: createdVoucherId!,
-          filename: file.name || file.id,
-          clientId: mapping.clientId,
-        });
-      } catch (err) {
-        logger.warn({ err, fileId: file.id }, 'backfill: move failed');
-        if (createdVoucherId) {
-          await prisma.voucher.update({
-            where: { id: createdVoucherId },
-            data: { driveImportStatus: 'move_failed' },
-          });
-        }
-        failed++;
-        continue;
       }
+
+      imported++;
+      importedFiles.push({
+        voucherId: createdVoucherId!,
+        filename: file.name || file.id,
+        clientId: mapping.clientId,
+      });
 
       // OCR キック
       if (env.OPENAI_API_KEY && createdVoucherId) {

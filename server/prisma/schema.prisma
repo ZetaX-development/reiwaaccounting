@@ -36,6 +36,8 @@ model Firm {
   integrations        Integration[]
   driveFolderMappings DriveFolderMapping[]
   driveWatchChannels  DriveWatchChannel[]
+  journalAiReviews    JournalAiReview[]
+  todos               Todo[]
 }
 
 model FirmMember {
@@ -103,6 +105,7 @@ model Client {
   monthlyChecks     MonthlyCheck[]
   vouchers          Voucher[]
   driveFolderMappings DriveFolderMapping[]
+  todos             Todo[]
 
   updatedAt DateTime @updatedAt
   createdAt DateTime @default(now())
@@ -360,6 +363,45 @@ model VoucherInquiry {
   errorMessage String?
 
   @@index([voucherId])
+}
+
+// Spec 21: MF仕訳AIレビュー
+model JournalAiReview {
+  id              String   @id @default(cuid())
+  firm            Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  firmId          String
+  clientId        String
+  mfJournalId     String
+  status          String   @default("pending") // pending | approved | skipped | auto_applied
+  aiMemo          String?
+  aiConfidence    Float?
+  debitAccount    String?
+  creditAccount   String?
+  amount          Int?
+  transactionDate String?
+  originalMemo    String?
+  errorMsg        String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([clientId, mfJournalId])
+  @@index([firmId, status])
+  @@index([clientId])
+}
+
+model Todo {
+  id        String   @id @default(cuid())
+  firm      Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  firmId    String
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  clientId  String
+  title     String
+  note      String   @default("")
+  done      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([clientId, done])
 }
 
 model Integration {

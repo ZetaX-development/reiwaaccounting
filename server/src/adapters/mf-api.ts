@@ -444,3 +444,35 @@ export async function createJournalEntry(
   }
   return { ok: true, journalId: result.data.journal?.id };
 }
+
+/** MF Cloud Accounting の仕訳摘要を更新する (PUT /api/v3/journals/{id}) */
+export async function updateJournalMemo(
+  clientExternalId: string,
+  journalId: string,
+  memo: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const clientRecord = await loadClientToken(clientExternalId);
+  if (!clientRecord) return { ok: false, error: 'クライアントが見つかりません' };
+  const token = await ensureToken(clientRecord);
+  if (!token) return { ok: false, error: 'MFアクセストークンがありません' };
+
+  try {
+    const res = await request(`${env.MF_ACCOUNTING_BASE_URL}/api/v3/journals/${encodeURIComponent(journalId)}`, {
+      method: 'PUT',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+        accept: 'application/json',
+      },
+      body: JSON.stringify({ journal: { memo } }),
+    });
+    const text = await res.body.text();
+    if (res.statusCode >= 400) {
+      logger.warn({ journalId, status: res.statusCode, text: text.slice(0, 200) }, 'mf PUT journal failed');
+      return { ok: false, error: text.slice(0, 200) };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+}

@@ -1,4 +1,5 @@
 import OpenAI from 'openai';
+import { PDFParse } from 'pdf-parse';
 import { z } from 'zod';
 import { env } from '../env.js';
 
@@ -55,11 +56,39 @@ const JSON_SCHEMA = {
   },
 };
 
+async function extractPdfText(buffer: Buffer): Promise<string> {
+  const parser = new PDFParse({ data: buffer });
+  const result = await parser.getText();
+  await parser.destroy();
+  return result.text ?? '';
+}
+
 export async function extractVoucherFields(
   imageData: Buffer,
   mimeType: string,
 ): Promise<ExtractedFields> {
   const client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+
+  // PDF: extract embedded text, then use text-based completion
+  if (mimeType === 'application/pdf') {
+    const pdfText = await extractPdfText(imageData);
+    const userText = pdfText.trim()
+      ? `以下のPDFテキストから指定 6 項目を抽出してください。\n\n${pdfText.slice(0, 8000)}`
+      : 'PDFからテキストを抽出できませんでした。すべての項目を null で返してください。';
+    const completion = await client.chat.completions.create({
+      model: env.OPENAI_VISION_MODEL,
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: userText },
+      ],
+      response_format: { type: 'json_schema', json_schema: JSON_SCHEMA },
+    });
+    const text = completion.choices[0]?.message?.content;
+    if (!text) throw new Error('OpenAI returned empty content');
+    return ExtractedFieldsSchema.parse(JSON.parse(text));
+  }
+
+  // Image: use Vision API
   const dataUrl = `data:${mimeType};base64,${imageData.toString('base64')}`;
   const completion = await client.chat.completions.create({
     model: env.OPENAI_VISION_MODEL,
@@ -68,18 +97,12 @@ export async function extractVoucherFields(
       {
         role: 'user',
         content: [
-          {
-            type: 'text',
-            text: 'この画像から指定 6 項目を抽出してください。',
-          },
+          { type: 'text', text: 'この画像から指定 6 項目を抽出してください。' },
           { type: 'image_url', image_url: { url: dataUrl } },
         ],
       },
     ],
-    response_format: {
-      type: 'json_schema',
-      json_schema: JSON_SCHEMA,
-    },
+    response_format: { type: 'json_schema', json_schema: JSON_SCHEMA },
   });
   const text = completion.choices[0]?.message?.content;
   if (!text) throw new Error('OpenAI returned empty content');

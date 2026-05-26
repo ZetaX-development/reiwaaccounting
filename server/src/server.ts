@@ -24,6 +24,8 @@ import { mfBooksRoutes } from './routes/mf-books.js';
 import { voucherRoutes } from './routes/vouchers.js';
 import { integrationsDriveRoutes } from './routes/integrations-drive.js';
 import { integrationsLineRoutes } from './routes/integrations-line.js';
+import { journalReviewRoutes } from './routes/journal-reviews.js';
+import { todoRoutes } from './routes/todos.js';
 import multipart from '@fastify/multipart';
 
 const AUTH_BYPASS = new Set([
@@ -79,6 +81,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(voucherRoutes);
   await app.register(integrationsDriveRoutes);
   await app.register(integrationsLineRoutes);
+  await app.register(journalReviewRoutes);
+  await app.register(todoRoutes);
 
   app.setErrorHandler((err, _req, reply) => {
     logger.error({ err }, 'unhandled');

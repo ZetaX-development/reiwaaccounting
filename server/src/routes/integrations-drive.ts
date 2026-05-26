@@ -370,7 +370,7 @@ export async function integrationsDriveRoutes(app: FastifyInstance) {
     }
     const mappings = await prisma.driveFolderMapping.findMany();
     const MAX = 10 * 1024 * 1024;
-    const ALLOWED = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+    const ALLOWED = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf']);
     const results: Array<{
       fileId: string; filename: string; size: number; mimeType: string;
       folderId: string; clientId: string;

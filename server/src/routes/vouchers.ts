@@ -44,6 +44,7 @@ const ALLOWED_MIMES = new Set([
   'image/png',
   'image/gif',
   'image/webp',
+  'application/pdf',
 ]);
 
 export async function voucherRoutes(app: FastifyInstance) {
