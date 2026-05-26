@@ -28,10 +28,8 @@ describe('mfApiAdapter', () => {
 });
 
 describe('MF_SCOPES', () => {
-  it('only requests read-scopes (bookmee writes nothing back to MF)', () => {
-    for (const s of MF_SCOPES) {
-      expect(s.endsWith('.read')).toBe(true);
-    }
+  it('includes journal.write for LINE→MF auto-entry (spec 20)', () => {
+    expect(MF_SCOPES).toContain('mfc/accounting/journal.write');
   });
   it('includes journal.read and accounts.read at minimum', () => {
     expect(MF_SCOPES).toContain('mfc/accounting/journal.read');

@@ -17,11 +17,10 @@ import { logger } from '../lib/logger.js';
 // Spec source: https://developers.api-accounting.moneyforward.com/v3/openapi.yaml
 // ---------------------------------------------------------------------------
 
-// Scopes required by the read paths bookmee uses today (spec 01 + future 04/07).
-// Write scopes are intentionally NOT included — bookmee is read-only against
-// Money Forward (spec 08 O2: never edit vendor-owned data from bookmee).
+// Spec 20: journal.write を追加（LINE→MF自動入力機能）
 export const MF_SCOPES = [
   'mfc/accounting/journal.read',
+  'mfc/accounting/journal.write',
   'mfc/accounting/accounts.read',
   'mfc/accounting/sub_accounts.read',
   'mfc/accounting/departments.read',
@@ -194,6 +193,37 @@ async function mfGet<T>(token: string, path: string): Promise<T | null> {
 }
 
 // ---------------------------------------------------------------------------
+// Generic POST against the accounting API (Spec 20)
+// ---------------------------------------------------------------------------
+
+async function mfPost<T>(token: string, path: string, body: unknown): Promise<{ data: T | null; status: number; error?: string }> {
+  try {
+    const res = await request(`${env.MF_ACCOUNTING_BASE_URL}${path}`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+        accept: 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    const text = await res.body.text();
+    if (res.statusCode === 401) {
+      logger.warn({ path }, 'mf POST returned 401');
+      return { data: null, status: 401, error: '認証エラー（トークン期限切れ）' };
+    }
+    if (res.statusCode >= 400) {
+      logger.warn({ status: res.statusCode, path, text: text.slice(0, 300) }, 'mf POST non-2xx');
+      return { data: null, status: res.statusCode, error: text.slice(0, 200) };
+    }
+    return { data: JSON.parse(text) as T, status: res.statusCode };
+  } catch (err) {
+    logger.error({ err, path }, 'mf POST exception');
+    return { data: null, status: 0, error: String(err) };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // API response shapes (subset — only fields bookmee actually consumes)
 // Source of truth: https://developers.api-accounting.moneyforward.com/v3/openapi.yaml
 // ---------------------------------------------------------------------------
@@ -335,4 +365,76 @@ export const mfApiAdapter: VendorAdapter = {
  */
 export async function fetchOffice(token: string): Promise<MfOfficeResponse | null> {
   return mfGet<MfOfficeResponse>(token, '/api/v3/offices');
+}
+
+// ---------------------------------------------------------------------------
+// Spec 20: Journal write helpers
+// ---------------------------------------------------------------------------
+
+interface MfAccount {
+  id: string;
+  name: string;
+  account_type?: string;
+}
+
+interface MfAccountsResponse {
+  accounts?: MfAccount[];
+}
+
+/** 勘定科目名 → IDのマップを返す */
+export async function fetchAccountMap(token: string): Promise<Map<string, string>> {
+  const res = await mfGet<MfAccountsResponse>(token, '/api/v3/accounts?per_page=200');
+  const map = new Map<string, string>();
+  for (const a of res?.accounts ?? []) {
+    map.set(a.name, a.id);
+  }
+  return map;
+}
+
+export interface CreateJournalInput {
+  transactionDate: string; // 'YYYY-MM-DD'
+  debitAccountId: string;
+  creditAccountId: string;
+  amount: number;
+  description: string;
+  debitTaxName?: string | null;
+}
+
+export interface CreateJournalResult {
+  ok: boolean;
+  journalId?: string;
+  error?: string;
+}
+
+/** MF Cloud Accounting に仕訳を1件作成する */
+export async function createJournalEntry(
+  clientExternalId: string,
+  input: CreateJournalInput,
+): Promise<CreateJournalResult> {
+  const clientRecord = await loadClientToken(clientExternalId);
+  if (!clientRecord) return { ok: false, error: 'クライアントが見つかりません' };
+  const token = await ensureToken(clientRecord);
+  if (!token) return { ok: false, error: 'MFアクセストークンがありません。OAuth連携を確認してください。' };
+
+  const body = {
+    journal: {
+      transaction_date: input.transactionDate,
+      memo: input.description,
+      branches_attributes: [
+        {
+          debitor_account_id: input.debitAccountId,
+          debitor_value: input.amount,
+          ...(input.debitTaxName ? { debitor_tax_name: input.debitTaxName } : {}),
+          creditor_account_id: input.creditAccountId,
+          creditor_value: input.amount,
+        },
+      ],
+    },
+  };
+
+  const result = await mfPost<{ journal?: { id?: string } }>(token, '/api/v3/journals', body);
+  if (!result.data) {
+    return { ok: false, error: result.error ?? `HTTP ${result.status}` };
+  }
+  return { ok: true, journalId: result.data.journal?.id };
 }
