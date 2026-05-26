@@ -2079,7 +2079,7 @@ function renderCompany() {
   if (tab === "info") {
     html += renderCompanyInfo(c);
   } else if (!c.mfConnected) {
-    html += '<div class="empty-state">MF クラウド会計と連携してください。<br><small>OAuth 開始: <code>/api/mf/oauth/start?clientId=' + escapeHtml(c.id) + '</code></small></div>';
+    html += '<div class="empty-state">MF クラウド会計と連携してください。<br><br><a href="/api/mf/oauth/start?clientId=' + escapeHtml(c.id) + '" class="btn btn-primary">MoneyForwardと連携する</a></div>';
   } else {
     html += '<div id="companyTabBody"><div class="empty-state">読み込み中…</div></div>';
   }
