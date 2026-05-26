@@ -1128,7 +1128,15 @@ function renderClients() {
   if (!document.getElementById("chipDragStyle")) {
     const s = document.createElement("style");
     s.id = "chipDragStyle";
-    s.textContent = ".chip.dragging { opacity: 0.4; } .chip.drag-over { outline: 2px solid #4f8ef7; }";
+    s.textContent = ".chip-wrap.dragging { opacity: 0.4; } .chip-wrap.drag-over { outline: 2px solid #4f8ef7; } " +
+      ".chip-wrap { display: inline-flex; align-items: center; border-radius: 999px; } " +
+      ".chip-wrap.active .chip-select { border-radius: 999px 0 0 999px; } " +
+      ".chip-select { background: none; border: none; cursor: pointer; padding: .25rem .6rem; font-size: .85rem; } " +
+      ".chip-wrap.active { background: #e8f0fe; } " +
+      ".chip-del { background: none; border: none; cursor: pointer; font-size: .8rem; color: #94a3b8; padding: 0 6px 0 2px; border-radius: 0 999px 999px 0; } " +
+      ".chip-del:hover { color: #dc2626; } " +
+      ".chip-add { background: none; border: 1px dashed #94a3b8 !important; color: #64748b !important; font-size: .8rem; padding: .2rem .7rem; margin-left: .25rem; } " +
+      ".chip-add:hover { border-color: #4f8ef7 !important; color: #4f8ef7 !important; }";
     document.head.appendChild(s);
   }
 
@@ -1136,11 +1144,15 @@ function renderClients() {
   for (let i = 0; i < clients.length; i++) {
     const c = clients[i];
     const active = i === appState.activeClient ? " active" : "";
-    html += '<button class="chip' + active + '" data-client="' + i + '" draggable="true">';
+    html += '<span class="chip-wrap' + active + '" data-client-wrap="' + i + '" draggable="true">';
+    html += '<button class="chip-select' + active + '" data-client="' + i + '">';
     html += escapeHtml(c.name);
     html += " " + vendorBadgeHtml(c.vendor);
     html += "</button>";
+    html += '<button class="chip-del" data-client-del="' + i + '" title="削除" style="display:' + (i === appState.activeClient ? "inline" : "none") + '">×</button>';
+    html += "</span>";
   }
+  html += '<button class="chip chip-add" id="chipsAddBtn">＋ 追加</button>';
   clientChips.innerHTML = html;
   clientChips.querySelectorAll("[data-client]").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -1149,32 +1161,80 @@ function renderClients() {
       render();
     });
   });
+  clientChips.querySelectorAll("[data-client-del]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const idx = Number(btn.dataset.clientDel);
+      const c = clients[idx];
+      if (!c) return;
+      if (!confirm("「" + c.name + "」を削除しますか？\nこの操作は元に戻せません。")) return;
+      apiFetch("/api/clients/" + encodeURIComponent(c.id), { method: "DELETE" })
+        .then(async (res) => {
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            showToast("削除失敗: " + ((body.error && body.error.message) || res.status));
+            return;
+          }
+          showToast(c.name + " を削除しました");
+          loadClientsFromApi();
+        })
+        .catch(() => showToast("削除に失敗しました"));
+    });
+  });
+  const chipsAddBtn = document.getElementById("chipsAddBtn");
+  if (chipsAddBtn) {
+    chipsAddBtn.addEventListener("click", () => {
+      appState.activeView = "settings";
+      location.hash = "#/settings";
+      setTimeout(() => {
+        const form = document.getElementById("clientMgmtForm");
+        const editId = document.getElementById("clientMgmtEditId");
+        if (form && editId) {
+          editId.value = "";
+          const fields = {
+            clientMgmtName: "",
+            clientMgmtIndustry: "その他",
+            clientMgmtVendor: "mf",
+            clientMgmtMode: "monthly",
+            clientMgmtFyStart: "",
+            clientMgmtFyEnd: "",
+          };
+          Object.entries(fields).forEach(([id, val]) => {
+            const el = document.getElementById(id);
+            if (el) el.value = val;
+          });
+          form.style.display = "block";
+          form.scrollIntoView({ behavior: "smooth" });
+        }
+      }, 150);
+    });
+  }
 
   // drag-and-drop reorder
   let dragSrcIdx = null;
-  clientChips.querySelectorAll("[data-client]").forEach((btn) => {
-    btn.addEventListener("dragstart", (e) => {
-      dragSrcIdx = Number(btn.dataset.client);
+  clientChips.querySelectorAll("[data-client-wrap]").forEach((chipWrap) => {
+    chipWrap.addEventListener("dragstart", (e) => {
+      dragSrcIdx = Number(chipWrap.dataset.clientWrap);
       if (e.dataTransfer) {
         e.dataTransfer.effectAllowed = "move";
       }
-      btn.classList.add("dragging");
+      chipWrap.classList.add("dragging");
     });
-    btn.addEventListener("dragend", () => {
-      btn.classList.remove("dragging");
-      clientChips.querySelectorAll("[data-client]").forEach((b) => b.classList.remove("drag-over"));
+    chipWrap.addEventListener("dragend", () => {
+      chipWrap.classList.remove("dragging");
+      clientChips.querySelectorAll("[data-client-wrap]").forEach((b) => b.classList.remove("drag-over"));
     });
-    btn.addEventListener("dragover", (e) => {
+    chipWrap.addEventListener("dragover", (e) => {
       e.preventDefault();
       if (e.dataTransfer) {
         e.dataTransfer.dropEffect = "move";
       }
-      clientChips.querySelectorAll("[data-client]").forEach((b) => b.classList.remove("drag-over"));
-      btn.classList.add("drag-over");
+      clientChips.querySelectorAll("[data-client-wrap]").forEach((b) => b.classList.remove("drag-over"));
+      chipWrap.classList.add("drag-over");
     });
-    btn.addEventListener("drop", (e) => {
+    chipWrap.addEventListener("drop", (e) => {
       e.preventDefault();
-      const destIdx = Number(btn.dataset.client);
+      const destIdx = Number(chipWrap.dataset.clientWrap);
       if (dragSrcIdx === null || dragSrcIdx === destIdx) return;
       const activeClientId = currentClient()?.id;
       const moved = clients.splice(dragSrcIdx, 1)[0];
