@@ -284,7 +284,14 @@ async function handleImageMessage(
     },
   });
 
-  // 7. kick OCR pipeline if configured
+  // 7. 即時受付確認を返信（OCR完了前に送ることで体感待ち時間を短縮）
+  if (event.replyToken) {
+    await lineService.replyMessage(event.replyToken, [
+      { type: 'text', text: '受け付けました。少々お待ちください...' },
+    ]);
+  }
+
+  // 8. kick OCR pipeline if configured
   if (env.OPENAI_API_KEY) {
     setImmediate(() => {
       runOcrForVoucher(meta.id).catch(() => {});
