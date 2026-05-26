@@ -7,6 +7,7 @@ import {
   type DriveSettings,
 } from './integration-service.js';
 import * as driveService from './drive-service.js';
+import type { DriveChangeFile } from './drive-service.js';
 import { createVoucher, runOcrForVoucher } from './voucher-service.js';
 
 // ---------------------------------------------------------------------------
@@ -217,6 +218,109 @@ export async function syncDriveChanges(opts?: {
     failed,
     lastPageToken: pageToken,
   };
+}
+
+// ---------------------------------------------------------------------------
+// backfillDriveFiles: マッピング済みフォルダの既存ファイルを一括取り込む
+// ---------------------------------------------------------------------------
+
+export interface BackfillResult {
+  imported: number;
+  skipped: number;
+  failed: number;
+}
+
+export async function backfillDriveFiles(): Promise<BackfillResult> {
+  const integration = await getDriveIntegration();
+  if (!integration) return { imported: 0, skipped: 0, failed: 0 };
+
+  const token = await ensureDriveToken();
+  const settings = (integration.settings as DriveSettings | null) ?? {};
+  const importedSubfolderName =
+    settings.importedSubfolderName?.trim() || DEFAULT_IMPORTED_SUBFOLDER_NAME;
+
+  const mappings = await prisma.driveFolderMapping.findMany();
+  let imported = 0;
+  let skipped = 0;
+  let failed = 0;
+
+  for (const mapping of mappings) {
+    let files: DriveChangeFile[];
+    try {
+      files = await driveService.listFilesInFolder(token, mapping.driveFolderId);
+    } catch (err) {
+      logger.warn({ err, folderId: mapping.driveFolderId }, 'backfill: listFilesInFolder failed');
+      failed++;
+      continue;
+    }
+
+    for (const file of files) {
+      // 既取込みチェック
+      const dup = await prisma.voucher.findUnique({
+        where: { driveFileId: file.id },
+        select: { id: true },
+      });
+      if (dup) { skipped++; continue; }
+      if (!ALLOWED_MIMES.has(file.mimeType)) { skipped++; continue; }
+      if (file.size > MAX_SIZE_BYTES) { skipped++; continue; }
+
+      let createdVoucherId: string | null = null;
+      try {
+        const blob = await driveService.getFileBinary(token, file.id);
+        if (blob.buffer.byteLength > MAX_SIZE_BYTES) { skipped++; continue; }
+        const meta = await createVoucher({
+          clientId: mapping.clientId,
+          filename: file.name || file.id,
+          mimeType: file.mimeType || blob.mimeType,
+          buffer: blob.buffer,
+          uploadedBy: 'drive',
+        });
+        createdVoucherId = meta.id;
+        await prisma.voucher.update({
+          where: { id: meta.id },
+          data: { source: 'drive', driveFileId: file.id, driveImportStatus: 'imported' },
+        });
+      } catch (err) {
+        logger.warn({ err, fileId: file.id }, 'backfill: voucher creation failed');
+        failed++;
+        continue;
+      }
+
+      // Drive 上のファイルを取り込み済みフォルダへ移動
+      try {
+        let importedSubfolderId = mapping.importedSubfolderId;
+        if (!importedSubfolderId) {
+          importedSubfolderId = await driveService.ensureImportedSubfolder(
+            token, mapping.driveFolderId, importedSubfolderName,
+          );
+          await prisma.driveFolderMapping.update({
+            where: { id: mapping.id },
+            data: { importedSubfolderId },
+          });
+        }
+        await driveService.moveFile(token, file.id, importedSubfolderId, mapping.driveFolderId);
+        imported++;
+      } catch (err) {
+        logger.warn({ err, fileId: file.id }, 'backfill: move failed');
+        if (createdVoucherId) {
+          await prisma.voucher.update({
+            where: { id: createdVoucherId },
+            data: { driveImportStatus: 'move_failed' },
+          });
+        }
+        failed++;
+        continue;
+      }
+
+      // OCR キック
+      if (env.OPENAI_API_KEY && createdVoucherId) {
+        const vid = createdVoucherId;
+        setImmediate(() => { runOcrForVoucher(vid).catch(() => {}); });
+      }
+    }
+  }
+
+  return { imported, skipped, failed };
 }
 
 function cryptoRandomId(): string {

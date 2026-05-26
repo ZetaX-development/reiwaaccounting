@@ -282,6 +282,37 @@ export async function startWatch(
   };
 }
 
+/** フォルダ直下の画像ファイルを列挙する（バックフィル用） */
+export async function listFilesInFolder(
+  accessToken: string,
+  folderId: string,
+): Promise<DriveChangeFile[]> {
+  const drive = driveClient(accessToken);
+  const out: DriveChangeFile[] = [];
+  let pageToken: string | undefined;
+  do {
+    const res = await drive.files.list({
+      q: `'${folderId}' in parents and trashed = false and (mimeType = 'image/jpeg' or mimeType = 'image/png' or mimeType = 'image/gif' or mimeType = 'image/webp')`,
+      fields: 'nextPageToken, files(id, name, mimeType, size, parents)',
+      pageSize: 100,
+      pageToken,
+    });
+    for (const f of res.data.files ?? []) {
+      if (!f.id) continue;
+      out.push({
+        id: f.id,
+        name: f.name ?? '',
+        mimeType: f.mimeType ?? '',
+        size: f.size ? Number(f.size) : 0,
+        parents: f.parents ?? [],
+        trashed: false,
+      });
+    }
+    pageToken = res.data.nextPageToken ?? undefined;
+  } while (pageToken);
+  return out;
+}
+
 export async function stopWatch(
   accessToken: string,
   channelId: string,

@@ -18,7 +18,7 @@ import {
   type DriveSettings,
   type DriveCreds,
 } from '../services/integration-service.js';
-import { syncDriveChanges } from '../services/drive-importer.js';
+import { syncDriveChanges, backfillDriveFiles } from '../services/drive-importer.js';
 
 // ---------------------------------------------------------------------------
 // Spec 15 — Google Drive integration HTTP surface.
@@ -318,6 +318,30 @@ export async function integrationsDriveRoutes(app: FastifyInstance) {
       return result;
     } catch (err) {
       logger.error({ err }, 'drive sync failed');
+      reply.code(502);
+      return {
+        error: {
+          code: 'DRIVE_API_ERROR',
+          message: err instanceof Error ? err.message : String(err),
+        },
+      };
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // Backfill — フォルダ内の既存ファイルを一括取り込む
+  // -------------------------------------------------------------------------
+  app.post('/api/integrations/drive/backfill', async (_req, reply) => {
+    const row = await getDriveIntegration();
+    if (!row) {
+      reply.code(401);
+      return { error: { code: 'NOT_CONNECTED', message: 'drive not connected' } };
+    }
+    try {
+      const result = await backfillDriveFiles();
+      return result;
+    } catch (err) {
+      logger.error({ err }, 'drive backfill failed');
       reply.code(502);
       return {
         error: {

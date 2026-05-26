@@ -432,6 +432,20 @@ async function triggerDriveSync() {
   }
 }
 
+async function triggerDriveBackfill() {
+  try {
+    const res = await apiFetch('/api/integrations/drive/backfill', { method: 'POST' });
+    if (!res.ok) throw new Error('backfill failed');
+    const s = await res.json();
+    showToast(
+      `既存ファイル取込完了: imported=${s.imported ?? 0} skipped=${s.skipped ?? 0} failed=${s.failed ?? 0}`,
+    );
+    renderView();
+  } catch (err) {
+    showToast(friendlyError(err));
+  }
+}
+
 async function saveDriveMapping(driveFolderId, folderName, clientId) {
   try {
     const res = await apiFetch('/api/integrations/drive/mappings', {
@@ -3071,7 +3085,11 @@ function renderIntegrationsDrive() {
     syncPanel = `
       <div class="integration-panel drive-sync">
         <h3>同期</h3>
-        <button class="primary-btn" data-drive-action="sync">今すぐ同期</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="primary-btn" data-drive-action="sync">今すぐ同期</button>
+          <button class="secondary-btn" data-drive-action="backfill">既存ファイルを取り込む</button>
+        </div>
+        <p class="muted" style="font-size:11px;margin-top:6px;">「今すぐ同期」は連携後の新着のみ。「既存ファイルを取り込む」は連携前からあるファイルを対象にします。</p>
         ${lastHtml}
       </div>
     `;
@@ -3509,6 +3527,8 @@ function renderView() {
         const action = btn.dataset.driveAction;
         if (action === 'sync') {
           triggerDriveSync();
+        } else if (action === 'backfill') {
+          triggerDriveBackfill();
         } else if (action === 'disconnect') {
           disconnectDrive();
         } else if (action === 'save-settings') {
