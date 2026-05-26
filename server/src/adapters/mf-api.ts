@@ -46,6 +46,7 @@ export function buildMfAuthorizeUrl(opts: AuthorizeOptions): string {
     state: opts.state,
     scope: opts.scope,
     response_type: 'code',
+    prompt: 'login',
   });
   return `${env.MF_AUTH_BASE_URL}/authorize?${params.toString()}`;
 }
