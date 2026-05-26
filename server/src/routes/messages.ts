@@ -7,6 +7,7 @@ import {
   updateContact,
 } from '../services/message-service.js';
 import { NotificationError } from '../adapters/notification.js';
+import { generateReminderDraft } from '../services/reminder-draft-service.js';
 
 const createSchema = z.object({
   clientId: z.string().min(1),
@@ -59,6 +60,23 @@ export async function messageRoutes(app: FastifyInstance) {
   app.get<{ Params: { id: string } }>('/api/clients/:id/threads', async (req) => {
     return listThreads(req.params.id);
   });
+
+  app.get<{ Params: { id: string }; Querystring: { type?: string } }>(
+    '/api/clients/:id/reminder-draft',
+    async (req, reply) => {
+      const { type } = req.query;
+      if (type !== 'receipt') {
+        reply.code(400);
+        return { error: { code: 'INVALID_TYPE', message: 'type must be "receipt"' } };
+      }
+      const draft = await generateReminderDraft(req.params.id);
+      if (!draft) {
+        reply.code(404);
+        return { error: { code: 'NOT_FOUND', message: 'client not found' } };
+      }
+      return draft;
+    },
+  );
 
   app.patch<{ Params: { id: string } }>('/api/clients/:id/contact', async (req, reply) => {
     const parsed = contactSchema.safeParse(req.body);

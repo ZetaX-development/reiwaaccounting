@@ -56,6 +56,7 @@ const labels = {
   portal: "メッセージ",
   "integrations-drive": "連携 / Google Drive",
   "integrations-line": "連携 / LINE",
+  "mf-review": "月次業務 / 摘要レビュー",
   rules: "学習",
   settings: "設定",
 
@@ -93,6 +94,7 @@ const labels = {
     portal: "お客さまにメールやSlackなどで連絡できます。届かなかったら再送できます。",
     "integrations-drive": "Google Drive にあるレシート画像を自動取り込みします。スタッフ用の事務所共通アカウントを 1 つ接続して、サブフォルダを顧問先に割り当ててください。",
     "integrations-line": "公式 LINE アカウントに送られた画像を自動取り込みします。スタッフが LINE で画像を送るだけで Voucher になります。",
+    "mf-review": "摘要が空のMF仕訳をAIで自動補完します。信頼度が高いものは自動適用、低いものだけ確認が必要です。",
     rules: "この顧問先で過去にミスしやすかった点を、企業ごとのチェック項目として保存します。",
     settings: "事務所全体の運用設定。",
   },
@@ -1881,6 +1883,8 @@ function renderPortal() {
     html += '<button class="channel-tab' + (c === ch ? " active" : "") + '" data-portal-channel="' + c + '">' + channelLabels[c] + '</button>';
   }
   html += '</div>';
+  html += '<div style="margin-bottom:6px"><button class="row-action compact" data-action="portal-reminder-draft" style="font-size:.8rem">証憑リマインドを作成</button></div>';
+  html += '<input id="portalSubject" type="text" placeholder="件名（送信前に確認してください）" value="" style="width:100%;padding:.4rem .6rem;border:1px solid #dde1e9;border-radius:6px;font-size:.9rem;box-sizing:border-box;margin-bottom:6px" />';
   html += '<textarea id="portalDraft">' + escapeHtml(formatBodyForChannel(client.message || "", ch)) + '</textarea>';
   html += '<div class="row-actions" style="margin-top:8px">';
   html += '<button class="primary-action compact" data-action="portal-send-now">いま送る</button>';
@@ -1937,6 +1941,140 @@ function formatBodyForChannel(text, channel) {
 }
 
 // Spec 04 F1: AIルールビュー 2-column redesign
+// ---------------------------------------------------------------------------
+// Spec 21: MF摘要レビュー
+// ---------------------------------------------------------------------------
+
+function renderMfReview() {
+  const client = currentClient();
+  if (!client) return '<div class="empty-state">顧問先を選択してください。</div>';
+
+  let html = '';
+  html += '<div style="margin-bottom:12px;display:flex;align-items:center;gap:10px">';
+  html += '<button class="primary-action compact" id="mfReviewProcessBtn">AI処理を実行</button>';
+  html += '<span id="mfReviewStatus" style="font-size:12px;color:#666"></span>';
+  html += '</div>';
+  html += '<div id="mfReviewList"><div class="empty-state">読み込み中…</div></div>';
+  return html;
+}
+
+async function loadAndRenderMfReview(clientId) {
+  const listEl = document.getElementById('mfReviewList');
+  const processBtn = document.getElementById('mfReviewProcessBtn');
+  const statusEl = document.getElementById('mfReviewStatus');
+
+  if (!listEl) return;
+
+  // Fetch pending reviews
+  let data;
+  try {
+    const res = await apiFetch(`/api/clients/${clientId}/mf/journal-reviews?status=pending`);
+    if (!res.ok) throw new Error('fetch failed');
+    data = await res.json();
+  } catch (err) {
+    listEl.innerHTML = '<div class="empty-state">読み込みに失敗しました。</div>';
+    return;
+  }
+
+  const reviews = data.reviews ?? [];
+  const pendingCount = data.pendingCount ?? 0;
+
+  if (statusEl) {
+    statusEl.textContent = pendingCount > 0 ? `確認待ち ${pendingCount} 件` : '確認待ちなし';
+  }
+
+  if (reviews.length === 0) {
+    listEl.innerHTML = '<div class="empty-state">レビュー待ちの仕訳はありません。AI処理を実行すると摘要が空の仕訳を自動チェックします。</div>';
+  } else {
+    let h = '<table class="data-table" style="width:100%">';
+    h += '<thead><tr>';
+    h += '<th>日付</th><th>借方</th><th>貸方</th><th>金額</th>';
+    h += '<th>AI提案摘要</th><th>信頼度</th><th style="width:160px">操作</th>';
+    h += '</tr></thead><tbody>';
+    for (const r of reviews) {
+      const conf = typeof r.aiConfidence === 'number' ? Math.round(r.aiConfidence * 100) : '—';
+      const confClass = r.aiConfidence >= 0.6 ? 'color:#2a7a4b' : 'color:#9a3040';
+      h += `<tr data-review-id="${r.id}">`;
+      h += `<td>${escapeHtml(r.transactionDate ?? '')}</td>`;
+      h += `<td>${escapeHtml(r.debitAccount ?? '')}</td>`;
+      h += `<td>${escapeHtml(r.creditAccount ?? '')}</td>`;
+      h += `<td style="text-align:right">¥${(r.amount ?? 0).toLocaleString('ja-JP')}</td>`;
+      h += `<td><input class="mf-review-memo-input" style="width:100%;box-sizing:border-box;padding:2px 6px;font-size:13px;border:1px solid #ddd;border-radius:4px" value="${escapeHtml(r.aiMemo ?? '')}" data-review-id="${r.id}" /></td>`;
+      h += `<td style="${confClass};text-align:right">${conf}%</td>`;
+      h += `<td>`;
+      h += `<button class="row-action" style="margin-right:4px" data-action="mf-review-approve" data-review-id="${r.id}">承認してMFへ</button>`;
+      h += `<button class="row-action" style="color:#666" data-action="mf-review-skip" data-review-id="${r.id}">スキップ</button>`;
+      h += `</td>`;
+      h += '</tr>';
+    }
+    h += '</tbody></table>';
+    listEl.innerHTML = h;
+  }
+
+  // "AI処理を実行" button handler
+  if (processBtn) {
+    processBtn.onclick = async () => {
+      processBtn.disabled = true;
+      if (statusEl) statusEl.textContent = 'AI処理中…';
+      try {
+        const res = await apiFetch(`/api/clients/${clientId}/mf/journal-reviews/process`, { method: 'POST' });
+        if (!res.ok) throw new Error('process failed');
+        if (statusEl) statusEl.textContent = 'AI処理を開始しました。しばらく後に再読み込みしてください。';
+        // Reload after a short delay to pick up auto_applied items
+        setTimeout(() => loadAndRenderMfReview(clientId), 3000);
+      } catch (err) {
+        if (statusEl) statusEl.textContent = '処理に失敗しました。';
+      } finally {
+        processBtn.disabled = false;
+      }
+    };
+  }
+
+  // Approve / Skip button handlers
+  listEl.querySelectorAll('[data-action="mf-review-approve"]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const reviewId = btn.dataset.reviewId;
+      const memoInput = listEl.querySelector(`.mf-review-memo-input[data-review-id="${reviewId}"]`);
+      const memo = memoInput ? memoInput.value : undefined;
+      btn.disabled = true;
+      try {
+        const res = await apiFetch(
+          `/api/clients/${clientId}/mf/journal-reviews/${reviewId}/approve`,
+          { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ memo }) },
+        );
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body?.error?.message ?? 'approve failed');
+        }
+        showToast('MFに反映しました');
+        loadAndRenderMfReview(clientId);
+      } catch (err) {
+        showToast('反映に失敗しました: ' + (err.message ?? ''));
+        btn.disabled = false;
+      }
+    });
+  });
+
+  listEl.querySelectorAll('[data-action="mf-review-skip"]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const reviewId = btn.dataset.reviewId;
+      btn.disabled = true;
+      try {
+        const res = await apiFetch(
+          `/api/clients/${clientId}/mf/journal-reviews/${reviewId}/skip`,
+          { method: 'POST' },
+        );
+        if (!res.ok) throw new Error('skip failed');
+        showToast('スキップしました');
+        loadAndRenderMfReview(clientId);
+      } catch (err) {
+        showToast('スキップに失敗しました');
+        btn.disabled = false;
+      }
+    });
+  });
+}
+
 function renderRules() {
   const client = currentClient();
   let html = '<div class="rules-2col">';
@@ -3372,6 +3510,7 @@ function renderView() {
     portal: () => renderPortal(),                  // 業務 > メッセージ
     "integrations-drive": () => renderIntegrationsDrive(),
     "integrations-line": () => renderIntegrationsLine(),
+    "mf-review": () => renderMfReview(),           // 業務 > 月次業務 > 摘要レビュー
     rules: () => renderRules(),                    // 学習・設定 > 学習
     settings: () => renderSettings(),              // 学習・設定 > 設定
   };
@@ -3433,6 +3572,10 @@ function renderView() {
   }
   if (appState.activeView === "dashboard") {
     loadAndRenderYearend();
+  }
+  if (appState.activeView === "mf-review") {
+    const c = currentClient();
+    if (c?.id) loadAndRenderMfReview(c.id);
   }
   if (appState.activeView === "vouchers-register") {
     if (appState.vouchersLoadedTab !== appState.voucherTab) {
@@ -3814,15 +3957,38 @@ function renderView() {
         const label = vendor === "mf" ? "マネーフォワード" : "freee";
         showToast(label + " の該当画面を別タブで開きます (PoCではモック)");
       }
+      if (action === "portal-reminder-draft") {
+        const client = currentClient();
+        if (!client) return;
+        button.disabled = true;
+        button.textContent = "生成中…";
+        apiFetch("/api/clients/" + encodeURIComponent(client.id) + "/reminder-draft?type=receipt")
+          .then((draft) => {
+            const subjectInput = $("#portalSubject");
+            const bodyTextarea = $("#portalDraft");
+            if (subjectInput) subjectInput.value = draft.subject || "";
+            if (bodyTextarea) bodyTextarea.value = formatBodyForChannel(draft.body || "", appState.portalChannel);
+            showToast("リマインド文を作成しました。確認後に送信してください。");
+          })
+          .catch(() => {
+            showToast("文面の生成に失敗しました");
+          })
+          .finally(() => {
+            button.disabled = false;
+            button.textContent = "証憑リマインドを作成";
+          });
+        return;
+      }
       if (action === "portal-send-now") {
         const draft = $("#portalDraft").value;
+        const subjectEl = $("#portalSubject");
         const client = currentClient();
         sendMessage({
           clientId: client.id,
           channel: appState.portalChannel,
           subject:
             appState.portalChannel === "email"
-              ? "月次のご確認のお願い"
+              ? (subjectEl && subjectEl.value.trim()) || "月次のご確認のお願い"
               : undefined,
           body: draft,
         })
