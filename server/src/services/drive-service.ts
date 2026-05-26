@@ -282,17 +282,20 @@ export async function startWatch(
   };
 }
 
-/** フォルダ直下の画像ファイルを列挙する（バックフィル用） */
+/** フォルダ直下のファイルを列挙する。imagesOnly=true(デフォルト)で画像のみ */
 export async function listFilesInFolder(
   accessToken: string,
   folderId: string,
+  imagesOnly = true,
 ): Promise<DriveChangeFile[]> {
   const drive = driveClient(accessToken);
   const out: DriveChangeFile[] = [];
   let pageToken: string | undefined;
+  const imageFilter = `and (mimeType = 'image/jpeg' or mimeType = 'image/png' or mimeType = 'image/gif' or mimeType = 'image/webp')`;
+  const q = `'${folderId}' in parents and trashed = false and mimeType != 'application/vnd.google-apps.folder'${imagesOnly ? ' ' + imageFilter : ''}`;
   do {
     const res = await drive.files.list({
-      q: `'${folderId}' in parents and trashed = false and (mimeType = 'image/jpeg' or mimeType = 'image/png' or mimeType = 'image/gif' or mimeType = 'image/webp')`,
+      q,
       fields: 'nextPageToken, files(id, name, mimeType, size, parents)',
       pageSize: 100,
       pageToken,

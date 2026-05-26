@@ -381,15 +381,24 @@ export async function integrationsDriveRoutes(app: FastifyInstance) {
     for (const mapping of mappings) {
       let files;
       try {
-        files = await driveService.listFilesInFolder(token, mapping.driveFolderId);
+        files = await driveService.listFilesInFolder(token, mapping.driveFolderId, false); // 全形式を表示
       } catch (_err) {
         continue;
       }
-      // Also include files in imported subfolder
+      // 取り込み済みフォルダのファイルも含める
       let importedFiles: typeof files = [];
-      if (mapping.importedSubfolderId) {
+      let importedFolderId = mapping.importedSubfolderId;
+      if (!importedFolderId) {
+        // importedSubfolderId未設定の場合、サブフォルダ一覧から「取り込み済」を探す
         try {
-          importedFiles = await driveService.listFilesInFolder(token, mapping.importedSubfolderId);
+          const subs = await driveService.listSubfolders(token, mapping.driveFolderId);
+          const found = subs.find(s => s.name === '取り込み済');
+          if (found) importedFolderId = found.id;
+        } catch (_err) { /* ignore */ }
+      }
+      if (importedFolderId) {
+        try {
+          importedFiles = await driveService.listFilesInFolder(token, importedFolderId, false);
         } catch (_err) { /* ignore */ }
       }
 
