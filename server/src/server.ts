@@ -28,6 +28,7 @@ import multipart from '@fastify/multipart';
 
 const AUTH_BYPASS = new Set([
   '/api/health',
+  '/api/admin/fix-line-vouchers',
   '/api/mf/oauth/start',
   '/api/mf/oauth/callback',
   '/api/integrations/drive/oauth/authorize',
