@@ -434,14 +434,9 @@ export async function sendLinePushForVoucherStatus(
     return;
   }
 
-  if (v.journalStatus === 'inquired') {
-    await lineService.pushMessage(v.lineUserId, [
-      { type: 'text', text: '領収書を受け付けました。内容を確認中です。' },
-    ]);
-    return;
-  }
-
-  if (v.journalStatus === 'needs_info') {
+  // 'inquired' = outreach サービスが問い合わせ済み。LINE voucher の場合は
+  // 追加情報が不足しているので、'needs_info' と同様に LINE で質問する。
+  if (v.journalStatus === 'inquired' || v.journalStatus === 'needs_info') {
     const draft = (v.draftJournalJson ?? {}) as { missingFields?: string[] };
     const field = draft.missingFields?.[0];
     if (!field) return;
