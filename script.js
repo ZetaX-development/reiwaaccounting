@@ -2299,6 +2299,7 @@ function renderCompany() {
     { key: "sub-ledger", label: "補助元帳" },
     { key: "trial-bs", label: "残高試算表 BS" },
     { key: "trial-pl", label: "残高試算表 PL" },
+    { key: "contact", label: "連絡先" },
   ];
   let html = '<div class="company-tabs">';
   for (const t of tabs) {
@@ -2308,6 +2309,8 @@ function renderCompany() {
 
   if (tab === "info") {
     html += renderCompanyInfo(c);
+  } else if (tab === "contact") {
+    html += renderCompanyContact(c);
   } else if (!c.mfConnected) {
     html += '<div class="empty-state">MF クラウド会計と連携してください。<br><br><a href="/api/mf/oauth/start?clientId=' + escapeHtml(c.id) + '" class="btn btn-primary">MoneyForwardと連携する</a></div>';
   } else {
@@ -2340,6 +2343,29 @@ function renderCompanyInfo(c) {
     }
   }
   html += '</section>';
+  return html;
+}
+
+function renderCompanyContact(c) {
+  const endpoints = c.contactEndpoints || {};
+  const primary = c.contactPrimary || "email";
+  let html = '<div class="settings-card">';
+  html += '<h3>連絡先の設定</h3>';
+  html += '<div class="form-grid">';
+  html += '<label>メール</label><input type="email" data-contact-channel="email" value="' + escapeHtml(endpoints.email || "") + '" placeholder="example@company.com">';
+  html += '<label>Slack</label><input type="text" data-contact-channel="slack" value="' + escapeHtml(endpoints.slack || "") + '" placeholder="Channel ID">';
+  html += '<label>Chatwork</label><input type="text" data-contact-channel="chatwork" value="' + escapeHtml(endpoints.chatwork || "") + '" placeholder="Room ID">';
+  html += '<label>LINE WORKS</label><input type="text" data-contact-channel="line_works" value="' + escapeHtml(endpoints.line_works || "") + '" placeholder="Channel ID">';
+  html += '<label>優先チャンネル</label>';
+  html += '<select id="companyPrimaryChannelSelect">';
+  html += '<option value="email"' + (primary === "email" ? " selected" : "") + '>メール</option>';
+  html += '<option value="slack"' + (primary === "slack" ? " selected" : "") + '>Slack</option>';
+  html += '<option value="chatwork"' + (primary === "chatwork" ? " selected" : "") + '>Chatwork</option>';
+  html += '<option value="line_works"' + (primary === "line_works" ? " selected" : "") + '>LINE WORKS</option>';
+  html += '</select>';
+  html += '</div>';
+  html += '<div class="row-actions" style="margin-top:8px"><button class="primary-action compact" data-action="company-contact-save">保存</button></div>';
+  html += '</div>';
   return html;
 }
 
@@ -4071,6 +4097,21 @@ function renderView() {
             render();
           })
           .catch(() => {});
+      }
+      if (action === "company-contact-save") {
+        const client = currentClient();
+        const endpoints = {};
+        document.querySelectorAll("[data-contact-channel]").forEach((inp) => {
+          endpoints[inp.dataset.contactChannel] = inp.value.trim() || null;
+        });
+        const primary = (document.getElementById("companyPrimaryChannelSelect") || {}).value;
+        updateContact({ primary, endpoints })
+          .then(() => {
+            client.contactPrimary = primary;
+            client.contactEndpoints = endpoints;
+            showToast("連絡先を更新しました");
+          })
+          .catch(() => showToast("保存に失敗しました"));
       }
       if (action === "resend-thread") {
         // Legacy data-action path; data-portal-resend is the modern form
