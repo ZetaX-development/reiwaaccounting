@@ -29,6 +29,8 @@ export interface VoucherMeta {
   inquiryChannel: string | null;
   source: string;
   caption: string | null;
+  mfWriteStatus: string | null;
+  mfWriteError: string | null;
 }
 
 function toMeta(row: Pick<Voucher, keyof VoucherMeta>): VoucherMeta {
@@ -54,6 +56,8 @@ function toMeta(row: Pick<Voucher, keyof VoucherMeta>): VoucherMeta {
     inquiryChannel: row.inquiryChannel,
     source: row.source,
     caption: row.caption,
+    mfWriteStatus: row.mfWriteStatus,
+    mfWriteError: row.mfWriteError,
   };
 }
 
@@ -114,6 +118,8 @@ export async function listVouchers(filter: {
       inquiryChannel: true,
       source: true,
       caption: true,
+      mfWriteStatus: true,
+      mfWriteError: true,
     },
   });
   return rows.map(toMeta);

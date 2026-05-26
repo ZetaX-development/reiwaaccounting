@@ -9,6 +9,7 @@ import {
 import { findMatchForVoucher } from '../services/matching-service.js';
 import { generateDraftJournal } from '../services/journal-draft-service.js';
 import { inquireAboutVoucher } from '../services/outreach-service.js';
+import { writeJournalToMf } from '../services/mf-browser-service.js';
 import { prisma } from '../lib/prisma.js';
 
 async function runMatchAndPersist(id: string): Promise<void> {
@@ -257,6 +258,39 @@ export async function voucherRoutes(app: FastifyInstance) {
       }
       setImmediate(() => {
         inquireAboutVoucher(req.params.id).catch(() => {});
+      });
+      reply.code(202);
+      return { ok: true };
+    },
+  );
+
+  // Spec 20: UI から MF 仕訳登録をトリガーする
+  app.post<{ Params: { id: string } }>(
+    '/api/vouchers/:id/mf-write',
+    async (req, reply) => {
+      const row = await prisma.voucher.findFirst({
+        where: { id: req.params.id, firmId: req.user!.firmId },
+        select: { id: true, journalStatus: true },
+      });
+      if (!row) {
+        reply.code(404);
+        return { error: { code: 'NOT_FOUND', message: 'voucher not found' } };
+      }
+      if (!row.journalStatus || row.journalStatus === 'none') {
+        reply.code(400);
+        return {
+          error: {
+            code: 'NO_DRAFT',
+            message: '仕訳ドラフトがまだありません。先にドラフトを生成してください。',
+          },
+        };
+      }
+      await prisma.voucher.update({
+        where: { id: req.params.id },
+        data: { mfWriteStatus: 'pending' },
+      });
+      setImmediate(() => {
+        writeJournalToMf(req.params.id).catch(() => {});
       });
       reply.code(202);
       return { ok: true };

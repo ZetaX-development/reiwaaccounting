@@ -340,6 +340,21 @@ async function approveVoucherJournal(id) {
   }
 }
 
+async function writeMfJournal(id) {
+  try {
+    const res = await apiFetch(`/api/vouchers/${id}/mf-write`, { method: 'POST' });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body?.error?.message || 'mf-write failed');
+    }
+    showToast('MoneyForwardへの入力を開始しました。');
+    appState.matchingLoadedTab = null;
+    await loadMatchingData();
+  } catch (err) {
+    showToast(friendlyError(err));
+  }
+}
+
 async function reassignVoucherClient(id, newClientId) {
   try {
     const res = await apiFetch(`/api/vouchers/${id}`, {
@@ -2793,10 +2808,21 @@ function renderMatchingResults() {
                 </button>
               </div>`
           : '';
+        const mfStatus = v.mfWriteStatus;
+        const mfBadge = mfStatus === 'done'
+          ? '<span class="matching-draft-badge badge-approved">MF登録済</span>'
+          : mfStatus === 'writing' || mfStatus === 'pending'
+            ? '<span class="matching-draft-badge badge-drafting"><span class="spinner-sm"></span>MF入力中</span>'
+            : mfStatus === 'failed'
+              ? `<span class="matching-draft-badge badge-needs" title="${escapeHtml(v.mfWriteError || '')}">MF失敗</span>`
+              : '';
+        const mfWriteBtn = mfStatus !== 'done' && mfStatus !== 'writing' && mfStatus !== 'pending'
+          ? `<button class="matching-mfwrite-btn" data-matching-mfwrite="${v.id}">MFに登録</button>`
+          : '';
         draftHtml = `
           <div class="matching-draft">
             <div class="matching-draft-header">
-              📝 仕訳ドラフト (MF 形式) ${statusBadge}
+              📝 仕訳ドラフト (MF 形式) ${statusBadge} ${mfBadge}
             </div>
             <div class="matching-draft-mf">
               <div class="matching-draft-mf-meta">
@@ -2833,6 +2859,7 @@ function renderMatchingResults() {
             <div class="matching-draft-actions">
               <button class="matching-redraft-btn" data-matching-redraft="${v.id}">再生成</button>
               ${js !== 'approved' ? `<button class="matching-approve-btn" data-matching-approve="${v.id}">承認</button>` : ''}
+              ${mfWriteBtn}
             </div>
           </div>`;
       } else if (status === 'unmatched' && v.ocrStatus === 'done') {
@@ -3423,6 +3450,11 @@ function renderView() {
     viewContent.querySelectorAll('[data-matching-approve]').forEach((btn) => {
       btn.addEventListener('click', () => {
         approveVoucherJournal(btn.dataset.matchingApprove);
+      });
+    });
+    viewContent.querySelectorAll('[data-matching-mfwrite]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        writeMfJournal(btn.dataset.matchingMfwrite);
       });
     });
   }
