@@ -45,6 +45,30 @@ function apiFetch(url, options) {
   return fetch(url, Object.assign({}, opts, { headers: headers }));
 }
 
+async function loadVoucherImageBlob(voucherId) {
+  try {
+    const res = await apiFetch(`/api/vouchers/${voucherId}/image`);
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return URL.createObjectURL(blob);
+  } catch (_) {
+    return null;
+  }
+}
+
+function hydrateVoucherImages() {
+  document.querySelectorAll('[data-voucher-img]').forEach(async (img) => {
+    const id = img.dataset.voucherImg;
+    if (!id) return;
+    if (img.dataset.voucherImgLoading === '1') return;
+    if (img.getAttribute('src')) return;
+    img.dataset.voucherImgLoading = '1';
+    const url = await loadVoucherImageBlob(id);
+    if (url) img.src = url;
+    delete img.dataset.voucherImgLoading;
+  });
+}
+
 // Loaded from /api/clients on startup. Empty until the first fetch resolves.
 let clients = [];
 
@@ -238,6 +262,7 @@ async function loadVouchers() {
     appState.vouchersLoadedTab = tab;
     await refreshVoucherCounts();
     renderView();
+    hydrateVoucherImages();
   } catch (err) {
     showToast(friendlyError(err));
   }
@@ -322,10 +347,10 @@ async function loadMatchingData() {
       tab === 'unassigned'
         ? '/api/vouchers?clientId=unassigned'
         : `/api/vouchers?clientId=${encodeURIComponent(tab)}`;
-    const requests = [fetch(voucherUrl).then((r) => r.json())];
+    const requests = [apiFetch(voucherUrl).then((r) => r.json())];
     if (tab !== 'unassigned') {
       requests.push(
-        fetch(`/api/clients/${encodeURIComponent(tab)}`).then((r) => r.json()),
+        apiFetch(`/api/clients/${encodeURIComponent(tab)}`).then((r) => r.json()),
       );
     }
     const [vouchers, client] = await Promise.all(requests);
@@ -333,6 +358,7 @@ async function loadMatchingData() {
     appState.matchingEntries = client?.entries || [];
     appState.matchingLoadedTab = tab;
     renderView();
+    hydrateVoucherImages();
   } catch (err) {
     showToast(friendlyError(err));
   }
@@ -3315,7 +3341,7 @@ function renderVoucherRegister() {
       <div class="voucher-card" data-voucher-id="${v.id}" data-mime-type="${escapeHtml(v.mimeType || '')}" draggable="true">
         ${String(v.mimeType || '').toLowerCase().includes('pdf')
           ? '<div class="voucher-pdf-thumb">📄</div>'
-          : `<img src="/api/vouchers/${v.id}/image" alt="${escapeHtml(v.filename)}" />`}
+          : `<img data-voucher-img="${v.id}" alt="${escapeHtml(v.filename)}" style="background:#f3f4f6;" />`}
         <button class="voucher-delete" data-voucher-delete="${v.id}" aria-label="削除">×</button>
         <div class="voucher-meta">
           <div class="voucher-filename">${escapeHtml(v.filename)}${sourceBadge}</div>
@@ -3415,7 +3441,7 @@ function renderMatchingResults() {
       const entryAccount = entry ? escapeHtml(entry.account) : '—';
       return `
       <div class="matching-card-matched">
-        <img src="/api/vouchers/${v.id}/image" alt="${escapeHtml(v.filename)}" />
+        <img data-voucher-img="${v.id}" alt="${escapeHtml(v.filename)}" style="background:#f3f4f6;" />
         <div class="matching-side voucher-side">
           <div class="matching-label">証憑 OCR</div>
           <div class="matching-amount">${amount}</div>
@@ -3549,7 +3575,7 @@ function renderMatchingResults() {
 
       return `
       <div class="matching-card-pending">
-        <img src="/api/vouchers/${v.id}/image" alt="${escapeHtml(v.filename)}" />
+        <img data-voucher-img="${v.id}" alt="${escapeHtml(v.filename)}" style="background:#f3f4f6;" />
         <div class="matching-side">
           <div class="matching-label matching-status-${status}">${statusLabel}</div>
           <div class="matching-amount">${amount}</div>
@@ -4182,7 +4208,10 @@ function renderView() {
         const modal = document.querySelector('#voucherModal');
         const img = document.querySelector('#voucherModalImg');
         if (modal && img) {
-          img.src = `/api/vouchers/${id}/image`;
+          img.src = '';
+          loadVoucherImageBlob(id).then((url) => {
+            if (url) img.src = url;
+          });
           modal.hidden = false;
         }
       });
@@ -4195,6 +4224,7 @@ function renderView() {
     };
     if (closeBtn) closeBtn.addEventListener('click', closeModal);
     if (backdrop) backdrop.addEventListener('click', closeModal);
+    hydrateVoucherImages();
 
     if (appState.voucherPollTimer) {
       clearInterval(appState.voucherPollTimer);
@@ -4261,6 +4291,7 @@ function renderView() {
         writeMfJournal(btn.dataset.matchingMfwrite);
       });
     });
+    hydrateVoucherImages();
   }
   if (appState.activeView === 'integrations-drive') {
     // Initial load: fetch status, then (if connected) folders + mappings.
