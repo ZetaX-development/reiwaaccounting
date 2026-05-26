@@ -20,6 +20,7 @@ const appState = {
   driveLastSync: null,
   driveLastBackfill: null,
   driveVouchers: [],
+  driveFiles: [],
   driveLoadedAt: null,
   lineIntegration: null,
   lineUsers: [],
@@ -422,6 +423,15 @@ async function loadDriveFolders() {
   }
 }
 
+async function loadDriveFiles() {
+  try {
+    const res = await apiFetch('/api/integrations/drive/files');
+    if (!res.ok) { appState.driveFiles = []; return; }
+    const data = await res.json();
+    appState.driveFiles = data.files || [];
+  } catch (_) { appState.driveFiles = []; }
+}
+
 async function loadDriveVouchers() {
   const mappings = appState.driveMappings || [];
   if (mappings.length === 0) { appState.driveVouchers = []; return; }
@@ -453,7 +463,7 @@ async function triggerDriveSync() {
       showToast('新着ファイルはありませんでした。');
     }
     renderView();
-    await loadDriveVouchers();
+    await Promise.all([loadDriveVouchers(), loadDriveFiles()]);
     renderView();
   } catch (err) {
     showToast(friendlyError(err));
@@ -481,7 +491,7 @@ async function triggerDriveBackfill() {
     } else {
       showToast('取込対象ファイルがありませんでした。');
     }
-    await loadDriveVouchers();
+    await Promise.all([loadDriveVouchers(), loadDriveFiles()]);
     renderView();
   } catch (err) {
     showToast(friendlyError(err));
@@ -3136,64 +3146,78 @@ function renderIntegrationsDrive() {
     `;
   }
 
-  // Step 4: 取り込み済み証憑一覧
+  // Step 4: フォルダ内ファイル一覧（取り込み状況付き）
+  const driveFiles = appState.driveFiles || [];
   let vouchersPanel = '';
-  if (driveVouchers.length > 0) {
-    const rows = driveVouchers.slice(0, 20).map(v => {
-      const ocrBadge = v.ocrStatus === 'done'
-        ? '<span style="color:var(--green);font-size:11px;">OCR済</span>'
-        : v.ocrStatus === 'failed'
-        ? '<span style="color:var(--red);font-size:11px;">OCR失敗</span>'
-        : '<span style="color:var(--amber);font-size:11px;">処理中</span>';
+  if (mappings.length > 0) {
+    const formatSize = (bytes) => {
+      if (!bytes) return '';
+      if (bytes > 1024*1024) return ` (${(bytes/1024/1024).toFixed(1)}MB)`;
+      return ` (${(bytes/1024).toFixed(0)}KB)`;
+    };
 
-      const mfBadge = v.mfWriteStatus === 'done'
-        ? '<span style="color:var(--green);font-size:11px;">MF登録済</span>'
-        : v.mfWriteStatus === 'failed'
-        ? `<span style="color:var(--red);font-size:11px;" title="${escapeHtml(v.mfWriteError||'')}">MF失敗</span>`
-        : v.mfWriteStatus === 'writing' || v.mfWriteStatus === 'pending'
-        ? '<span style="color:var(--amber);font-size:11px;">MF登録中</span>'
-        : '';
+    if (driveFiles.length > 0) {
+      const rows = driveFiles.map(f => {
+        let statusBadge, actionCell = '';
+        if (f.importStatus === 'imported' && f.voucherId) {
+          // 取り込み済み：OCR・MFステータスをdriveVouchersから取得
+          const v = driveVouchers.find(v => v.id === f.voucherId);
+          const ocrBadge = !v ? '' :
+            v.ocrStatus === 'done' ? '<span style="color:var(--green);font-size:11px;">OCR済</span>' :
+            v.ocrStatus === 'failed' ? '<span style="color:var(--red);font-size:11px;">OCR失敗</span>' :
+            '<span style="color:var(--amber);font-size:11px;">OCR中</span>';
+          const mfBadge = !v ? '' :
+            v.mfWriteStatus === 'done' ? '<span style="color:var(--green);font-size:11px;">MF済</span>' :
+            v.mfWriteStatus === 'failed' ? `<span style="color:var(--red);font-size:11px;" title="${escapeHtml(v.mfWriteError||'')}">MF失敗</span>` :
+            v.mfWriteStatus === 'writing' || v.mfWriteStatus === 'pending' ? '<span style="color:var(--amber);font-size:11px;">MF中</span>' : '';
+          const canMfWrite = v && v.journalStatus && v.journalStatus !== 'none'
+            && v.mfWriteStatus !== 'done' && v.mfWriteStatus !== 'writing' && v.mfWriteStatus !== 'pending';
+          statusBadge = '<span style="color:var(--green);font-size:11px;">✓ 取込済</span>';
+          actionCell = `${ocrBadge} ${mfBadge} ${canMfWrite ? `<button class="primary-btn" style="font-size:11px;padding:2px 6px;" data-voucher-mf-write="${escapeHtml(f.voucherId)}">MFに登録</button>` : ''}`;
+        } else if (f.importStatus === 'skipped_size') {
+          statusBadge = `<span style="color:var(--red);font-size:11px;" title="10MB超のため取り込めません">容量超過</span>`;
+          actionCell = '<span class="muted" style="font-size:11px;">10MB以内に圧縮してください</span>';
+        } else if (f.importStatus === 'skipped_type') {
+          statusBadge = `<span style="color:var(--amber);font-size:11px;">非対応形式</span>`;
+          actionCell = '<span class="muted" style="font-size:11px;">JPEG/PNG/GIF/WebP のみ対応</span>';
+        } else {
+          statusBadge = '<span style="color:var(--muted);font-size:11px;">未取込</span>';
+          actionCell = '<span class="muted" style="font-size:11px;">「取り込む」を押してください</span>';
+        }
+        const fname = escapeHtml(f.filename || f.fileId);
+        const imgLink = f.importStatus === 'imported' && f.voucherId
+          ? `<a href="/api/vouchers/${escapeHtml(f.voucherId)}/image" target="_blank" style="color:var(--blue);">${fname}</a>`
+          : fname;
+        return `<tr style="border-bottom:1px solid var(--line);">
+          <td style="padding:7px 4px;font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(f.filename||'')}">${imgLink}<span class="muted">${escapeHtml(formatSize(f.size))}</span></td>
+          <td style="padding:7px 4px;">${statusBadge}</td>
+          <td style="padding:7px 4px;">${actionCell}</td>
+        </tr>`;
+      }).join('');
 
-      const canMfWrite = v.journalStatus && v.journalStatus !== 'none'
-        && v.mfWriteStatus !== 'done' && v.mfWriteStatus !== 'writing' && v.mfWriteStatus !== 'pending';
-      const mfBtn = canMfWrite
-        ? `<button class="primary-btn" style="font-size:11px;padding:3px 8px;" data-voucher-mf-write="${escapeHtml(v.id)}">MFに登録</button>`
-        : '';
-
-      const clientName = escapeHtml((clients||[]).find(c=>c.id===v.clientId)?.name||'');
-      const fname = escapeHtml((v.filename||v.id).replace(/^drive_/, ''));
-
-      return `<tr style="border-bottom:1px solid var(--line);">
-        <td style="padding:6px 4px;font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(v.filename||'')}">
-          <a href="/api/vouchers/${escapeHtml(v.id)}/image" target="_blank" style="color:var(--blue);">${fname}</a>
-        </td>
-        <td style="padding:6px 4px;font-size:11px;color:var(--muted);">${clientName}</td>
-        <td style="padding:6px 4px;">${ocrBadge}</td>
-        <td style="padding:6px 4px;">${mfBadge} ${mfBtn}</td>
-      </tr>`;
-    }).join('');
-
-    vouchersPanel = `
-      <div class="integration-panel">
-        <h3>取り込み済み証憑 <span class="muted" style="font-weight:normal;font-size:12px;">${driveVouchers.length}件</span></h3>
-        <table style="width:100%;border-collapse:collapse;">
-          <thead><tr style="font-size:11px;color:var(--muted);border-bottom:1px solid var(--line);">
-            <th style="text-align:left;padding:4px;">ファイル名</th>
-            <th style="text-align:left;padding:4px;">顧問先</th>
-            <th style="padding:4px;">OCR</th>
-            <th style="padding:4px;">MF</th>
-          </tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-        ${driveVouchers.length > 20 ? `<p class="muted" style="font-size:11px;margin-top:4px;">他 ${driveVouchers.length-20} 件</p>` : ''}
-      </div>
-    `;
-  } else if (mappings.length > 0) {
-    vouchersPanel = `
-      <div class="integration-panel">
-        <p class="muted" style="font-size:13px;">まだ取り込まれた証憑がありません。「フォルダの画像をすべて取り込む」を押してください。</p>
-      </div>
-    `;
+      vouchersPanel = `
+        <div class="integration-panel">
+          <h3>フォルダ内のファイル <span class="muted" style="font-weight:normal;font-size:12px;">${driveFiles.length}件</span>
+            <button class="ghost-btn" style="font-size:11px;margin-left:8px;" data-drive-action="refresh-files">更新</button>
+          </h3>
+          <table style="width:100%;border-collapse:collapse;">
+            <thead><tr style="font-size:11px;color:var(--muted);border-bottom:1px solid var(--line);">
+              <th style="text-align:left;padding:4px;">ファイル名</th>
+              <th style="padding:4px;">状態</th>
+              <th style="padding:4px;text-align:left;">アクション</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      `;
+    } else {
+      vouchersPanel = `
+        <div class="integration-panel">
+          <p class="muted" style="font-size:13px;">フォルダにファイルが見つかりません。</p>
+          <button class="ghost-btn" style="font-size:12px;" data-drive-action="refresh-files">フォルダを確認する</button>
+        </div>
+      `;
+    }
   }
 
   return `
@@ -3619,7 +3643,7 @@ function renderView() {
         await loadDriveStatus();
         if (appState.driveIntegration?.connected) {
           await Promise.all([loadDriveMappings(), loadDriveFolders()]);
-          await loadDriveVouchers();
+          await Promise.all([loadDriveVouchers(), loadDriveFiles()]);
         }
         renderView();
       })();
@@ -3637,6 +3661,8 @@ function renderView() {
         } else if (action === 'save-settings') {
           const urlEl = document.getElementById('driveRootFolderUrl');
           saveDriveSettings(urlEl?.value || '');
+        } else if (action === 'refresh-files') {
+          loadDriveFiles().then(() => renderView());
         } else if (action === 'map-root-folder') {
           const sel = document.getElementById('driveRootClientSelect');
           const clientId = sel?.value || '';

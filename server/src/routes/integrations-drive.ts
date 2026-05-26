@@ -353,6 +353,77 @@ export async function integrationsDriveRoutes(app: FastifyInstance) {
   });
 
   // -------------------------------------------------------------------------
+  // List files in mapped folders with import status
+  // -------------------------------------------------------------------------
+  app.get('/api/integrations/drive/files', async (_req, reply) => {
+    const row = await getDriveIntegration();
+    if (!row) {
+      reply.code(401);
+      return { error: { code: 'NOT_CONNECTED', message: 'drive not connected' } };
+    }
+    let token: string;
+    try {
+      token = await ensureDriveToken();
+    } catch (err) {
+      reply.code(401);
+      return { error: { code: 'NOT_CONNECTED', message: err instanceof Error ? err.message : String(err) } };
+    }
+    const mappings = await prisma.driveFolderMapping.findMany();
+    const MAX = 10 * 1024 * 1024;
+    const ALLOWED = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+    const results: Array<{
+      fileId: string; filename: string; size: number; mimeType: string;
+      folderId: string; clientId: string;
+      importStatus: 'imported' | 'skipped_size' | 'skipped_type' | 'pending';
+      voucherId: string | null;
+    }> = [];
+
+    for (const mapping of mappings) {
+      let files;
+      try {
+        files = await driveService.listFilesInFolder(token, mapping.driveFolderId);
+      } catch (_err) {
+        continue;
+      }
+      // Also include files in imported subfolder
+      let importedFiles: typeof files = [];
+      if (mapping.importedSubfolderId) {
+        try {
+          importedFiles = await driveService.listFilesInFolder(token, mapping.importedSubfolderId);
+        } catch (_err) { /* ignore */ }
+      }
+
+      for (const file of [...files, ...importedFiles]) {
+        const voucher = await prisma.voucher.findUnique({
+          where: { driveFileId: file.id },
+          select: { id: true },
+        });
+        let importStatus: 'imported' | 'skipped_size' | 'skipped_type' | 'pending';
+        if (voucher) {
+          importStatus = 'imported';
+        } else if (!ALLOWED.has(file.mimeType)) {
+          importStatus = 'skipped_type';
+        } else if (file.size > MAX) {
+          importStatus = 'skipped_size';
+        } else {
+          importStatus = 'pending';
+        }
+        results.push({
+          fileId: file.id,
+          filename: file.name,
+          size: file.size,
+          mimeType: file.mimeType,
+          folderId: mapping.driveFolderId,
+          clientId: mapping.clientId,
+          importStatus,
+          voucherId: voucher?.id ?? null,
+        });
+      }
+    }
+    return { files: results };
+  });
+
+  // -------------------------------------------------------------------------
   // Webhook receiver — Google Drive Push Notification
   // -------------------------------------------------------------------------
   app.post('/api/integrations/drive/webhook', async (req, reply) => {
