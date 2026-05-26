@@ -3317,14 +3317,17 @@ function renderIntegrationsDrive() {
           actionCell = '<span class="muted" style="font-size:11px;">10MB以内に圧縮してください</span>';
         } else if (f.importStatus === 'skipped_type') {
           statusBadge = `<span style="color:var(--amber);font-size:11px;">非対応形式</span>`;
-          actionCell = '<span class="muted" style="font-size:11px;">JPEG/PNG/GIF/WebP のみ対応</span>';
+          actionCell = '<span class="muted" style="font-size:11px;">JPEG/PNG/GIF/WebP/PDF のみ対応</span>';
         } else {
           statusBadge = '<span style="color:var(--muted);font-size:11px;">未取込</span>';
           actionCell = '<span class="muted" style="font-size:11px;">「取り込む」を押してください</span>';
         }
         const fname = escapeHtml(f.filename || f.fileId);
+        const isPdf = (f.mimeType || '').includes('pdf');
         const imgLink = f.importStatus === 'imported' && f.voucherId
-          ? `<a href="/api/vouchers/${escapeHtml(f.voucherId)}/image" target="_blank" style="color:var(--blue);">${fname}</a>`
+          ? (isPdf
+            ? `<a href="/api/vouchers/${escapeHtml(f.voucherId)}/image" target="_blank" style="color:var(--blue);" title="PDFを開く">📄 ${fname}</a>`
+            : `<a href="/api/vouchers/${escapeHtml(f.voucherId)}/image" target="_blank" style="color:var(--blue);">${fname}</a>`)
           : fname;
         return `<tr style="border-bottom:1px solid var(--line);">
           <td style="padding:7px 4px;font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(f.filename||'')}">${imgLink}<span class="muted">${escapeHtml(formatSize(f.size))}</span></td>
@@ -3963,6 +3966,7 @@ function renderView() {
         button.disabled = true;
         button.textContent = "生成中…";
         apiFetch("/api/clients/" + encodeURIComponent(client.id) + "/reminder-draft?type=receipt")
+          .then((res) => res.json())
           .then((draft) => {
             const subjectInput = $("#portalSubject");
             const bodyTextarea = $("#portalDraft");
