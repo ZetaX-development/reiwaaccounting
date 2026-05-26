@@ -3306,6 +3306,14 @@ function renderVoucherRegister() {
       } else if (ms === 'no_data') {
         matchHtml = `<div class="voucher-match match-gray">🔗 OCR データ不足</div>`;
       }
+      const assignHtml = appState.voucherTab === 'unassigned'
+        ? `<div class="voucher-assign">
+             <select data-voucher-assign="${v.id}" style="width:100%;padding:4px 6px;font-size:12px;border:1px solid #d1d5db;border-radius:6px;margin-top:6px">
+               <option value="">— 顧問先を選択 —</option>
+               ${(clients || []).map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)}</option>`).join('')}
+             </select>
+           </div>`
+        : '';
 
       const sourceBadge =
         v.source === 'drive'
@@ -3350,6 +3358,7 @@ function renderVoucherRegister() {
         ${captionHtml}
         ${ocrHtml}
         ${matchHtml}
+        ${assignHtml}
         ${mfHtml}
       </div>
     `;
@@ -4115,6 +4124,31 @@ function renderView() {
         appState.voucherTab = btn.dataset.voucherTab;
         appState.vouchersLoadedTab = null;
         loadVouchers();
+      });
+    });
+    viewContent.querySelectorAll('[data-voucher-assign]').forEach((sel) => {
+      sel.addEventListener('click', (e) => {
+        e.stopPropagation();
+      });
+      sel.addEventListener('change', async () => {
+        const voucherId = sel.dataset.voucherAssign;
+        const clientId = sel.value || null;
+        if (!clientId) return;
+        sel.disabled = true;
+        try {
+          const res = await apiFetch(`/api/vouchers/${voucherId}`, {
+            method: 'PATCH',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ clientId }),
+          });
+          if (!res.ok) throw new Error('assign failed');
+          showToast('顧問先を割り当てました');
+          appState.vouchersLoadedTab = null;
+          await loadVouchers();
+        } catch (err) {
+          showToast(friendlyError(err));
+          sel.disabled = false;
+        }
       });
     });
     viewContent.querySelectorAll('[data-voucher-delete]').forEach((btn) => {

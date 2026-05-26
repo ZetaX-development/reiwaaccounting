@@ -270,15 +270,10 @@ async function handleImageMessage(
   // 4. caption
   const caption = consumeCaption(userId);
 
-  // 5. createVoucher — inherit clientId from the most recent LINE voucher by same user
-  const prevVoucher = await prisma.voucher.findFirst({
-    where: { source: 'line', lineUserId: userId, clientId: { not: null } },
-    orderBy: { uploadedAt: 'desc' },
-    select: { clientId: true },
-  });
+  // 5. createVoucher — always start as unclassified
   const filename = `line-${message.id}.${content.mimeType === 'image/png' ? 'png' : 'jpg'}`;
   const meta = await createVoucher({
-    clientId: prevVoucher?.clientId ?? null,
+    clientId: null,
     filename,
     mimeType: content.mimeType,
     buffer: content.buffer,
@@ -422,7 +417,6 @@ async function handlePostback(event: LineWebhookEvent): Promise<void> {
  * Inspect the current Voucher row and push the appropriate LINE message:
  *  - ocrStatus=failed       → 撮り直し依頼
  *  - journalStatus=drafted  → ✅ OK / 🔄 直す / ❓ あとで quick reply
- *  - matchedClientReason=ambiguous → 顧問先候補 quick reply (best-effort)
  */
 export async function sendLinePushForVoucherStatus(
   voucherId: string,
@@ -513,27 +507,6 @@ export async function sendLinePushForVoucherStatus(
     v.matchedClientReason === 'no_client' ||
     v.matchedClientReason === 'ai_uncertain'
   ) {
-    // pick top 3 clients as candidates (simplest heuristic: most recent)
-    const clients = await prisma.client.findMany({
-      take: 3,
-      orderBy: { updatedAt: 'desc' },
-      select: { id: true, name: true },
-    });
-    if (clients.length === 0) return;
-    const items: QuickReplyItem[] = clients.map((c) => ({
-      type: 'action',
-      action: {
-        type: 'postback',
-        label: c.name.slice(0, 20),
-        data: `voucherId=${voucherId}&action=client&clientId=${c.id}`,
-        displayText: c.name,
-      },
-    }));
-    await lineService.pushQuickReply(
-      v.lineUserId,
-      'どの顧問先のレシートですか？',
-      items,
-    );
     return;
   }
 }
