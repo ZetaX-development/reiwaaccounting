@@ -437,10 +437,37 @@ async function triggerDriveBackfill() {
     const res = await apiFetch('/api/integrations/drive/backfill', { method: 'POST' });
     if (!res.ok) throw new Error('backfill failed');
     const s = await res.json();
-    showToast(
-      `既存ファイル取込完了: imported=${s.imported ?? 0} skipped=${s.skipped ?? 0} failed=${s.failed ?? 0}`,
-    );
+    appState.driveLastBackfill = s;
+    const r = s.skipReasons || {};
+    let skipDetail = '';
+    if ((s.skipped ?? 0) > 0) {
+      const parts = [];
+      if (r.duplicate) parts.push(`重複${r.duplicate}件`);
+      if (r.tooLarge) parts.push(`容量超${r.tooLarge}件`);
+      if (r.wrongType) parts.push(`形式NG${r.wrongType}件`);
+      if (parts.length) skipDetail = ` (${parts.join('、')})`;
+    }
+    const importedCount = s.imported ?? 0;
+    const skippedCount = s.skipped ?? 0;
+    if (importedCount > 0) {
+      showToast(`${importedCount}件取り込みました。証憑一覧で確認できます。`);
+    } else if (skippedCount > 0) {
+      showToast(`スキップ: ${skippedCount}件${skipDetail}`);
+    } else {
+      showToast('取込対象ファイルがありませんでした。');
+    }
     renderView();
+    // 取込成功時は該当顧問先の証憑一覧へ遷移
+    if (importedCount > 0 && s.importedFiles?.length > 0) {
+      const clientId = s.importedFiles[0].clientId;
+      const idx = clients.findIndex(c => c.id === clientId);
+      if (idx >= 0) {
+        appState.activeClient = idx;
+        appState.voucherTab = clientId;
+        appState.vouchersLoadedTab = null;
+        location.hash = '#/vouchers';
+      }
+    }
   } catch (err) {
     showToast(friendlyError(err));
   }
@@ -2102,6 +2129,13 @@ function renderCompanyInfo(c) {
     }
   }
   html += '</dl>';
+  if (c.vendor === 'mf' || !c.vendor) {
+    if (c.mfConnected) {
+      html += '<div style="margin-top:1rem"><a href="/api/mf/oauth/start?clientId=' + escapeHtml(c.id) + '" class="btn btn-secondary" style="font-size:.8rem">MF再連携（スコープ更新）</a></div>';
+    } else {
+      html += '<div style="margin-top:1rem"><a href="/api/mf/oauth/start?clientId=' + escapeHtml(c.id) + '" class="btn btn-primary">MoneyForwardと連携する</a></div>';
+    }
+  }
   html += '</section>';
   return html;
 }
