@@ -1,5 +1,6 @@
 import { request } from 'undici';
 import crypto from 'node:crypto';
+import nodemailer from 'nodemailer';
 import { env } from '../env.js';
 import { logger } from '../lib/logger.js';
 
@@ -26,13 +27,37 @@ export interface NotificationAdapter {
   send(endpoint: string, payload: SendPayload): Promise<SendResult>;
 }
 
-// --- Email (SendGrid) -------------------------------------------------
+// --- Email (Nodemailer Gmail + SendGrid fallback) ---------------------
 
 export const emailAdapter: NotificationAdapter = {
   channel: 'email',
   async send(endpoint, payload) {
+    if (env.GMAIL_USER && env.GMAIL_APP_PASSWORD) {
+      try {
+        const transporter = nodemailer.createTransport({
+          service: 'gmail',
+          auth: { user: env.GMAIL_USER, pass: env.GMAIL_APP_PASSWORD },
+        });
+        const info = await transporter.sendMail({
+          from: env.GMAIL_USER,
+          to: endpoint,
+          subject: payload.subject ?? '(no subject)',
+          text: payload.body,
+        });
+        return { externalId: info.messageId };
+      } catch (err) {
+        throw new NotificationError(
+          'GMAIL_FAILED',
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+
     if (!env.SENDGRID_API_KEY || !env.EMAIL_FROM) {
-      throw new NotificationError('NOT_CONFIGURED', 'SENDGRID_API_KEY / EMAIL_FROM 未設定');
+      throw new NotificationError(
+        'NOT_CONFIGURED',
+        'GMAIL_USER / GMAIL_APP_PASSWORD または SENDGRID_API_KEY / EMAIL_FROM 未設定',
+      );
     }
     const res = await request('https://api.sendgrid.com/v3/mail/send', {
       method: 'POST',

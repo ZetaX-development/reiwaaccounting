@@ -22,6 +22,8 @@ const schema = z.object({
   MF_BASE_URL: z.string().default(''),
   SENDGRID_API_KEY: z.string().default(''),
   EMAIL_FROM: z.string().default(''),
+  GMAIL_USER: z.string().optional(),
+  GMAIL_APP_PASSWORD: z.string().optional(),
   SLACK_BOT_TOKEN: z.string().default(''),
   CHATWORK_API_TOKEN: z.string().default(''),
   LINEWORKS_BOT_ID: z.string().default(''),
