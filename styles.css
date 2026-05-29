@@ -3690,3 +3690,41 @@ textarea {
   background: #dcfce7;
   color: #166534;
 }
+
+/* ガイドページ */
+.guide-page { max-width: 800px; margin: 0 auto; padding: 32px 24px; }
+.guide-header { margin-bottom: 40px; }
+.guide-header h1 { font-size: 1.75rem; font-weight: 700; margin-bottom: 8px; }
+.guide-header p { color: var(--text-muted, #666); }
+
+.guide-section { margin-bottom: 48px; }
+.guide-section h2 { font-size: 1.125rem; font-weight: 600; margin-bottom: 20px; padding-bottom: 8px; border-bottom: 2px solid var(--border, #e5e7eb); }
+
+/* ステップ */
+.guide-steps { display: flex; flex-direction: column; gap: 16px; }
+.guide-step { display: flex; gap: 16px; align-items: flex-start; padding: 16px; background: var(--bg-card, #fff); border: 1px solid var(--border, #e5e7eb); border-radius: 10px; }
+.step-number { width: 32px; height: 32px; border-radius: 50%; background: var(--color-primary, #3b82f6); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
+.step-content strong { display: block; margin-bottom: 4px; }
+.step-content p { color: var(--text-muted, #666); font-size: 0.875rem; margin: 0 0 8px; }
+
+/* フロー */
+.guide-flow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.flow-item { display: flex; flex-direction: column; align-items: center; padding: 16px 12px; background: var(--bg-card, #fff); border: 1px solid var(--border, #e5e7eb); border-radius: 10px; min-width: 100px; transition: box-shadow 0.15s; }
+.flow-item:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+.flow-icon { font-size: 1.5rem; margin-bottom: 6px; }
+.flow-label { font-size: 0.8rem; font-weight: 600; text-align: center; }
+.flow-desc { font-size: 0.7rem; color: var(--text-muted, #666); text-align: center; margin-top: 2px; }
+.flow-arrow { font-size: 1.25rem; color: var(--text-muted, #aaa); flex-shrink: 0; }
+
+/* 機能カード */
+.guide-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+.guide-card { padding: 20px; background: var(--bg-card, #fff); border: 1px solid var(--border, #e5e7eb); border-radius: 10px; cursor: pointer; transition: box-shadow 0.15s; }
+.guide-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+.guide-card-icon { font-size: 1.75rem; margin-bottom: 8px; }
+.guide-card-title { font-weight: 600; margin-bottom: 6px; }
+.guide-card-desc { font-size: 0.8rem; color: var(--text-muted, #666); line-height: 1.5; }
+
+/* ショートカット */
+.guide-shortcuts { display: flex; flex-direction: column; gap: 12px; }
+.shortcut-row { display: flex; align-items: center; gap: 16px; }
+kbd { display: inline-block; padding: 4px 10px; background: var(--bg-secondary, #f3f4f6); border: 1px solid var(--border, #d1d5db); border-radius: 6px; font-family: monospace; font-size: 0.875rem; }

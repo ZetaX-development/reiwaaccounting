@@ -89,6 +89,7 @@ const labels = {
   "mf-review": "月次業務 / 摘要レビュー",
   rules: "学習",
   settings: "設定",
+  guide: "使い方",
 
   status: { urgent: "要確認", open: "作業中", done: "終わった" },
   stage: {
@@ -127,6 +128,7 @@ const labels = {
     "mf-review": "摘要が空のMF仕訳をAIで自動補完します。信頼度が高いものは自動適用、低いものだけ確認が必要です。",
     rules: "この顧問先で過去にミスしやすかった点を、企業ごとのチェック項目として保存します。",
     settings: "事務所全体の運用設定。",
+    guide: "経理丸ごとAIの基本的な使い方を確認できます。",
   },
 };
 
@@ -144,6 +146,7 @@ const viewDocumentTitles = {
   "mf-review": "摘要レビュー | 経理丸ごとAI",
   rules: "学習 | 経理丸ごとAI",
   settings: "設定 | 経理丸ごとAI",
+  guide: "使い方 | 経理丸ごとAI",
 };
 
 function friendlyError(err) {
@@ -4394,6 +4397,139 @@ function renderIntegrationsLine() {
   `;
 }
 
+function renderGuide() {
+  return `
+    <div class="guide-page">
+      <div class="guide-header">
+        <h1>使い方ガイド</h1>
+        <p>経理丸ごとAIの基本的な使い方をご案内します</p>
+      </div>
+
+      <section class="guide-section">
+        <h2>はじめてお使いの方へ</h2>
+        <div class="guide-steps">
+          <div class="guide-step">
+            <div class="step-number">1</div>
+            <div class="step-content">
+              <strong>顧問先を選択</strong>
+              <p>左上の顧問先チップをクリックして、作業対象の顧問先を選びます</p>
+            </div>
+          </div>
+          <div class="guide-step">
+            <div class="step-number">2</div>
+            <div class="step-content">
+              <strong>MoneyForwardと連携</strong>
+              <p>「設定」からMoneyForward会計にOAuth連携します。仕訳の取得・送信に必要です</p>
+              <button class="btn-sm btn-secondary" onclick="location.hash='#/settings'">設定を開く →</button>
+            </div>
+          </div>
+          <div class="guide-step">
+            <div class="step-number">3</div>
+            <div class="step-content">
+              <strong>LINEボットを設定（任意）</strong>
+              <p>「LINE」設定からBotを有効化すると、顧問先がLINEで領収書を送れるようになります</p>
+              <button class="btn-sm btn-secondary" onclick="location.hash='#/integrations-line'">LINE設定を開く →</button>
+            </div>
+          </div>
+          <div class="guide-step">
+            <div class="step-number">4</div>
+            <div class="step-content">
+              <strong>月次業務スタート</strong>
+              <p>ToDoダッシュボードから今月やることを確認して業務を開始します</p>
+              <button class="btn-sm btn-primary" onclick="location.hash='#/dashboard'">ダッシュボードへ →</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="guide-section">
+        <h2>毎月の業務フロー</h2>
+        <div class="guide-flow">
+          <div class="flow-item" onclick="location.hash='#/dashboard'" style="cursor:pointer">
+            <div class="flow-icon">📋</div>
+            <div class="flow-label">ToDo確認</div>
+            <div class="flow-desc">今月のタスクを確認</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-item" onclick="location.hash='#/mf-review'" style="cursor:pointer">
+            <div class="flow-icon">🤖</div>
+            <div class="flow-label">AI摘要レビュー</div>
+            <div class="flow-desc">空摘要をAIが自動補完</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-item" onclick="location.hash='#/vouchers-register'" style="cursor:pointer">
+            <div class="flow-icon">📄</div>
+            <div class="flow-label">証憑登録</div>
+            <div class="flow-desc">領収書・請求書をアップロード</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-item" onclick="location.hash='#/matching-results'" style="cursor:pointer">
+            <div class="flow-icon">🔍</div>
+            <div class="flow-label">突合確認</div>
+            <div class="flow-desc">仕訳と証憑を照合</div>
+          </div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-item" onclick="location.hash='#/jobs-journal'" style="cursor:pointer">
+            <div class="flow-icon">📤</div>
+            <div class="flow-label">CSV出力</div>
+            <div class="flow-desc">弥生会計などへエクスポート</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="guide-section">
+        <h2>各機能の説明</h2>
+        <div class="guide-cards">
+          <div class="guide-card" onclick="location.hash='#/dashboard'">
+            <div class="guide-card-icon">📋</div>
+            <div class="guide-card-title">ToDoダッシュボード</div>
+            <div class="guide-card-desc">今月やること一覧。AI摘要レビュー待ち・証憑不足・手動タスクを一画面で管理</div>
+          </div>
+          <div class="guide-card" onclick="location.hash='#/jobs-journal'">
+            <div class="guide-card-icon">📒</div>
+            <div class="guide-card-title">仕訳</div>
+            <div class="guide-card-desc">MFから仕訳を取得して一覧表示。CSVで弥生会計などにエクスポートできます</div>
+          </div>
+          <div class="guide-card" onclick="location.hash='#/mf-review'">
+            <div class="guide-card-icon">🤖</div>
+            <div class="guide-card-title">AI摘要レビュー</div>
+            <div class="guide-card-desc">摘要が空白の仕訳をAIが自動で補完。確認して承認するとMFに反映されます</div>
+          </div>
+          <div class="guide-card" onclick="location.hash='#/jobs-vouchers'">
+            <div class="guide-card-icon">🧾</div>
+            <div class="guide-card-title">証憑</div>
+            <div class="guide-card-desc">領収書・請求書の一覧と仕訳との突合状況を確認</div>
+          </div>
+          <div class="guide-card" onclick="location.hash='#/integrations-line'">
+            <div class="guide-card-icon">💬</div>
+            <div class="guide-card-title">LINE連携</div>
+            <div class="guide-card-desc">顧問先がLINEで領収書を送ると自動でOCR→仕訳ドラフトを作成</div>
+          </div>
+          <div class="guide-card" onclick="location.hash='#/integrations-drive'">
+            <div class="guide-card-icon">📁</div>
+            <div class="guide-card-title">Google Drive連携</div>
+            <div class="guide-card-desc">スキャナーで取り込んだPDFをDriveから自動インポート</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="guide-section">
+        <h2>キーボードショートカット</h2>
+        <div class="guide-shortcuts">
+          <div class="shortcut-row">
+            <kbd>?</kbd>
+            <span>ヘルプモーダルを開く</span>
+          </div>
+          <div class="shortcut-row">
+            <kbd>Esc</kbd>
+            <span>開いているモーダルを閉じる</span>
+          </div>
+        </div>
+      </section>
+    </div>
+  `;
+}
+
 function renderView() {
   const client = currentClient();
   // ToDo は role 切替で 税理士=所長確認待ち / スタッフ=作業中+差戻し が並ぶ。
@@ -4412,6 +4548,7 @@ function renderView() {
     "mf-review": () => renderMfReview(),           // 業務 > 月次業務 > 摘要レビュー
     rules: () => renderRules(),                    // 学習・設定 > 学習
     settings: () => renderSettings(),              // 学習・設定 > 設定
+    guide: () => renderGuide(),                    // サポート > 使い方
   };
   const renderer = views[appState.activeView] ?? views.dashboard;
   document.title = viewDocumentTitles[appState.activeView] || "経理丸ごとAI";
