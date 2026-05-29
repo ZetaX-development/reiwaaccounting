@@ -474,6 +474,58 @@ async function retryMfWrite(clientId, voucherId) {
   }
 }
 
+function filenameFromDisposition(disposition) {
+  if (!disposition) return null;
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match && utf8Match[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch (_err) {
+      return utf8Match[1];
+    }
+  }
+  const basicMatch = disposition.match(/filename="([^"]+)"/i);
+  if (basicMatch && basicMatch[1]) return basicMatch[1];
+  return null;
+}
+
+async function exportVouchersCsv() {
+  const clientId = appState.selectedClientId;
+  if (!clientId) {
+    showToast('顧問先を選択してください', 'error');
+    return;
+  }
+  const formatEl = document.getElementById('csvFormat');
+  const format = formatEl && formatEl.value ? formatEl.value : 'generic';
+  try {
+    const res = await apiFetch(
+      `/api/clients/${encodeURIComponent(clientId)}/vouchers/export-csv?format=${encodeURIComponent(format)}`,
+    );
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body?.error?.message || 'csv export failed');
+    }
+    const blob = await res.blob();
+    const disposition = res.headers.get('content-disposition');
+    const filename =
+      filenameFromDisposition(disposition) ||
+      `journals-${new Date().toISOString().slice(0, 10)}.csv`;
+    const url = URL.createObjectURL(blob);
+    try {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  } catch (err) {
+    showToast(friendlyError(err), 'error');
+  }
+}
+
 async function reassignVoucherClient(id, newClientId) {
   try {
     const res = await apiFetch(`/api/vouchers/${id}`, {
@@ -3134,6 +3186,19 @@ function renderTrialBalance(data, type) {
 }
 
 // ===== 業務 > 月次業務 > 仕訳 (live MF journals list) =====
+function renderVoucherCsvExportBar() {
+  return (
+    '<div class="export-bar">' +
+    '<select id="csvFormat">' +
+    '<option value="yayoi">弥生会計形式</option>' +
+    '<option value="generic">汎用CSV</option>' +
+    '<option value="mf">MoneyForward形式</option>' +
+    '</select>' +
+    '<button class="btn btn-secondary" id="exportCsvBtn">CSVダウンロード</button>' +
+    '</div>'
+  );
+}
+
 function renderJobsJournal() {
   const c = currentClient();
   if (!c) return '<div class="empty-state">顧問先を選んでください。</div>';
@@ -3144,6 +3209,7 @@ function renderJobsJournal() {
   });
   let html = '<section>';
   html += '<p class="eyebrow">仕訳一覧</p>';
+  html += renderVoucherCsvExportBar();
   if (entries.length === 0) {
     html += '<div class="empty-state">仕訳がありません。マネフォと連携すると自動で取り込まれます。</div>';
   } else {
@@ -3274,6 +3340,7 @@ function renderJobsVouchers() {
   html += '<div id="missingTableSlot"></div>';
   html += '<section class="dashboard-section-card">';
   html += '<div class="dashboard-section-head"><h3>証憑一覧</h3><span id="jobsVoucherCount" class="status-chip processing">読み込み中</span></div>';
+  html += renderVoucherCsvExportBar();
   html += '<div id="jobsVouchersGrid"><div class="empty-state">読み込み中…</div></div>';
   html += '</section>';
   html += '<div class="voucher-modal" id="voucherModal" hidden>';
@@ -4274,6 +4341,13 @@ function renderView() {
   if (appState.activeView === "jobs-vouchers") {
     loadAndRenderMissing();
     loadAndRenderJobsVouchers();
+  }
+  if (
+    appState.activeView === "jobs-journal" ||
+    appState.activeView === "jobs-vouchers"
+  ) {
+    const exportBtn = viewContent.querySelector('#exportCsvBtn');
+    if (exportBtn) exportBtn.addEventListener('click', exportVouchersCsv);
   }
   if (appState.activeView === "dashboard") {
     loadAndRenderYearend();

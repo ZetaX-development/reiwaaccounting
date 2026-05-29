@@ -1707,6 +1707,20 @@ tbody tr:hover td {
   margin-bottom: var(--space-sm);
 }
 
+.export-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+
+.export-bar select {
+  min-width: 180px;
+  min-height: 34px;
+  padding: 0 10px;
+}
+
 .dashboard-alert {
   border: 1px solid #f2d8a6;
   border-radius: var(--radius-md);

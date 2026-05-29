@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { Prisma } from '@prisma/client';
 import {
   createVoucher,
   listVouchers,
@@ -11,6 +12,190 @@ import { generateDraftJournal } from '../services/journal-draft-service.js';
 import { inquireAboutVoucher } from '../services/outreach-service.js';
 import { writeJournalToMf } from '../services/mf-browser-service.js';
 import { prisma } from '../lib/prisma.js';
+
+type CsvFormat = 'yayoi' | 'mf' | 'generic';
+type ExportStatus = 'drafted' | 'approved' | 'all';
+
+type DraftLeg = {
+  account?: string | null;
+  subAccount?: string | null;
+  partner?: string | null;
+  taxClass?: string | null;
+  invoiceNumber?: string | null;
+  amount?: number | string | null;
+};
+
+type DraftJournal = {
+  transactionDate?: string | null;
+  occurredAt?: string | null;
+  debit?: DraftLeg | null;
+  credit?: DraftLeg | null;
+  description?: string | null;
+  confidence?: number | null;
+};
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const YAYOI_HEADER = [
+  '伝票番号',
+  '伝票日付',
+  '借方勘定科目',
+  '借方補助科目',
+  '借方部門',
+  '借方税区分',
+  '借方金額',
+  '借方消費税額',
+  '貸方勘定科目',
+  '貸方補助科目',
+  '貸方部門',
+  '貸方税区分',
+  '貸方金額',
+  '貸方消費税額',
+  '摘要',
+  'メモ',
+  '付箋1',
+  '付箋2',
+  '証憑ファイル名',
+] as const;
+const MF_HEADER = ['取引日', '決済口座', '取引内容', '金額（円）', 'メモ'] as const;
+const GENERIC_HEADER = [
+  '日付',
+  '借方勘定科目',
+  '借方金額',
+  '借方税区分',
+  '貸方勘定科目',
+  '貸方金額',
+  '貸方税区分',
+  '摘要',
+  '証憑ID',
+  '信頼度',
+] as const;
+
+function escapeCsvCell(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  const text = String(value);
+  if (!/[",\r\n]/.test(text)) return text;
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function serializeCsv(rows: unknown[][]): string {
+  return rows.map((row) => row.map(escapeCsvCell).join(',')).join('\r\n');
+}
+
+function asDraftJournal(input: unknown): DraftJournal {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
+  return input as DraftJournal;
+}
+
+function normalizeDateString(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const raw = value.trim();
+  if (DATE_RE.test(raw)) return raw;
+  const head = raw.slice(0, 10);
+  return DATE_RE.test(head) ? head : null;
+}
+
+function numberOrZero(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.trunc(value);
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return Math.trunc(parsed);
+  }
+  return 0;
+}
+
+function mapYayoiTaxClass(taxClass: string | null | undefined): string {
+  if (taxClass === '課税10%') return '課税10%';
+  if (taxClass === '課税8%（軽減）') return '軽減税率';
+  if (taxClass === null || taxClass === undefined) return '';
+  return taxClass;
+}
+
+function calcTaxAmount(amount: number, taxClass: string | null | undefined): number {
+  if (amount <= 0) return 0;
+  if (taxClass === '課税10%') return Math.floor(amount / 11);
+  if (taxClass === '課税8%（軽減）') return Math.floor((amount / 109) * 9);
+  return 0;
+}
+
+function isWithinDateRange(
+  date: string,
+  from: string | undefined,
+  to: string | undefined,
+): boolean {
+  if (from && date < from) return false;
+  if (to && date > to) return false;
+  return true;
+}
+
+function buildYayoiCsv(rows: Array<{ filename: string; draft: DraftJournal; txDate: string }>): string {
+  const records: unknown[][] = [Array.from(YAYOI_HEADER)];
+  for (const row of rows) {
+    const debit = row.draft.debit ?? {};
+    const credit = row.draft.credit ?? {};
+    const debitAmount = numberOrZero(debit.amount);
+    const creditAmount = numberOrZero(credit.amount);
+    records.push([
+      '',
+      row.txDate,
+      debit.account ?? '',
+      debit.subAccount ?? '',
+      '',
+      mapYayoiTaxClass(debit.taxClass),
+      debitAmount,
+      calcTaxAmount(debitAmount, debit.taxClass),
+      credit.account ?? '',
+      credit.subAccount ?? '',
+      '',
+      mapYayoiTaxClass(credit.taxClass),
+      creditAmount,
+      calcTaxAmount(creditAmount, credit.taxClass),
+      row.draft.description ?? '',
+      '',
+      '',
+      '',
+      row.filename ?? '',
+    ]);
+  }
+  return `\uFEFF${serializeCsv(records)}`;
+}
+
+function buildMfCsv(rows: Array<{ draft: DraftJournal; txDate: string }>): string {
+  const records: unknown[][] = [Array.from(MF_HEADER)];
+  for (const row of rows) {
+    const debit = row.draft.debit ?? {};
+    records.push([
+      row.txDate,
+      debit.account ?? '',
+      row.draft.description ?? '',
+      numberOrZero(debit.amount),
+      '',
+    ]);
+  }
+  return serializeCsv(records);
+}
+
+function buildGenericCsv(
+  rows: Array<{ id: string; draft: DraftJournal; txDate: string }>,
+): string {
+  const records: unknown[][] = [Array.from(GENERIC_HEADER)];
+  for (const row of rows) {
+    const debit = row.draft.debit ?? {};
+    const credit = row.draft.credit ?? {};
+    records.push([
+      row.txDate,
+      debit.account ?? '',
+      numberOrZero(debit.amount),
+      debit.taxClass ?? '',
+      credit.account ?? '',
+      numberOrZero(credit.amount),
+      credit.taxClass ?? '',
+      row.draft.description ?? '',
+      row.id,
+      row.draft.confidence ?? '',
+    ]);
+  }
+  return serializeCsv(records);
+}
 
 async function runMatchAndPersist(id: string): Promise<void> {
   const m = await findMatchForVoucher(id);
@@ -264,6 +449,90 @@ export async function voucherRoutes(app: FastifyInstance) {
       return { ok: true };
     },
   );
+
+  app.get<{
+    Params: { id: string };
+    Querystring: {
+      format?: CsvFormat;
+      status?: ExportStatus;
+      from?: string;
+      to?: string;
+    };
+  }>('/api/clients/:id/vouchers/export-csv', async (req, reply) => {
+    const format = req.query.format ?? 'generic';
+    const status = req.query.status ?? 'all';
+    const from = req.query.from;
+    const to = req.query.to;
+    if (format !== 'yayoi' && format !== 'mf' && format !== 'generic') {
+      reply.code(400);
+      return { error: { code: 'INVALID_QUERY', message: 'format must be yayoi|mf|generic' } };
+    }
+    if (status !== 'drafted' && status !== 'approved' && status !== 'all') {
+      reply.code(400);
+      return { error: { code: 'INVALID_QUERY', message: 'status must be drafted|approved|all' } };
+    }
+    if (from && !DATE_RE.test(from)) {
+      reply.code(400);
+      return { error: { code: 'INVALID_QUERY', message: 'from must be YYYY-MM-DD' } };
+    }
+    if (to && !DATE_RE.test(to)) {
+      reply.code(400);
+      return { error: { code: 'INVALID_QUERY', message: 'to must be YYYY-MM-DD' } };
+    }
+    if (from && to && from > to) {
+      reply.code(400);
+      return { error: { code: 'INVALID_QUERY', message: 'from must be <= to' } };
+    }
+
+    const client = await prisma.client.findFirst({
+      where: { id: req.params.id, firmId: req.user!.firmId },
+      select: { id: true },
+    });
+    if (!client) {
+      reply.code(404);
+      return { error: { code: 'NOT_FOUND', message: 'client not found' } };
+    }
+
+    const vouchers = await prisma.voucher.findMany({
+      where: {
+        firmId: req.user!.firmId,
+        clientId: client.id,
+        draftJournalJson: { not: Prisma.AnyNull },
+        ...(status === 'all' ? {} : { journalStatus: status }),
+      },
+      orderBy: { uploadedAt: 'asc' },
+      select: {
+        id: true,
+        filename: true,
+        uploadedAt: true,
+        draftJournalJson: true,
+      },
+    });
+
+    const prepared = vouchers
+      .map((voucher) => {
+        const draft = asDraftJournal(voucher.draftJournalJson);
+        const txDate =
+          normalizeDateString(draft.transactionDate) ??
+          normalizeDateString(draft.occurredAt) ??
+          voucher.uploadedAt.toISOString().slice(0, 10);
+        return { id: voucher.id, filename: voucher.filename, draft, txDate };
+      })
+      .filter((voucher) => isWithinDateRange(voucher.txDate, from, to));
+
+    const csv =
+      format === 'yayoi'
+        ? buildYayoiCsv(prepared)
+        : format === 'mf'
+          ? buildMfCsv(prepared)
+          : buildGenericCsv(prepared);
+
+    const today = new Date().toISOString().slice(0, 10);
+    reply
+      .header('content-type', 'text/csv; charset=utf-8')
+      .header('content-disposition', `attachment; filename="journals-${today}.csv"`);
+    return csv;
+  });
 
   // Spec 20: UI から MF 仕訳登録をトリガーする
   app.post<{ Params: { id: string; voucherId: string } }>(
