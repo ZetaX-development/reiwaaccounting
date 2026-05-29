@@ -199,6 +199,8 @@ async function mfGet<T>(token: string, path: string): Promise<T | null> {
 
 async function mfPost<T>(token: string, path: string, body: unknown): Promise<{ data: T | null; status: number; error?: string }> {
   try {
+    const bodyStr = JSON.stringify(body);
+    logger.info({ path, body: bodyStr }, 'mf POST request');
     const res = await request(`${env.MF_ACCOUNTING_BASE_URL}${path}`, {
       method: 'POST',
       headers: {
@@ -206,23 +208,23 @@ async function mfPost<T>(token: string, path: string, body: unknown): Promise<{ 
         'content-type': 'application/json',
         accept: 'application/json',
       },
-      body: JSON.stringify(body),
+      body: bodyStr,
     });
     const text = await res.body.text();
     if (res.statusCode === 401) {
       logger.warn({ path }, 'mf POST returned 401');
-      return { data: null, status: 401, error: `認証エラー（401）: ${text.slice(0, 200)}` };
+      return { data: null, status: 401, error: `認証エラー（401）: ${text.slice(0, 500)}` };
     }
     if (res.statusCode >= 400) {
-      logger.warn({ status: res.statusCode, path, text: text.slice(0, 300) }, 'mf POST non-2xx');
+      logger.warn({ status: res.statusCode, path, body: bodyStr, response: text }, 'mf POST non-2xx');
       if (res.statusCode === 403) {
         return {
           data: null,
           status: 403,
-          error: `権限エラー（403）: journal.write スコープ不足の可能性があります。${text.slice(0, 200)}`,
+          error: `権限エラー（403）: journal.write スコープ不足の可能性があります。${text.slice(0, 500)}`,
         };
       }
-      return { data: null, status: res.statusCode, error: `HTTP ${res.statusCode}: ${text.slice(0, 200)}` };
+      return { data: null, status: res.statusCode, error: `HTTP ${res.statusCode}: ${text}` };
     }
     return { data: JSON.parse(text) as T, status: res.statusCode };
   } catch (err) {
@@ -383,10 +385,22 @@ interface MfAccount {
   id: string;
   name: string;
   account_type?: string;
+  tax_id?: string;
 }
 
 interface MfAccountsResponse {
   accounts?: MfAccount[];
+}
+
+interface MfTax {
+  id: string;
+  name?: string;
+  abbreviation?: string;
+  search_key?: string;
+}
+
+interface MfTaxesResponse {
+  taxes?: MfTax[];
 }
 
 /** 勘定科目名 → IDのマップを返す */
@@ -395,6 +409,33 @@ export async function fetchAccountMap(token: string): Promise<Map<string, string
   const map = new Map<string, string>();
   for (const a of res?.accounts ?? []) {
     map.set(a.name, a.id);
+  }
+  return map;
+}
+
+async function fetchAccountTaxMap(token: string): Promise<Map<string, string>> {
+  const res = await mfGet<MfAccountsResponse>(token, '/api/v3/accounts');
+  const map = new Map<string, string>();
+  for (const a of res?.accounts ?? []) {
+    if (!a.id || !a.tax_id) continue;
+    map.set(a.id, a.tax_id);
+  }
+  return map;
+}
+
+function normalizeTaxLabel(v: string): string {
+  return v.replace(/[\s　]/g, '').toLowerCase();
+}
+
+async function fetchTaxLabelMap(token: string): Promise<Map<string, string>> {
+  const res = await mfGet<MfTaxesResponse>(token, '/api/v3/taxes?available=true');
+  const map = new Map<string, string>();
+  for (const t of res?.taxes ?? []) {
+    if (!t.id) continue;
+    for (const label of [t.name, t.abbreviation, t.search_key]) {
+      if (!label) continue;
+      map.set(normalizeTaxLabel(label), t.id);
+    }
   }
   return map;
 }
@@ -445,6 +486,33 @@ export async function createJournalEntry(
     resolvedToken = resolved.token;
   }
 
+  if (!input.debitAccountId?.trim()) {
+    return { ok: false, error: '借方 account_id が未設定です。勘定科目IDの解決結果を確認してください。' };
+  }
+  if (!input.creditAccountId?.trim()) {
+    return { ok: false, error: '貸方 account_id が未設定です。勘定科目IDの解決結果を確認してください。' };
+  }
+  if (!Number.isFinite(input.amount) || input.amount <= 0) {
+    return { ok: false, error: `金額が不正です: ${input.amount}` };
+  }
+
+  const [accountTaxMap, taxLabelMap] = await Promise.all([
+    fetchAccountTaxMap(resolvedToken),
+    fetchTaxLabelMap(resolvedToken),
+  ]);
+
+  const debitTaxId =
+    (input.debitTaxName ? taxLabelMap.get(normalizeTaxLabel(input.debitTaxName)) : undefined) ??
+    accountTaxMap.get(input.debitAccountId);
+  const creditTaxId = accountTaxMap.get(input.creditAccountId);
+
+  // tax_id は任意（現金・普通預金など税区分なし勘定科目もあるためエラーにしない）
+  const debitSide: Record<string, unknown> = { account_id: input.debitAccountId, value: input.amount };
+  if (debitTaxId) debitSide.tax_id = debitTaxId;
+
+  const creditSide: Record<string, unknown> = { account_id: input.creditAccountId, value: input.amount };
+  if (creditTaxId) creditSide.tax_id = creditTaxId;
+
   const body = {
     journal: {
       transaction_date: input.transactionDate,
@@ -453,14 +521,8 @@ export async function createJournalEntry(
       branches: [
         {
           remark: input.description,
-          debitor: {
-            account_id: input.debitAccountId,
-            value: input.amount,
-          },
-          creditor: {
-            account_id: input.creditAccountId,
-            value: input.amount,
-          },
+          debitor: debitSide,
+          creditor: creditSide,
         },
       ],
     },
