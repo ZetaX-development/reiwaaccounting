@@ -490,7 +490,7 @@ function filenameFromDisposition(disposition) {
 }
 
 async function exportVouchersCsv() {
-  const clientId = appState.selectedClientId;
+  const clientId = currentClient()?.id;
   if (!clientId) {
     showToast('顧問先を選択してください', 'error');
     return;
