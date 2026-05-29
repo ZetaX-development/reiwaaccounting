@@ -194,10 +194,11 @@ function updateClientContextBar() {
   if (c) {
     nameEl.textContent = c.name;
     bar.style.display = 'block';
-    if (eyebrowEl) eyebrowEl.textContent = `[${c.name}] · ${defaultEyebrow}`;
+    if (eyebrowEl) eyebrowEl.textContent = `顧問先: ${c.name} ・ ${defaultEyebrow}`;
   } else {
-    bar.style.display = 'none';
-    if (eyebrowEl) eyebrowEl.textContent = defaultEyebrow;
+    nameEl.textContent = '未選択';
+    bar.style.display = 'block';
+    if (eyebrowEl) eyebrowEl.textContent = `顧問先: 未選択 ・ ${defaultEyebrow}`;
   }
 }
 
@@ -427,7 +428,7 @@ async function writeMfJournal(id) {
       const body = await res.json().catch(() => ({}));
       throw new Error(body?.error?.message || 'mf-write failed');
     }
-    showToast('MoneyForwardへの入力を開始しました。');
+    showToast('MoneyForwardへの入力を開始しました。', "info");
     appState.matchingLoadedTab = null;
     appState.vouchersLoadedTab = null;
     if (appState.activeView === 'integrations-drive') {
@@ -435,11 +436,41 @@ async function writeMfJournal(id) {
       renderView();
     } else if (appState.activeView === 'vouchers-register') {
       await loadVouchers();
+    } else if (appState.activeView === 'jobs-vouchers') {
+      await loadAndRenderJobsVouchers();
     } else {
       await loadMatchingData();
     }
   } catch (err) {
-    showToast(friendlyError(err));
+    showToast(friendlyError(err), "error");
+  }
+}
+
+async function retryMfWrite(clientId, voucherId) {
+  try {
+    const res = await apiFetch(
+      `/api/clients/${encodeURIComponent(clientId)}/vouchers/${encodeURIComponent(voucherId)}/mf-retry`,
+      { method: 'POST' },
+    );
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body?.error?.message || 'mf-retry failed');
+    }
+    showToast('MF送信を再試行しました。', "info");
+    appState.matchingLoadedTab = null;
+    appState.vouchersLoadedTab = null;
+    if (appState.activeView === 'integrations-drive') {
+      await loadDriveVouchers();
+      renderView();
+    } else if (appState.activeView === 'vouchers-register') {
+      await loadVouchers();
+    } else if (appState.activeView === 'jobs-vouchers') {
+      await loadAndRenderJobsVouchers();
+    } else {
+      await loadMatchingData();
+    }
+  } catch (err) {
+    showToast(friendlyError(err), "error");
   }
 }
 
@@ -1085,11 +1116,43 @@ function adaptApiClient(d) {
   };
 }
 
-function showToast(message) {
+function inferToastType(message) {
+  const text = String(message || "");
+  if (/失敗|エラー|できません|うまくいきません|not found|failed/i.test(text)) {
+    return "error";
+  }
+  if (/完了|しました|保存|更新|送信|追加|削除|反映|開始/i.test(text)) {
+    return "success";
+  }
+  return "info";
+}
+
+function showToast(message, type) {
+  if (!toast) return;
+  const resolvedType = type || inferToastType(message);
   toast.textContent = message;
+  toast.classList.remove("toast-success", "toast-error", "toast-info");
+  toast.classList.add("toast-" + resolvedType);
   toast.classList.add("show");
   clearTimeout(showToast.timer);
-  showToast.timer = setTimeout(() => toast.classList.remove("show"), 2200);
+  showToast.timer = setTimeout(() => toast.classList.remove("show"), 2400);
+}
+
+function setButtonPending(button, pending, pendingText) {
+  if (!button) return;
+  if (pending) {
+    if (!button.dataset.originalText) {
+      button.dataset.originalText = button.textContent || "";
+    }
+    button.disabled = true;
+    button.textContent = pendingText || "処理中...";
+    return;
+  }
+  button.disabled = false;
+  if (button.dataset.originalText !== undefined) {
+    button.textContent = button.dataset.originalText;
+    delete button.dataset.originalText;
+  }
 }
 
 function stageLabel(stage) { return labels.stage[stage] || stage; }
@@ -1151,29 +1214,21 @@ function makeConfidence(score) {
 // Each chip is a pill showing the company name + vendor + channel.
 // Click → switch the active client and re-render every view bound to it.
 function renderClients() {
-  if (!document.getElementById("chipDragStyle")) {
-    const s = document.createElement("style");
-    s.id = "chipDragStyle";
-    s.textContent = ".chip-wrap.dragging { opacity: 0.4; } .chip-wrap.drag-over { outline: 2px solid #4f8ef7; } " +
-      ".chip-wrap { display: inline-flex; align-items: center; border-radius: 999px; } " +
-      ".chip-wrap.active .chip-select { border-radius: 999px 0 0 999px; } " +
-      ".chip-select { background: none; border: none; cursor: pointer; padding: .25rem .6rem; font-size: .85rem; } " +
-      ".chip-wrap.active { background: #e8f0fe; } " +
-      ".chip-del { background: none; border: none; cursor: pointer; font-size: .8rem; color: #94a3b8; padding: 0 6px 0 2px; border-radius: 0 999px 999px 0; } " +
-      ".chip-del:hover { color: #dc2626; } " +
-      ".chip-add { background: none; border: 1px dashed #94a3b8 !important; color: #64748b !important; font-size: .8rem; padding: .2rem .7rem; margin-left: .25rem; } " +
-      ".chip-add:hover { border-color: #4f8ef7 !important; color: #4f8ef7 !important; }";
-    document.head.appendChild(s);
-  }
-
+  if (!clientChips) return;
   let html = "";
   for (let i = 0; i < clients.length; i++) {
     const c = clients[i];
     const active = i === appState.activeClient ? " active" : "";
+    const pending = Number(c.tasksOpen) || 0;
+    const statusClass = pending === 0 ? "complete" : pending >= 5 ? "error" : "review";
+    const statusLabel = pending === 0 ? "完了" : pending >= 5 ? "要確認" : "処理中";
     html += '<span class="chip-wrap' + active + '" data-client-wrap="' + i + '" draggable="true">';
     html += '<button class="chip-select' + active + '" data-client="' + i + '">';
-    html += escapeHtml(c.name);
-    html += " " + vendorBadgeHtml(c.vendor);
+    html += '<span class="client-chip-main">';
+    html += '<span class="client-chip-name">' + escapeHtml(c.name) + '</span>';
+    html += '<span class="client-chip-meta">未処理 ' + pending + '件 ・ ' + (c.mode === "yearend" ? "期末" : "月次") + '</span>';
+    html += '</span>';
+    html += '<span class="status-chip ' + statusClass + '">' + statusLabel + '</span>';
     html += "</button>";
     html += '<button class="chip-del" data-client-del="' + i + '" title="削除" style="display:' + (i === appState.activeClient ? "inline" : "none") + '">×</button>';
     html += "</span>";
@@ -1229,7 +1284,7 @@ function renderClients() {
             const el = document.getElementById(id);
             if (el) el.value = val;
           });
-          form.style.display = "block";
+          form.hidden = false;
           form.scrollIntoView({ behavior: "smooth" });
         }
       }, 150);
@@ -1502,20 +1557,29 @@ function renderTable(rows, columns) {
 
 function renderDashboard() {
   const client = currentClient();
+  if (!client) {
+    return '<div class="dashboard-empty">顧問先を選択してください。</div>';
+  }
   // Spec 05 F3: yearend mode shows yearend checklist instead of tasks.
   if (client.mode === "yearend") {
     return renderYearendDashboard();
   }
-  let html = '<section class="todo-dashboard">';
+  let html = '<section class="dashboard-stack">';
   html += '<div id="aiPendingBanner">' + renderDashboardAiPendingBannerHtml(appState.dashboardAiPendingCount || 0) + '</div>';
   html += '<div id="missingReceiptsBanner">' + renderDashboardMissingBannerHtml(appState.dashboardMissingCount || 0, appState.dashboardMissingReceipts || []) + '</div>';
+  html += '<section class="dashboard-section-card">';
+  html += '<div class="dashboard-section-head"><h3>手動ToDo</h3><span class="status-chip processing">' + (appState.dashboardTodos || []).length + '件</span></div>';
   html += '<div id="todoList">' + renderDashboardTodoListHtml(appState.dashboardTodos || []) + '</div>';
-  html += '<div class="review-card" style="margin-top:12px;padding:12px">';
-  html += '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end">';
-  html += '<label style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:220px"><span class="eyebrow" style="margin:0">タイトル</span><input id="todoTitleInput" type="text" placeholder="ToDoタイトル" style="padding:8px;border:1px solid #d5dbe6;border-radius:8px"></label>';
-  html += '<label style="display:flex;flex-direction:column;gap:4px;flex:1;min-width:220px"><span class="eyebrow" style="margin:0">メモ</span><input id="todoNoteInput" type="text" placeholder="補足メモ（任意）" style="padding:8px;border:1px solid #d5dbe6;border-radius:8px"></label>';
-  html += '<button class="row-action" data-action="todo-add" style="height:38px">追加</button>';
-  html += '</div></div></section>';
+  html += '</section>';
+  html += '<section class="dashboard-section-card">';
+  html += '<div class="dashboard-section-head"><h3>ToDoを追加</h3></div>';
+  html += '<div class="dashboard-todo-form">';
+  html += '<label class="dashboard-todo-field"><span>タイトル</span><input id="todoTitleInput" type="text" placeholder="ToDoタイトル"></label>';
+  html += '<label class="dashboard-todo-field"><span>メモ（任意）</span><input id="todoNoteInput" type="text" placeholder="補足メモ"></label>';
+  html += '<button class="primary-action compact" data-action="todo-add">追加</button>';
+  html += '</div>';
+  html += '</section>';
+  html += '</section>';
   return html;
 }
 
@@ -1544,22 +1608,30 @@ function decodeDataToken(token) {
 
 function renderDashboardAiPendingBannerHtml(aiPendingCount) {
   const count = Number(aiPendingCount) || 0;
-  if (count <= 0) return "";
-  let html = '<div class="review-card" style="margin-bottom:12px;padding:12px;display:flex;justify-content:flex-end;align-items:center;gap:8px;flex-wrap:wrap">';
+  if (count <= 0) {
+    return '<section class="dashboard-section-card"><div class="dashboard-empty">AI摘要レビュー待ちは何もありません ✓</div></section>';
+  }
+  let html = '<section class="dashboard-section-card dashboard-alert">';
+  html += '<div class="dashboard-alert-title">AI摘要レビュー待ち ' + count + ' 件</div>';
+  html += '<p class="dashboard-alert-sub">AI提案摘要を確認して一括反映できます。</p>';
+  html += '<div class="dashboard-section-head" style="margin:0">';
   html += '<button class="primary-action" data-action="ai-auto-classify">AI自動仕訳（' + count + '件）</button>';
   html += '<button class="row-action" data-action="go-mf-review">詳細を見る →</button>';
-  html += '</div>';
+  html += '</div></section>';
   return html;
 }
 
 function renderDashboardMissingBannerHtml(missingCount, missingReceipts) {
   const count = Number(missingCount) || 0;
-  if (count <= 0) return "";
+  if (count <= 0) {
+    return '<section class="dashboard-section-card"><div class="dashboard-empty">証憑不足は何もありません ✓</div></section>';
+  }
   const rows = Array.isArray(missingReceipts) ? missingReceipts.slice(0, 5) : [];
-  let html = '<div class="review-card" style="margin-bottom:12px;padding:12px;background:#fff8f0;border:1px solid #f0d9bf">';
-  html += '<strong>証憑なし ' + count + '件</strong>';
+  let html = '<section class="dashboard-section-card dashboard-alert">';
+  html += '<div class="dashboard-alert-title">証憑なし ' + count + '件</div>';
+  html += '<p class="dashboard-alert-sub">優先度の高い順で表示しています。すぐに依頼文を作成できます。</p>';
   if (rows.length > 0) {
-    html += '<table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:.88rem">';
+    html += '<table class="table-dense" style="margin-top:8px;width:100%;border-collapse:collapse">';
     html += '<tbody>';
     for (const r of rows) {
       const occurredAt = r?.occurredAt ? new Date(r.occurredAt).toLocaleDateString('ja-JP') : '-';
@@ -1567,17 +1639,17 @@ function renderDashboardMissingBannerHtml(missingCount, missingReceipts) {
       const description = escapeHtml(r?.description || "-");
       const amount = Number(r?.amount) || 0;
       html += '<tr>';
-      html += '<td style="padding:4px 0;white-space:nowrap">' + occurredAt + '</td>';
-      html += '<td style="padding:4px 0 4px 12px;white-space:nowrap">' + account + '</td>';
-      html += '<td style="padding:4px 0 4px 12px">' + description + '</td>';
-      html += '<td style="padding:4px 0 4px 12px;text-align:right;white-space:nowrap">¥' + amount.toLocaleString('ja-JP') + '</td>';
+      html += '<td style="white-space:nowrap">' + occurredAt + '</td>';
+      html += '<td style="white-space:nowrap">' + account + '</td>';
+      html += '<td>' + description + '</td>';
+      html += '<td style="text-align:right;white-space:nowrap">¥' + amount.toLocaleString('ja-JP') + '</td>';
       html += '</tr>';
     }
     html += '</tbody></table>';
   }
-  html += '<div style="margin-top:8px;display:flex;justify-content:flex-end">';
+  html += '<div class="dashboard-section-head" style="margin-top:8px">';
   html += '<button class="row-action" data-action="missing-send-request">依頼文を送る → メッセージへ</button>';
-  html += '</div></div>';
+  html += '</div></section>';
   return html;
 }
 
@@ -1588,21 +1660,21 @@ function renderDashboardTodoListHtml(todos) {
     .filter((t) => matchesSearch([t.title || "", t.note || ""]));
 
   if (rows.length === 0) {
-    return '<div class="empty-state">表示できるToDoはありません</div>';
+    return '<div class="dashboard-empty">何もありません ✓</div>';
   }
 
-  let html = '<div style="border:1px solid #d5dbe6;border-radius:10px;background:#fff;overflow:hidden">';
+  let html = '<div class="dashboard-todo-list">';
   for (const todo of rows) {
     const todoId = encodeURIComponent(String(todo.id || ""));
     const note = String(todo.note || "");
     const done = dashboardTodoDone(todo);
-    html += '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 12px;border-top:1px solid #edf0f5' + (done ? ';opacity:.55' : '') + '">';
-    html += '<label style="display:flex;align-items:center;gap:10px;flex:1;min-width:0;cursor:pointer">';
+    html += '<div class="dashboard-todo-item' + (done ? " is-done" : "") + '">';
+    html += '<label class="dashboard-todo-main">';
     html += '<input type="checkbox" data-action="todo-toggle" data-todo-id="' + todoId + '"' + (done ? " checked" : "") + '>';
-    html += '<span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;' + (done ? "text-decoration:line-through;" : "") + '">' + escapeHtml(todo.title || "Untitled") + '</span>';
+    html += '<span class="dashboard-todo-title">' + escapeHtml(todo.title || "Untitled") + '</span>';
     html += '</label>';
-    html += '<div style="display:flex;gap:6px;flex-shrink:0">';
-    html += '<button class="vendor-link" data-action="todo-note" data-note="' + encodeURIComponent(note) + '"' + (note ? "" : " disabled") + '>メモ</button>';
+    html += '<div class="voucher-status-actions">';
+    html += '<button class="ghost-btn" data-action="todo-note" data-note="' + encodeURIComponent(note) + '"' + (note ? "" : " disabled") + '>メモ</button>';
     html += '<button class="row-action reject" data-action="todo-delete" data-todo-id="' + todoId + '">削除</button>';
     html += '</div></div>';
   }
@@ -1689,10 +1761,8 @@ async function loadAndRenderDashboard(clientId) {
     const autoClassifyBtn = bannerSlot.querySelector('[data-action="ai-auto-classify"]');
     if (autoClassifyBtn) {
       autoClassifyBtn.addEventListener("click", async () => {
-        const originalText = autoClassifyBtn.textContent;
         const pendingCount = Number(appState.dashboardAiPendingCount) || 0;
-        autoClassifyBtn.disabled = true;
-        autoClassifyBtn.textContent = "処理中…";
+        setButtonPending(autoClassifyBtn, true, "処理中...");
         try {
           const res = await apiFetch(
             "/api/clients/" + encodeURIComponent(clientId) + "/mf/journal-reviews/auto-classify",
@@ -1702,12 +1772,12 @@ async function loadAndRenderDashboard(clientId) {
             const err = await res.json().catch(() => ({}));
             throw new Error(err.error?.message || err.message || "HTTP " + res.status);
           }
-          showToast(pendingCount + "件を自動仕訳しました");
+          showToast(pendingCount + "件を自動仕訳しました", "success");
           await loadAndRenderDashboard(clientId);
         } catch (err) {
-          showToast(friendlyError(err));
-          autoClassifyBtn.disabled = false;
-          autoClassifyBtn.textContent = originalText;
+          showToast(friendlyError(err), "error");
+        } finally {
+          setButtonPending(autoClassifyBtn, false);
         }
       });
     }
@@ -1736,7 +1806,7 @@ async function loadAndRenderDashboard(clientId) {
           .filter(Boolean);
         if (targets.length === 0) return;
         const channel = client.contactPrimary || "email";
-        requestBtn.disabled = true;
+        setButtonPending(requestBtn, true, "処理中...");
         try {
           const res = await apiFetch(
             "/api/clients/" + encodeURIComponent(client.id) + "/receipt-requests",
@@ -1752,12 +1822,12 @@ async function loadAndRenderDashboard(clientId) {
           }
           const draftRes = await res.json().catch(() => ({}));
           appState.portalChannel = channel;
-          appState.pendingDraftBody = draftRes?.draft?.body || "";
+          appState.pendingDraftBody = draftRes?.body || draftRes?.draft?.body || "";
           location.hash = "#/portal";
         } catch (err) {
-          showToast(friendlyError(err));
+          showToast(friendlyError(err), "error");
         } finally {
-          requestBtn.disabled = false;
+          setButtonPending(requestBtn, false);
         }
       });
     }
@@ -2185,11 +2255,11 @@ function renderSettings() {
   // Owner-only: member management
   if (appState.user && appState.user.role === 'owner') {
     html += '<section class="settings-card" id="memberSection">';
-    html += '<h3 style="font-size:.95rem;margin-bottom:1rem;color:#1e293b">メンバー管理</h3>';
-    html += '<div id="memberList" style="margin-bottom:1rem"><p style="color:#999;font-size:.85rem">読み込み中…</p></div>';
+    html += '<h3 style="font-size:15px;margin-bottom:12px;color:#1e293b">メンバー管理</h3>';
+    html += '<div id="memberList" style="margin-bottom:12px"><p class="voucher-status-meta">読み込み中…</p></div>';
     html += '<div class="setting-row" style="align-items:flex-end">';
     html += '<div style="flex:1"><strong>メンバーを招待</strong><p>メールアドレスを入力してください</p>';
-    html += '<input id="inviteEmail" type="email" placeholder="staff@example.com" style="width:100%;padding:.5rem;border:1px solid #ccc;border-radius:6px;font-size:.9rem;box-sizing:border-box;margin-top:.5rem" /></div>';
+    html += '<input id="inviteEmail" type="email" placeholder="staff@example.com" style="width:100%;min-height:36px;padding:0 10px;margin-top:6px" /></div>';
     html += '<button class="primary-action compact" data-action="settings-invite-member" style="margin-left:.75rem;flex-shrink:0">招待送信</button>';
     html += '</div>';
     html += '</section>';
@@ -2197,26 +2267,29 @@ function renderSettings() {
 
   // Client management section
   html += '<section class="settings-card" id="clientMgmtSection">';
-  html += '<h3 style="font-size:.95rem;margin-bottom:1rem;color:#1e293b">顧問先管理</h3>';
-  html += '<div id="clientMgmtList" style="margin-bottom:1rem"><p style="color:#999;font-size:.85rem">読み込み中…</p></div>';
-  html += '<div id="clientMgmtForm" style="display:none;background:#f8fafc;border:1px solid #e3e7ee;border-radius:8px;padding:1rem;margin-bottom:1rem">';
+  html += '<div class="dashboard-section-head">';
+  html += '<h3 style="font-size:15px;color:#1e293b">顧問先管理</h3>';
+  html += '<button class="primary-action compact" data-action="settings-add-client">+ 顧問先を追加</button>';
+  html += '</div>';
+  html += '<div id="clientMgmtList" style="margin-bottom:12px"><p class="voucher-status-meta">読み込み中…</p></div>';
+  html += '<div id="clientMgmtForm" class="settings-client-panel" hidden>';
+  html += '<div class="dashboard-section-head" style="margin-bottom:10px"><strong>顧問先を編集</strong><button class="ghost-btn" data-action="settings-cancel-client">閉じる</button></div>';
   html += '<input type="hidden" id="clientMgmtEditId" value="" />';
-  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-bottom:.75rem">';
-  html += '<div><label style="font-size:.8rem;color:#64748b">顧問先名 *</label><input id="clientMgmtName" type="text" placeholder="○○株式会社" style="width:100%;padding:.45rem;border:1px solid #ccc;border-radius:6px;font-size:.9rem;box-sizing:border-box;margin-top:.25rem" /></div>';
-  html += '<div><label style="font-size:.8rem;color:#64748b">業種</label><select id="clientMgmtIndustry" style="width:100%;padding:.45rem;border:1px solid #ccc;border-radius:6px;font-size:.9rem;margin-top:.25rem">';
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">';
+  html += '<div><label class="text-label">顧問先名 *</label><input id="clientMgmtName" type="text" placeholder="○○株式会社" style="width:100%;min-height:36px;padding:0 10px;margin-top:4px" /></div>';
+  html += '<div><label class="text-label">業種</label><select id="clientMgmtIndustry" style="width:100%;min-height:36px;padding:0 10px;margin-top:4px">';
   html += '<option value="その他">その他</option><option value="製造業">製造業</option><option value="小売業">小売業</option><option value="サービス業">サービス業</option><option value="飲食業">飲食業</option><option value="医療・介護">医療・介護</option><option value="不動産">不動産</option><option value="建設業">建設業</option>';
   html += '</select></div>';
-  html += '<div><label style="font-size:.8rem;color:#64748b">会計ソフト</label><select id="clientMgmtVendor" style="width:100%;padding:.45rem;border:1px solid #ccc;border-radius:6px;font-size:.9rem;margin-top:.25rem"><option value="mf">MoneyForward</option><option value="freee">freee</option></select></div>';
-  html += '<div><label style="font-size:.8rem;color:#64748b">モード</label><select id="clientMgmtMode" style="width:100%;padding:.45rem;border:1px solid #ccc;border-radius:6px;font-size:.9rem;margin-top:.25rem"><option value="monthly">月次</option><option value="yearend">期末</option></select></div>';
-  html += '<div><label style="font-size:.8rem;color:#64748b">事業年度開始日 *</label><input id="clientMgmtFyStart" type="date" style="width:100%;padding:.45rem;border:1px solid #ccc;border-radius:6px;font-size:.9rem;box-sizing:border-box;margin-top:.25rem" /></div>';
-  html += '<div><label style="font-size:.8rem;color:#64748b">事業年度終了日 *</label><input id="clientMgmtFyEnd" type="date" style="width:100%;padding:.45rem;border:1px solid #ccc;border-radius:6px;font-size:.9rem;box-sizing:border-box;margin-top:.25rem" /></div>';
+  html += '<div><label class="text-label">会計ソフト</label><select id="clientMgmtVendor" style="width:100%;min-height:36px;padding:0 10px;margin-top:4px"><option value="mf">MoneyForward</option><option value="freee">freee</option></select></div>';
+  html += '<div><label class="text-label">モード</label><select id="clientMgmtMode" style="width:100%;min-height:36px;padding:0 10px;margin-top:4px"><option value="monthly">月次</option><option value="yearend">期末</option></select></div>';
+  html += '<div><label class="text-label">事業年度開始日 *</label><input id="clientMgmtFyStart" type="date" style="width:100%;min-height:36px;padding:0 10px;margin-top:4px" /></div>';
+  html += '<div><label class="text-label">事業年度終了日 *</label><input id="clientMgmtFyEnd" type="date" style="width:100%;min-height:36px;padding:0 10px;margin-top:4px" /></div>';
   html += '</div>';
-  html += '<div style="display:flex;gap:.5rem">';
+  html += '<div class="settings-client-actions">';
   html += '<button class="primary-action compact" data-action="settings-save-client">保存</button>';
-  html += '<button class="row-action" data-action="settings-cancel-client">キャンセル</button>';
+  html += '<button class="ghost-btn" data-action="settings-cancel-client">キャンセル</button>';
   html += '</div>';
   html += '</div>';
-  html += '<button class="row-action" data-action="settings-add-client" style="font-size:.85rem">+ 顧問先を追加</button>';
   html += '</section>';
 
   html += '<section class="rules-list">';
@@ -2270,9 +2343,9 @@ async function loadClientList() {
       '<div class="setting-row" style="font-size:.85rem">' +
       '<div><strong>' + escapeHtml(c.name) + '</strong>' +
       ' <span style="color:#64748b">(' + escapeHtml(c.industry || '') + '・' + (modeLabel[c.mode] || c.mode) + ')</span></div>' +
-      '<div style="display:flex;gap:.5rem">' +
+      '<div class="settings-client-actions">' +
       '<button class="row-action" data-action="settings-edit-client" data-client-id="' + escapeHtml(c.id) + '">編集</button>' +
-      '<button class="row-action" data-action="settings-delete-client" data-client-id="' + escapeHtml(c.id) + '" data-client-name="' + escapeHtml(c.name) + '" style="color:#dc2626">削除</button>' +
+      '<button class="row-action danger-action" data-action="settings-delete-client" data-client-id="' + escapeHtml(c.id) + '" data-client-name="' + escapeHtml(c.name) + '">削除</button>' +
       '</div></div>'
     ).join('');
   } catch (e) {
@@ -2368,12 +2441,15 @@ function renderMfReview() {
   const client = currentClient();
   if (!client) return '<div class="empty-state">顧問先を選択してください。</div>';
 
-  let html = '';
-  html += '<div style="margin-bottom:12px;display:flex;align-items:center;gap:10px">';
+  let html = '<section class="dashboard-section-card">';
+  html += '<div class="dashboard-section-head">';
+  html += '<h3>AI摘要レビュー</h3>';
+  html += '<div class="voucher-status-actions">';
+  html += '<span id="mfReviewStatus" class="status-chip processing">読み込み中</span>';
   html += '<button class="primary-action compact" id="mfReviewProcessBtn">AI処理を実行</button>';
-  html += '<span id="mfReviewStatus" style="font-size:12px;color:#666"></span>';
-  html += '</div>';
-  html += '<div id="mfReviewList"><div class="empty-state">読み込み中…</div></div>';
+  html += '</div></div>';
+  html += '<div id="mfReviewList" class="mf-review-list"><div class="empty-state">読み込み中…</div></div>';
+  html += '</section>';
   return html;
 }
 
@@ -2401,6 +2477,7 @@ async function loadAndRenderMfReview(clientId) {
   const pendingCount = data.pendingCount ?? 0;
 
   if (statusEl) {
+    statusEl.className = 'status-chip ' + (isApprovedView ? 'complete' : pendingCount > 0 ? 'review' : 'complete');
     if (isApprovedView) {
       statusEl.textContent = reviews.length > 0 ? `完了 ${reviews.length} 件` : '完了一覧はありません';
     } else {
@@ -2410,57 +2487,68 @@ async function loadAndRenderMfReview(clientId) {
 
   if (reviews.length === 0) {
     listEl.innerHTML = isApprovedView
-      ? '<div class="empty-state">完了一覧はまだありません。</div>'
-      : '<div class="empty-state">レビュー待ちの仕訳はありません。AI処理を実行すると摘要が空の仕訳を自動チェックします。</div>';
+      ? '<div class="dashboard-empty">完了一覧はまだありません。</div>'
+      : '<div class="dashboard-empty">レビュー待ちの仕訳はありません。AI処理を実行すると摘要が空の仕訳を自動チェックします。</div>';
   } else {
-    let h = '<table class="data-table" style="width:100%">';
-    h += '<thead><tr>';
-    h += '<th>日付</th><th>借方</th><th>貸方</th><th>金額</th>';
-    h += '<th>AI提案摘要</th><th>信頼度</th><th style="width:160px">操作</th>';
-    h += '</tr></thead><tbody>';
+    let h = '';
     for (const r of reviews) {
-      const conf = typeof r.aiConfidence === 'number' ? Math.round(r.aiConfidence * 100) : '—';
-      const confClass = r.aiConfidence >= 0.6 ? 'color:#2a7a4b' : 'color:#9a3040';
-      h += `<tr data-review-id="${r.id}">`;
-      h += `<td>${escapeHtml(r.transactionDate ?? '')}</td>`;
-      h += `<td>${escapeHtml(r.debitAccount ?? '')}</td>`;
-      h += `<td>${escapeHtml(r.creditAccount ?? '')}</td>`;
-      h += `<td style="text-align:right">¥${(r.amount ?? 0).toLocaleString('ja-JP')}</td>`;
+      const conf = typeof r.aiConfidence === 'number' ? Math.round(r.aiConfidence * 100) : null;
+      const confidenceClass = conf == null ? "processing" : conf >= 60 ? "complete" : "review";
+      h += `<article class="mf-review-card" data-review-id="${r.id}">`;
+      h += '<div class="dashboard-section-head" style="margin-bottom:10px">';
+      h += `<div class="voucher-status-meta">${escapeHtml(r.transactionDate ?? '')} ・ ${escapeHtml(r.debitAccount ?? '')} / ${escapeHtml(r.creditAccount ?? '')} ・ ¥${(r.amount ?? 0).toLocaleString('ja-JP')}</div>`;
+      h += `<span class="status-chip ${confidenceClass}">信頼度 ${conf == null ? "—" : conf + "%"}</span>`;
+      h += '</div>';
+      h += '<div class="mf-review-grid">';
+      h += '<div class="mf-review-field"><span>元の摘要（空欄）</span>';
+      h += `<div class="mf-review-original">${escapeHtml(r.originalMemo || "—") || "—"}</div></div>`;
+      h += '<div class="mf-review-field"><span>AI提案摘要</span>';
       if (isApprovedView) {
-        h += `<td>${escapeHtml(r.aiMemo ?? '—')}</td>`;
+        h += `<div class="mf-review-original">${escapeHtml(r.aiMemo ?? '—')}</div>`;
       } else {
-        h += `<td><input class="mf-review-memo-input" style="width:100%;box-sizing:border-box;padding:2px 6px;font-size:13px;border:1px solid #ddd;border-radius:4px" value="${escapeHtml(r.aiMemo ?? '')}" data-review-id="${r.id}" /></td>`;
+        h += `<input class="mf-review-memo-input mf-review-input" value="${escapeHtml(r.aiMemo ?? '')}" data-review-id="${r.id}" />`;
       }
-      h += `<td style="${confClass};text-align:right">${conf}%</td>`;
-      h += `<td>`;
+      h += '</div></div>';
+      h += '<div class="mf-review-footer">';
+      h += '<span class="voucher-status-meta">仕訳ID: ' + escapeHtml(r.mfJournalId || "—") + '</span>';
       if (isApprovedView) {
-        h += `<span style="color:#666">完了</span>`;
+        h += `<span class="status-chip complete">完了</span>`;
       } else {
-        h += `<button class="row-action" style="margin-right:4px" data-action="mf-review-approve" data-review-id="${r.id}">承認してMFへ</button>`;
-        h += `<button class="row-action" style="color:#666" data-action="mf-review-skip" data-review-id="${r.id}">スキップ</button>`;
+        h += '<div class="settings-client-actions">';
+        h += `<button class="primary-action compact" data-action="mf-review-approve" data-review-id="${r.id}">承認してMFへ</button>`;
+        h += `<button class="ghost-btn" data-action="mf-review-skip" data-review-id="${r.id}">スキップ</button>`;
+        h += '</div>';
       }
-      h += `</td>`;
-      h += '</tr>';
+      h += '</div>';
+      h += '</article>';
     }
-    h += '</tbody></table>';
     listEl.innerHTML = h;
   }
 
   // "AI処理を実行" button handler
   if (processBtn) {
     processBtn.onclick = async () => {
-      processBtn.disabled = true;
-      if (statusEl) statusEl.textContent = 'AI処理中…';
+      setButtonPending(processBtn, true, "処理中...");
+      if (statusEl) {
+        statusEl.className = 'status-chip processing';
+        statusEl.textContent = 'AI処理中...';
+      }
       try {
         const res = await apiFetch(`/api/clients/${clientId}/mf/journal-reviews/process`, { method: 'POST' });
         if (!res.ok) throw new Error('process failed');
-        if (statusEl) statusEl.textContent = 'AI処理を開始しました。しばらく後に再読み込みしてください。';
+        if (statusEl) {
+          statusEl.className = 'status-chip processing';
+          statusEl.textContent = 'AI処理を開始しました';
+        }
         // Reload after a short delay to pick up auto_applied items
         setTimeout(() => loadAndRenderMfReview(clientId), 3000);
       } catch (err) {
-        if (statusEl) statusEl.textContent = '処理に失敗しました。';
+        if (statusEl) {
+          statusEl.className = 'status-chip error';
+          statusEl.textContent = '処理に失敗しました';
+        }
       } finally {
-        processBtn.disabled = false;
+        setButtonPending(processBtn, false);
       }
     };
   }
@@ -2471,7 +2559,7 @@ async function loadAndRenderMfReview(clientId) {
       const reviewId = btn.dataset.reviewId;
       const memoInput = listEl.querySelector(`.mf-review-memo-input[data-review-id="${reviewId}"]`);
       const memo = memoInput ? memoInput.value : undefined;
-      btn.disabled = true;
+      setButtonPending(btn, true, "処理中...");
       try {
         const res = await apiFetch(
           `/api/clients/${clientId}/mf/journal-reviews/${reviewId}/approve`,
@@ -2481,11 +2569,11 @@ async function loadAndRenderMfReview(clientId) {
           const body = await res.json().catch(() => ({}));
           throw new Error(body?.error?.message ?? 'approve failed');
         }
-        showToast('MFに反映しました');
+        showToast('MFに反映しました', "success");
         loadAndRenderMfReview(clientId);
       } catch (err) {
-        showToast('反映に失敗しました: ' + (err.message ?? ''));
-        btn.disabled = false;
+        showToast('反映に失敗しました: ' + (err.message ?? ''), "error");
+        setButtonPending(btn, false);
       }
     });
   });
@@ -2493,18 +2581,18 @@ async function loadAndRenderMfReview(clientId) {
   listEl.querySelectorAll('[data-action="mf-review-skip"]').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const reviewId = btn.dataset.reviewId;
-      btn.disabled = true;
+      setButtonPending(btn, true, "処理中...");
       try {
         const res = await apiFetch(
           `/api/clients/${clientId}/mf/journal-reviews/${reviewId}/skip`,
           { method: 'POST' },
         );
         if (!res.ok) throw new Error('skip failed');
-        showToast('スキップしました');
+        showToast('スキップしました', "success");
         loadAndRenderMfReview(clientId);
       } catch (err) {
-        showToast('スキップに失敗しました');
-        btn.disabled = false;
+        showToast('スキップに失敗しました', "error");
+        setButtonPending(btn, false);
       }
     });
   });
@@ -2688,7 +2776,9 @@ function bindRuleHandlers() {
 // ===== 業務 > 顧問先 (会社情報 + MF 会計帳簿閲覧) =====
 function renderCompany() {
   const c = currentClient();
-  if (!c) return '<div class="empty-state">顧問先を選んでください。</div>';
+  if (!c) {
+    return '<p class="company-selection-guide">顧問先が未選択です。上部の顧問先チップから選択してください。</p>';
+  }
   const tab = appState.companyTab || "info";
   const tabs = [
     { key: "info", label: "基本情報" },
@@ -2700,7 +2790,13 @@ function renderCompany() {
     { key: "trial-pl", label: "残高試算表 PL" },
     { key: "contact", label: "連絡先" },
   ];
-  let html = '<div class="company-tabs">';
+  const pending = Number(c.tasksOpen) || 0;
+  let html = '<section class="dashboard-section-card" style="padding-bottom:12px">';
+  html += '<div class="dashboard-section-head">';
+  html += '<div><h3>' + escapeHtml(c.name) + '</h3><p class="dashboard-alert-sub">業種: ' + escapeHtml(c.industry || "未設定") + ' ・ 連絡: ' + (c.contactPrimary ? channelLabel(c.contactPrimary) : "未設定") + '</p></div>';
+  html += '<span class="status-chip ' + (pending > 0 ? "review" : "complete") + '">未処理 ' + pending + '件</span>';
+  html += '</div>';
+  html += '<div class="company-tabs">';
   for (const t of tabs) {
     html += '<button class="company-tab' + (t.key === tab ? " active" : "") + '" data-company-tab="' + t.key + '">' + t.label + '</button>';
   }
@@ -2715,6 +2811,7 @@ function renderCompany() {
   } else {
     html += '<div id="companyTabBody"><div class="empty-state">読み込み中…</div></div>';
   }
+  html += '</section>';
   return html;
 }
 
@@ -3050,16 +3147,24 @@ function renderJobsJournal() {
   if (entries.length === 0) {
     html += '<div class="empty-state">仕訳がありません。マネフォと連携すると自動で取り込まれます。</div>';
   } else {
-    html += '<div class="table-wrap"><table><thead><tr>';
+    html += '<div class="table-wrap"><table class="journal-table"><thead><tr>';
     html += '<th>日付</th><th>科目</th><th>摘要</th><th>金額</th><th>税区分</th><th>証憑</th><th>操作</th>';
     html += '</tr></thead><tbody>';
     for (const e of entries) {
       const dateStr = new Date(e.occurredAt).toISOString().slice(0, 10);
-      const receiptLabel = e.receiptStatus === "matched" ? "✓ 添付済" : e.receiptStatus === "missing" ? '<span style="color:#9a3040">未添付</span>' : e.receiptStatus === "partial" ? "一部" : "-";
+      const memo = (e.description || "").trim();
+      const memoHtml = memo ? escapeHtml(memo.slice(0, 70)) : '<span class="memo-empty">摘要未入力</span>';
+      const receiptLabel = e.receiptStatus === "matched"
+        ? '<span class="status-chip complete">添付済</span>'
+        : e.receiptStatus === "missing"
+          ? '<span class="status-chip review">未添付</span>'
+          : e.receiptStatus === "partial"
+            ? '<span class="status-chip processing">一部</span>'
+            : '<span class="status-chip">-</span>';
       html += '<tr>';
       html += '<td>' + dateStr + '</td>';
       html += '<td><strong>' + escapeHtml(e.account) + '</strong></td>';
-      html += '<td>' + escapeHtml((e.description || "").slice(0, 50)) + '</td>';
+      html += '<td>' + memoHtml + '</td>';
       html += '<td style="text-align:right">¥' + e.amount.toLocaleString("ja-JP") + '</td>';
       html += '<td>' + escapeHtml(e.taxClass || "-") + '</td>';
       html += '<td>' + receiptLabel + '</td>';
@@ -3164,10 +3269,126 @@ async function loadApprovedDraftsIntoSlot(clientId) {
 
 // ===== 業務 > 月次業務 > 証憑 (=旧 receipts) =====
 function renderJobsVouchers() {
-  let html = '';
+  let html = '<div class="jobs-vouchers-layout">';
   html += '<div id="missingAlertSlot"></div>';
   html += '<div id="missingTableSlot"></div>';
+  html += '<section class="dashboard-section-card">';
+  html += '<div class="dashboard-section-head"><h3>証憑一覧</h3><span id="jobsVoucherCount" class="status-chip processing">読み込み中</span></div>';
+  html += '<div id="jobsVouchersGrid"><div class="empty-state">読み込み中…</div></div>';
+  html += '</section>';
+  html += '<div class="voucher-modal" id="voucherModal" hidden>';
+  html += '<div class="voucher-modal-backdrop"></div>';
+  html += '<img id="voucherModalImg" alt="" />';
+  html += '<button class="voucher-modal-close" id="voucherModalClose" aria-label="閉じる">×</button>';
+  html += '</div>';
+  html += '</div>';
   return html;
+}
+
+function mfWriteStatusBadgeHtml(status) {
+  if (status === "done") return '<span class="status-chip complete">MF送信済み</span>';
+  if (status === "writing" || status === "pending") return '<span class="status-chip processing">MF送信中</span>';
+  if (status === "failed") return '<span class="status-chip error">MF送信失敗</span>';
+  return '<span class="status-chip">未送信</span>';
+}
+
+function renderJobsVoucherCardHtml(voucher, clientId) {
+  const sourceBadge =
+    voucher.source === 'drive'
+      ? '<span class="voucher-source-badge src-drive">Drive</span>'
+      : voucher.source === 'line'
+        ? '<span class="voucher-source-badge src-line">LINE</span>'
+        : '';
+  const mimeType = String(voucher.mimeType || '').toLowerCase();
+  const thumb = mimeType.includes('pdf')
+    ? '<div class="pdf">📄</div>'
+    : `<img data-voucher-img="${voucher.id}" alt="${escapeHtml(voucher.filename || "voucher")}" />`;
+  const mfStatus = voucher.mfWriteStatus || 'none';
+  const canWrite = mfStatus !== 'done' && mfStatus !== 'writing' && mfStatus !== 'pending';
+  let html = '<article class="voucher-status-card" data-voucher-id="' + voucher.id + '" data-mime-type="' + escapeHtml(voucher.mimeType || "") + '">';
+  html += '<div class="voucher-status-thumb">' + thumb + '</div>';
+  html += '<div class="voucher-status-body">';
+  html += '<div class="voucher-status-name">' + escapeHtml(voucher.filename || "名称未設定") + sourceBadge + '</div>';
+  html += '<div class="voucher-status-meta">' + new Date(voucher.uploadedAt).toLocaleString("ja-JP") + '</div>';
+  html += '<div class="voucher-status-actions">' + mfWriteStatusBadgeHtml(mfStatus);
+  if (mfStatus === 'failed') {
+    html += '<button class="voucher-mfretry-btn" data-voucher-mfretry="' + voucher.id + '" data-voucher-client-id="' + clientId + '">再試行</button>';
+  } else if (canWrite) {
+    html += '<button class="voucher-mfwrite-btn" data-voucher-mfwrite="' + voucher.id + '">MFに登録</button>';
+  }
+  html += '</div>';
+  if (mfStatus === "failed" && voucher.mfWriteError) {
+    html += '<details class="voucher-error-panel"><summary>エラー詳細を表示</summary><p class="voucher-error-message">' + escapeHtml(voucher.mfWriteError) + '</p></details>';
+  }
+  html += '</div></article>';
+  return html;
+}
+
+async function loadAndRenderJobsVouchers() {
+  const client = currentClient();
+  if (!client?.id) return;
+  const grid = document.getElementById('jobsVouchersGrid');
+  const countEl = document.getElementById('jobsVoucherCount');
+  if (!grid || !countEl) return;
+  try {
+    const res = await apiFetch('/api/vouchers?clientId=' + encodeURIComponent(client.id));
+    if (!res.ok) throw new Error('fetch failed');
+    const vouchers = await res.json();
+    const rows = Array.isArray(vouchers) ? vouchers : [];
+    countEl.textContent = rows.length + '件';
+    countEl.className = 'status-chip ' + (rows.length === 0 ? 'complete' : 'processing');
+    if (rows.length === 0) {
+      grid.innerHTML = '<div class="dashboard-empty">証憑はまだありません ✓</div>';
+      return;
+    }
+    rows.sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
+    grid.innerHTML = '<div class="voucher-status-grid">' + rows.map((v) => renderJobsVoucherCardHtml(v, client.id)).join('') + '</div>';
+    grid.querySelectorAll('[data-voucher-mfwrite]').forEach((btn) => {
+      btn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        writeMfJournal(btn.dataset.voucherMfwrite);
+      });
+    });
+    grid.querySelectorAll('[data-voucher-mfretry]').forEach((btn) => {
+      btn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        retryMfWrite(btn.dataset.voucherClientId, btn.dataset.voucherMfretry);
+      });
+    });
+    grid.querySelectorAll('[data-voucher-id]').forEach((card) => {
+      card.addEventListener('click', (event) => {
+        if (event.target.closest('button') || event.target.closest('summary') || event.target.closest('details')) return;
+        const id = card.dataset.voucherId;
+        const mimeType = String(card.dataset.mimeType || '').toLowerCase();
+        if (mimeType.includes('pdf')) {
+          window.open(`/api/vouchers/${id}/image`, '_blank');
+          return;
+        }
+        const modal = document.querySelector('#voucherModal');
+        const img = document.querySelector('#voucherModalImg');
+        if (modal && img) {
+          img.src = '';
+          loadVoucherImageBlob(id).then((url) => {
+            if (url) img.src = url;
+          });
+          modal.hidden = false;
+        }
+      });
+    });
+    const closeBtn = document.querySelector('#voucherModalClose');
+    const backdrop = document.querySelector('.voucher-modal-backdrop');
+    const closeModal = () => {
+      const modal = document.querySelector('#voucherModal');
+      if (modal) modal.hidden = true;
+    };
+    if (closeBtn) closeBtn.onclick = closeModal;
+    if (backdrop) backdrop.onclick = closeModal;
+    hydrateVoucherImages();
+  } catch (err) {
+    countEl.textContent = '読込失敗';
+    countEl.className = 'status-chip error';
+    grid.innerHTML = '<div class="empty-state">証憑一覧の読み込みに失敗しました。</div>';
+  }
 }
 
 // ===== 業務 > 月次業務 > 月次チェック =====
@@ -3335,13 +3556,18 @@ function renderVoucherRegister() {
           : mfStatus === 'writing' || mfStatus === 'pending'
             ? '<span class="voucher-mf-badge mf-writing"><span class="spinner-sm"></span>MF入力中</span>'
             : mfStatus === 'failed'
-              ? `<span class="voucher-mf-badge mf-failed" title="${escapeHtml(v.mfWriteError || '')}">MF失敗</span>`
+              ? '<span class="voucher-mf-badge mf-failed">MF送信失敗</span>'
               : '';
         const mfBtn = mfStatus !== 'done' && mfStatus !== 'writing' && mfStatus !== 'pending'
-          ? `<button class="voucher-mfwrite-btn" data-voucher-mfwrite="${v.id}">MFに登録</button>`
+          ? (mfStatus === 'failed' && v.clientId
+            ? `<button class="voucher-mfretry-btn" data-voucher-mfretry="${v.id}" data-voucher-client-id="${escapeHtml(v.clientId)}">再試行</button>`
+            : `<button class="voucher-mfwrite-btn" data-voucher-mfwrite="${v.id}">MFに登録</button>`)
           : '';
         if (mfBadge || mfBtn) {
           mfHtml = `<div class="voucher-mf-row">${mfBadge}${mfBtn}</div>`;
+          if (mfStatus === 'failed' && v.mfWriteError) {
+            mfHtml += `<details class="voucher-error-panel"><summary>エラー詳細</summary><p class="voucher-error-message">${escapeHtml(v.mfWriteError)}</p></details>`;
+          }
         }
       }
 
@@ -3368,9 +3594,11 @@ function renderVoucherRegister() {
   return `
     <section class="voucher-register">
       <div class="voucher-dropzone" id="voucherDropzone">
-        <p class="voucher-dropzone-label">画像をここにドロップ または</p>
+        <div class="voucher-drop-icon">⬆</div>
+        <p class="voucher-dropzone-label">証憑ファイルをここにドラッグ＆ドロップ</p>
+        <small class="voucher-status-meta">JPEG / PNG / GIF / WebP (10MBまで)</small>
         <label class="voucher-pick-btn">
-          ファイルを選択
+          ファイルを選択してアップロード
           <input type="file" id="voucherFileInput" multiple
                  accept="image/jpeg,image/png,image/gif,image/webp" hidden />
         </label>
@@ -4045,6 +4273,7 @@ function renderView() {
   }
   if (appState.activeView === "jobs-vouchers") {
     loadAndRenderMissing();
+    loadAndRenderJobsVouchers();
   }
   if (appState.activeView === "dashboard") {
     loadAndRenderYearend();
@@ -4059,20 +4288,20 @@ function renderView() {
       const title = (titleInput?.value || "").trim();
       const note = (noteInput?.value || "").trim();
       if (!title) {
-        showToast("タイトルを入力してください");
+        showToast("タイトルを入力してください", "error");
         return;
       }
-      addButton.disabled = true;
+      setButtonPending(addButton, true, "処理中...");
       addTodo(client.id, title, note)
         .then(() => {
           if (titleInput) titleInput.value = "";
           if (noteInput) noteInput.value = "";
-          showToast("ToDoを追加しました");
+          showToast("ToDoを追加しました", "success");
           return loadAndRenderDashboard(client.id);
         })
         .catch(() => {})
         .finally(() => {
-          addButton.disabled = false;
+          setButtonPending(addButton, false);
         });
     };
     if (addButton) {
@@ -4191,6 +4420,12 @@ function renderView() {
         writeMfJournal(btn.dataset.voucherMfwrite);
       });
     });
+    viewContent.querySelectorAll('[data-voucher-mfretry]').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        retryMfWrite(btn.dataset.voucherClientId, btn.dataset.voucherMfretry);
+      });
+    });
     viewContent.querySelectorAll('.voucher-card').forEach((card) => {
       card.addEventListener('dragstart', (e) => {
         e.dataTransfer.setData('text/plain', card.dataset.voucherId);
@@ -4232,7 +4467,12 @@ function renderView() {
     });
     viewContent.querySelectorAll('[data-voucher-id]').forEach((card) => {
       card.addEventListener('click', (e) => {
-        if (e.target.closest('[data-voucher-delete]')) return;
+        if (
+          e.target.closest('[data-voucher-delete]') ||
+          e.target.closest('[data-voucher-mfwrite]') ||
+          e.target.closest('[data-voucher-mfretry]') ||
+          e.target.closest('summary')
+        ) return;
         const id = card.dataset.voucherId;
         const mimeType = String(card.dataset.mimeType || '').toLowerCase();
         if (mimeType.includes('pdf')) {
@@ -4716,12 +4956,12 @@ function renderView() {
           document.getElementById('clientMgmtMode').value = 'monthly';
           document.getElementById('clientMgmtFyStart').value = '';
           document.getElementById('clientMgmtFyEnd').value = '';
-          form.style.display = 'block';
+          form.hidden = false;
         }
       }
       if (action === "settings-cancel-client") {
         const form = document.getElementById('clientMgmtForm');
-        if (form) form.style.display = 'none';
+        if (form) form.hidden = true;
       }
       if (action === "settings-edit-client") {
         const cid = button.dataset.clientId;
@@ -4738,7 +4978,7 @@ function renderView() {
           document.getElementById('clientMgmtMode').value = c.mode || 'monthly';
           document.getElementById('clientMgmtFyStart').value = c.fiscalYearStart ? c.fiscalYearStart.slice(0, 10) : '';
           document.getElementById('clientMgmtFyEnd').value = c.fiscalYearEnd ? c.fiscalYearEnd.slice(0, 10) : '';
-          form.style.display = 'block';
+          form.hidden = false;
         }).catch(() => showToast('読み込みに失敗しました'));
       }
       if (action === "settings-save-client") {
@@ -4767,7 +5007,7 @@ function renderView() {
           }
           showToast(cid ? '顧問先を更新しました' : '顧問先を追加しました');
           const form = document.getElementById('clientMgmtForm');
-          if (form) form.style.display = 'none';
+          if (form) form.hidden = true;
           loadClientList();
           loadClientsFromApi();
         }).catch(() => showToast('保存に失敗しました'));
