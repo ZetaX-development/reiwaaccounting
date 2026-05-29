@@ -1,4 +1,4 @@
-import './bootstrap.js';
+if (process.env.NODE_ENV !== 'test') { await import('./bootstrap.js'); }
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';

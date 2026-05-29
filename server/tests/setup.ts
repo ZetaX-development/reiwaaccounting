@@ -1,6 +1,13 @@
 // Vitest setup: provide minimum env so lazy env loader doesn't crash on first read.
 // Individual tests can still override these via `process.env = { ...original }` patterns.
 process.env.NODE_ENV = 'test';
+// テスト中は dev bypass を無効にして auth middleware を通常動作させる
+process.env.DEV_BYPASS_AUTH = '';
+// テスト中はメール送信を無効にする（実際にメールが飛ばないよう認証情報をクリア）
+process.env.GMAIL_USER = '';
+process.env.GMAIL_APP_PASSWORD = '';
+process.env.SENDGRID_API_KEY = '';
+process.env.EMAIL_FROM = '';
 // Tests run against an isolated Postgres on port 5433 (see docker-compose.yml
 // `postgres-test` service). Falls back to the dev DB if TEST_DATABASE_URL is
 // explicitly cleared — but `npm test` sets it via the script.

@@ -1,34 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const prismaMock = {
-  client: {
-    findUnique: vi.fn(),
+const { prismaMock, mfApiAdapterMock, updateJournalMemoMock, generateMemoWithRagMock } = vi.hoisted(() => ({
+  prismaMock: {
+    client: { findUnique: vi.fn() },
+    journalAiReview: { findMany: vi.fn(), create: vi.fn() },
+    todo: { create: vi.fn() },
   },
-  journalAiReview: {
-    findMany: vi.fn(),
-    create: vi.fn(),
-  },
-  todo: {
-    create: vi.fn(),
-  },
-};
-
-const mfApiAdapterMock = {
-  fetchEntries: vi.fn(),
-};
-
-const updateJournalMemoMock = vi.fn();
-const generateMemoWithRagMock = vi.fn();
-
-vi.mock('../../src/lib/prisma.js', () => ({
-  prisma: prismaMock,
+  mfApiAdapterMock: { fetchEntries: vi.fn() },
+  updateJournalMemoMock: vi.fn(),
+  generateMemoWithRagMock: vi.fn(),
 }));
 
+vi.mock('../../src/lib/prisma.js', () => ({ prisma: prismaMock }));
 vi.mock('../../src/adapters/mf-api.js', () => ({
   mfApiAdapter: mfApiAdapterMock,
   updateJournalMemo: updateJournalMemoMock,
 }));
-
 vi.mock('../../src/services/journal-rag-service.js', () => ({
   generateMemoWithRag: generateMemoWithRagMock,
 }));
