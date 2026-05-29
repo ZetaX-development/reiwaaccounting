@@ -130,6 +130,22 @@ const labels = {
   },
 };
 
+const viewDocumentTitles = {
+  dashboard: "ToDo | 経理丸ごとAI",
+  company: "顧問先 | 経理丸ごとAI",
+  "jobs-journal": "仕訳 | 経理丸ごとAI",
+  "jobs-vouchers": "証憑 | 経理丸ごとAI",
+  "jobs-monthly-check": "月次チェック | 経理丸ごとAI",
+  "vouchers-register": "証憑登録 | 経理丸ごとAI",
+  "matching-results": "突合結果 | 経理丸ごとAI",
+  portal: "メッセージ | 経理丸ごとAI",
+  "integrations-drive": "Google Drive連携 | 経理丸ごとAI",
+  "integrations-line": "LINE連携 | 経理丸ごとAI",
+  "mf-review": "摘要レビュー | 経理丸ごとAI",
+  rules: "学習 | 経理丸ごとAI",
+  settings: "設定 | 経理丸ごとAI",
+};
+
 function friendlyError(err) {
   if (!err) return "うまくいきませんでした。";
   const msg = String(err.message || err);
@@ -183,6 +199,74 @@ const viewContent = $("#viewContent");
 const toast = $("#toast");
 
 function currentClient() { return clients[appState.activeClient]; }
+
+function hasEditableFocus(target) {
+  if (!target) return false;
+  const tag = (target.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "textarea" || tag === "select") return true;
+  return !!target.closest?.('[contenteditable="true"]');
+}
+
+function ensureHelpModal() {
+  let modal = document.getElementById("helpModal");
+  if (modal) return modal;
+  modal = document.createElement("div");
+  modal.id = "helpModal";
+  modal.className = "help-modal";
+  modal.hidden = true;
+  modal.innerHTML = `
+    <div class="help-modal-backdrop" data-help-close></div>
+    <div class="help-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="helpModalTitle">
+      <div class="help-modal-head">
+        <h3 id="helpModalTitle">使い方ガイド</h3>
+        <button class="ghost-btn" type="button" data-help-close>✕閉じる</button>
+      </div>
+      <div class="help-modal-body">
+        <p class="help-modal-section-title">基本的な使い方</p>
+        <ol>
+          <li>顧問先チップ（左上）をクリック</li>
+          <li>「月次業務」から各メニューへ</li>
+        </ol>
+        <p class="help-modal-section-title">よくある操作</p>
+        <ul>
+          <li>LINEで領収書を送る → LINE設定から</li>
+          <li>仕訳をMFに反映 → 摘要レビューから</li>
+          <li>証憑不足を確認 → ToDoダッシュから</li>
+          <li>弥生にCSV出力 → 仕訳/証憑ビューから</li>
+        </ul>
+        <p class="help-modal-section-title">ショートカット</p>
+        <ul>
+          <li><code>?</code> : このヘルプを開く</li>
+          <li><code>Esc</code> : モーダルを閉じる</li>
+        </ul>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.querySelectorAll("[data-help-close]").forEach((el) => {
+    el.addEventListener("click", closeOpenModal);
+  });
+  return modal;
+}
+
+function closeOpenModal() {
+  const helpModal = document.getElementById("helpModal");
+  if (helpModal && !helpModal.hidden) {
+    helpModal.hidden = true;
+    return true;
+  }
+  const voucherModal = document.getElementById("voucherModal");
+  if (voucherModal && !voucherModal.hidden) {
+    voucherModal.hidden = true;
+    return true;
+  }
+  return false;
+}
+
+function openHelpModal() {
+  const modal = ensureHelpModal();
+  modal.hidden = false;
+}
 
 function updateClientContextBar() {
   const bar = document.getElementById('clientContextBar');
@@ -1137,6 +1221,7 @@ function adaptApiClient(d) {
     ]),
     rawTasks: rawTasks,
     mfConnected: mfConnected,
+    mfAccessToken: d.mfAccessToken ?? null,
     // Preserve entry objects as-is so renderers (renderJobsJournal,
     // renderJobsMonthlyCheck, etc.) can read occurredAt/amount/etc. The
     // earlier positional-array transform was a leftover from a removed
@@ -1274,12 +1359,17 @@ function renderClients() {
     const pending = Number(c.tasksOpen) || 0;
     const statusClass = pending === 0 ? "complete" : pending >= 5 ? "error" : "review";
     const statusLabel = pending === 0 ? "完了" : pending >= 5 ? "要確認" : "処理中";
+    const mfLinked = !!(c.mfAccessToken || c.mfConnected);
+    const mfBadgeClass = mfLinked ? "connected" : "unlinked";
+    const mfBadgeText = mfLinked ? "✓ MF連携済" : "⚠️ MF未連携";
+    const mfBadgeTitle = mfLinked ? "MoneyForward連携済み" : "MoneyForward未連携";
     html += '<span class="chip-wrap' + active + '" data-client-wrap="' + i + '" draggable="true">';
     html += '<button class="chip-select' + active + '" data-client="' + i + '">';
     html += '<span class="client-chip-main">';
     html += '<span class="client-chip-name">' + escapeHtml(c.name) + '</span>';
     html += '<span class="client-chip-meta">未処理 ' + pending + '件 ・ ' + (c.mode === "yearend" ? "期末" : "月次") + '</span>';
     html += '</span>';
+    html += '<span class="mf-badge ' + mfBadgeClass + '" title="' + mfBadgeTitle + '">' + mfBadgeText + '</span>';
     html += '<span class="status-chip ' + statusClass + '">' + statusLabel + '</span>';
     html += "</button>";
     html += '<button class="chip-del" data-client-del="' + i + '" title="削除" style="display:' + (i === appState.activeClient ? "inline" : "none") + '">×</button>';
@@ -2494,6 +2584,11 @@ function renderMfReview() {
   if (!client) return '<div class="empty-state">顧問先を選択してください。</div>';
 
   let html = '<section class="dashboard-section-card">';
+  html += '<div class="setup-guide-banner">';
+  html += '<strong>AI摘要レビューとは</strong><br>';
+  html += 'MFの仕訳の中で摘要が空白のものをAIが自動で補完します。<br>';
+  html += '「AI処理」ボタンを押すとAIが分析し、提案内容を確認して承認するとMFに反映されます。';
+  html += '</div>';
   html += '<div class="dashboard-section-head">';
   html += '<h3>AI摘要レビュー</h3>';
   html += '<div class="voucher-status-actions">';
@@ -3202,13 +3297,21 @@ function renderVoucherCsvExportBar() {
 function renderJobsJournal() {
   const c = currentClient();
   if (!c) return '<div class="empty-state">顧問先を選んでください。</div>';
+  const hasMfConnection = !!(c.mfAccessToken || c.mfConnected);
   const entries = (c.entries || []).filter((e) => {
     // live MF entries or DB MF/freee entries depending on connection
-    if (c.mfConnected) return (e.id || "").toString().startsWith("live-");
+    if (hasMfConnection) return (e.id || "").toString().startsWith("live-");
     return true;
   });
   let html = '<section>';
   html += '<p class="eyebrow">仕訳一覧</p>';
+  if (!hasMfConnection) {
+    html += '<div class="setup-guide-banner">';
+    html += '<strong>MoneyForwardと連携していません</strong><br>';
+    html += '仕訳データを取得するにはOAuth連携が必要です。<br>';
+    html += '<button class="setup-guide-btn" onclick="location.hash=\'#/settings\'">設定から連携する →</button>';
+    html += '</div>';
+  }
   html += renderVoucherCsvExportBar();
   if (entries.length === 0) {
     html += '<div class="empty-state">仕訳がありません。マネフォと連携すると自動で取り込まれます。</div>';
@@ -3669,6 +3772,13 @@ function renderVoucherRegister() {
           <input type="file" id="voucherFileInput" multiple
                  accept="image/jpeg,image/png,image/gif,image/webp" hidden />
         </label>
+      </div>
+      <div class="setup-guide-banner">
+        <strong>他にも以下の方法で証憑を追加できます：</strong>
+        <div class="upload-guides">
+          <div>📱 LINE → 顧問先のスマホからLINEで送ってもらう</div>
+          <div>📁 Google Drive → スキャナーから自動取り込み</div>
+        </div>
       </div>
       <div class="voucher-tabs">${tabHtml}</div>
       <div class="voucher-grid">
@@ -4173,6 +4283,23 @@ function renderIntegrationsLine() {
     }
   }
 
+  const flowPanel = `
+    <div class="setup-guide-banner">
+      <strong>LINEを使った証憑送信の流れ</strong>
+      <div class="flow-steps">
+        <div class="flow-step"><span class="flow-step-no">1</span>下の「検証する」ボタンでBot設定を確認</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step"><span class="flow-step-no">2</span>LINE公式アカウントにQRコードでアクセス</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step"><span class="flow-step-no">3</span>顧問先のLINEユーザーを「有効化」する</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step"><span class="flow-step-no">4</span>顧問先がLINEで領収書写真を送信</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-step"><span class="flow-step-no">5</span>自動でOCR → 仕訳ドラフト作成 → MFに送信</div>
+      </div>
+    </div>
+  `;
+
   const connectionPanel = `
     <div class="integration-panel integration-line-connection">
       <h3>接続状態</h3>
@@ -4194,7 +4321,7 @@ function renderIntegrationsLine() {
         </div>
       </div>
       <div style="margin-top:12px;">
-        <button class="primary-btn" data-line-action="verify"${connected ? '' : ' disabled'}>接続テスト</button>
+        <button class="primary-btn" data-line-action="verify"${connected ? '' : ' disabled'}>検証する</button>
       </div>
       ${verifyHtml}
       <details style="margin-top:12px;">
@@ -4260,6 +4387,7 @@ function renderIntegrationsLine() {
 
   return `
     <section class="integrations-line">
+      ${flowPanel}
       ${connectionPanel}
       ${usersPanel}
     </section>
@@ -4286,6 +4414,7 @@ function renderView() {
     settings: () => renderSettings(),              // 学習・設定 > 設定
   };
   const renderer = views[appState.activeView] ?? views.dashboard;
+  document.title = viewDocumentTitles[appState.activeView] || "経理丸ごとAI";
   viewContent.innerHTML = renderer();
   // Spec 01 F2: progress filter tab handlers
   viewContent.querySelectorAll("[data-progress-filter]").forEach((button) => {
@@ -5210,6 +5339,20 @@ document.querySelectorAll(".segment").forEach((button) => {
 $("#searchInput").addEventListener("input", (event) => {
   appState.search = event.target.value.trim();
   renderView();
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    if (closeOpenModal()) {
+      event.preventDefault();
+    }
+    return;
+  }
+  const isQuestionKey = event.key === "?" || (event.key === "/" && event.shiftKey);
+  if (!isQuestionKey) return;
+  if (hasEditableFocus(event.target)) return;
+  event.preventDefault();
+  openHelpModal();
 });
 
 // Hash routing — the single source of truth for which view is active.

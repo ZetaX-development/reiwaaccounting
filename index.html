@@ -69,7 +69,7 @@
 
         <nav class="main-nav" aria-label="メイン">
           <p class="nav-group-label">今日</p>
-          <button class="nav-item active" data-view="dashboard">ToDo</button>
+          <button class="nav-item active" data-view="dashboard" title="今日やること一覧。AI摘要レビュー・証憑不足・手動タスクを管理">ToDo</button>
 
           <p class="nav-group-label">業務</p>
           <button class="nav-item" data-view="company">顧問先</button>
@@ -77,18 +77,18 @@
             月次業務 <span class="nav-caret">▾</span>
           </button>
           <div class="nav-sub" id="jobsSub">
-            <button class="nav-item nav-sub-item" data-view="jobs-journal">仕訳</button>
-            <button class="nav-item nav-sub-item" data-view="mf-review">摘要レビュー</button>
-            <button class="nav-item nav-sub-item" data-view="jobs-vouchers">証憑</button>
+            <button class="nav-item nav-sub-item" data-view="jobs-journal" title="MFの仕訳一覧。AIが空摘要を自動補完します">仕訳</button>
+            <button class="nav-item nav-sub-item" data-view="mf-review" title="AIが提案した摘要を確認・承認してMFに反映">摘要レビュー</button>
+            <button class="nav-item nav-sub-item" data-view="jobs-vouchers" title="領収書・請求書の一覧と突合状況">証憑</button>
             <button class="nav-item nav-sub-item" data-view="jobs-monthly-check">月次チェック</button>
           </div>
-          <button class="nav-item" data-view="vouchers-register">証憑登録</button>
+          <button class="nav-item" data-view="vouchers-register" title="弥生会計などへインポートできるCSVを出力">証憑登録</button>
           <button class="nav-item" data-view="matching-results">突合結果</button>
           <button class="nav-item" data-view="portal">メッセージ</button>
 
           <p class="nav-group-label">連携</p>
           <button class="nav-item" data-view="integrations-drive">Google Drive</button>
-          <button class="nav-item" data-view="integrations-line">LINE</button>
+          <button class="nav-item" data-view="integrations-line" title="LINE Botの設定。顧問先がLINEで領収書を送れるようになります">LINE</button>
 
           <p class="nav-group-label">学習・設定</p>
           <button class="nav-item" data-view="rules">学習</button>
@@ -170,6 +170,7 @@
       </main>
     </div>
 
+    <div id="onboardingOverlayRoot"></div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="./script.js"></script>
   </body>
