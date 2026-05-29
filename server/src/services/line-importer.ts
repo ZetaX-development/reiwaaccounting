@@ -474,6 +474,10 @@ export async function sendLinePushForVoucherStatus(
       matchedClientReason: true,
       journalStatus: true,
       draftJournalJson: true,
+      clientId: true,
+      client: {
+        select: { mfAccessToken: true },
+      },
     },
   });
   if (!v || v.source !== 'line' || !v.lineUserId) return;
@@ -503,43 +507,60 @@ export async function sendLinePushForVoucherStatus(
 
   if (v.journalStatus === 'drafted') {
     const draft = (v.draftJournalJson ?? {}) as Record<string, unknown>;
+    const debit = (typeof draft.debit === 'object' && draft.debit !== null ? draft.debit : {}) as Record<string, unknown>;
     const account =
-      typeof draft.account === 'string' ? draft.account : '（勘定科目）';
+      typeof debit.account === 'string' ? debit.account :
+      typeof draft.account === 'string' ? draft.account : // fallback for old flat format
+      '（勘定科目）';
     const amount =
-      typeof draft.amount === 'number'
-        ? `¥${draft.amount.toLocaleString('ja-JP')}`
-        : '';
+      typeof debit.amount === 'number'
+        ? `¥${debit.amount.toLocaleString('ja-JP')}`
+        : typeof draft.amount === 'number' // fallback for old flat format
+          ? `¥${draft.amount.toLocaleString('ja-JP')}`
+          : '';
     const summaryText = `${account} ${amount} で仕訳を作成しました。`.trim();
 
     // 1. 仕訳サマリ
     await lineService.pushMessage(v.lineUserId, [{ type: 'text', text: summaryText }]);
 
-    // 2. MF入力確認 (Spec 20)
-    const mfItems: QuickReplyItem[] = [
-      {
-        type: 'action',
-        action: {
-          type: 'postback',
-          label: '✍️ はい',
-          data: `voucherId=${voucherId}&action=mf_write`,
-          displayText: 'MoneyForwardに入力する',
+    // 2. MF入力確認 (Spec 20) — MF連携済みクライアントのみ表示
+    const hasMfToken = Boolean(v.client?.mfAccessToken);
+    if (hasMfToken) {
+      const mfItems: QuickReplyItem[] = [
+        {
+          type: 'action',
+          action: {
+            type: 'postback',
+            label: '✍️ はい',
+            data: `voucherId=${voucherId}&action=mf_write`,
+            displayText: 'MoneyForwardに入力する',
+          },
         },
-      },
-      {
-        type: 'action',
-        action: {
-          type: 'postback',
-          label: '⏭️ いいえ',
-          data: `voucherId=${voucherId}&action=approve`,
-          displayText: 'スキップ',
+        {
+          type: 'action',
+          action: {
+            type: 'postback',
+            label: '⏭️ いいえ',
+            data: `voucherId=${voucherId}&action=approve`,
+            displayText: 'スキップ',
+          },
         },
-      },
-    ];
-    await lineService.pushQuickReply(
-      v.lineUserId,
-      'MoneyForwardに入力しますか？',
-      mfItems,
-    );
+      ];
+      await lineService.pushQuickReply(
+        v.lineUserId,
+        'MoneyForwardに入力しますか？',
+        mfItems,
+      );
+    } else {
+      // MF未連携の場合はダッシュボードで確認できる旨を通知してそのまま承認済みへ
+      await prisma.voucher.update({
+        where: { id: v.id },
+        data: { journalStatus: 'approved' },
+      });
+      await lineService.pushMessage(v.lineUserId, [
+        { type: 'text', text: 'ダッシュボードで仕訳を確認できます。（MoneyForward未連携のため自動入力はスキップ）' },
+      ]);
+    }
     return;
   }
 
