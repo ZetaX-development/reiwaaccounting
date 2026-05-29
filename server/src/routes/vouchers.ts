@@ -56,7 +56,25 @@ const YAYOI_HEADER = [
   '付箋2',
   '証憑ファイル名',
 ] as const;
-const MF_HEADER = ['取引日', '決済口座', '取引内容', '金額（円）', 'メモ'] as const;
+// MFクラウド会計 仕訳インポートCSV形式
+const MF_HEADER = [
+  '取引日',
+  '借方勘定科目',
+  '借方補助科目',
+  '借方部門',
+  '借方税区分',
+  '借方インボイス番号',
+  '借方金額(円)',
+  '借方消費税額(円)',
+  '貸方勘定科目',
+  '貸方補助科目',
+  '貸方部門',
+  '貸方税区分',
+  '貸方インボイス番号',
+  '貸方金額(円)',
+  '貸方消費税額(円)',
+  '摘要',
+] as const;
 const GENERIC_HEADER = [
   '日付',
   '借方勘定科目',
@@ -160,18 +178,32 @@ function buildYayoiCsv(rows: Array<{ filename: string; draft: DraftJournal; txDa
 }
 
 function buildMfCsv(rows: Array<{ draft: DraftJournal; txDate: string }>): string {
+  // BOM付きUTF-8: ExcelおよびMFクラウド会計インポートで文字化けしないよう付加
+  const BOM = '\uFEFF';
   const records: unknown[][] = [Array.from(MF_HEADER)];
   for (const row of rows) {
     const debit = row.draft.debit ?? {};
+    const credit = row.draft.credit ?? {};
     records.push([
-      row.txDate,
+      row.txDate.replace(/-/g, '/'), // MFはYYYY/MM/DD形式
       debit.account ?? '',
-      row.draft.description ?? '',
+      '', // 借方補助科目
+      '', // 借方部門
+      debit.taxClass ?? '',
+      '', // 借方インボイス番号
       numberOrZero(debit.amount),
-      '',
+      '', // 借方消費税額
+      credit.account ?? '',
+      '', // 貸方補助科目
+      '', // 貸方部門
+      credit.taxClass ?? '',
+      '', // 貸方インボイス番号
+      numberOrZero(credit.amount),
+      '', // 貸方消費税額
+      row.draft.description ?? '',
     ]);
   }
-  return serializeCsv(records);
+  return BOM + serializeCsv(records);
 }
 
 function buildGenericCsv(
@@ -528,9 +560,10 @@ export async function voucherRoutes(app: FastifyInstance) {
           : buildGenericCsv(prepared);
 
     const today = new Date().toISOString().slice(0, 10);
+    const filename = format === 'mf' ? `mf-journals-${today}.csv` : `journals-${today}.csv`;
     reply
       .header('content-type', 'text/csv; charset=utf-8')
-      .header('content-disposition', `attachment; filename="journals-${today}.csv"`);
+      .header('content-disposition', `attachment; filename="${filename}"`);
     return csv;
   });
 
@@ -647,4 +680,28 @@ export async function voucherRoutes(app: FastifyInstance) {
     });
     return { ok: true };
   });
+
+  // 赤バッジ用: LINEから届いた未処理証憑の件数
+  app.get<{ Params: { id: string } }>(
+    '/api/clients/:id/vouchers/new-count',
+    async (req, reply) => {
+      const client = await prisma.client.findFirst({
+        where: { id: req.params.id, firmId: req.user!.firmId },
+        select: { id: true },
+      });
+      if (!client) {
+        reply.code(404);
+        return { error: { code: 'NOT_FOUND', message: 'client not found' } };
+      }
+      const count = await prisma.voucher.count({
+        where: {
+          firmId: req.user!.firmId,
+          clientId: client.id,
+          source: 'line',
+          journalStatus: { notIn: ['approved', 'skipped'] },
+        },
+      });
+      return { count };
+    },
+  );
 }

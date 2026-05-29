@@ -3748,3 +3748,21 @@ textarea {
 .guide-shortcuts { display: flex; flex-direction: column; gap: 12px; }
 .shortcut-row { display: flex; align-items: center; gap: 16px; }
 kbd { display: inline-block; padding: 4px 10px; background: var(--bg-secondary, #f3f4f6); border: 1px solid var(--border, #d1d5db); border-radius: 6px; font-family: monospace; font-size: 0.875rem; }
+
+/* 赤バッジ通知 */
+.nav-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  margin-left: 6px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  border-radius: 8px;
+  line-height: 1;
+  vertical-align: middle;
+}

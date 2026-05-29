@@ -5585,6 +5585,11 @@ function applyHashRoute(force) {
   // Reset per-view load guards so re-navigating refetches.
   if (target === "integrations-drive") appState.driveLoadedAt = null;
   if (target === "integrations-line") appState.lineLoadedAt = null;
+  // 証憑ビューを開いたらバッジをクリア
+  if (target === "jobs-vouchers") {
+    const badge = document.getElementById('badge-vouchers');
+    if (badge) badge.style.display = 'none';
+  }
   render();
 }
 window.addEventListener("hashchange", () => applyHashRoute(false));
@@ -5939,6 +5944,28 @@ async function loadAndRenderClientPortal(clientId) {
   }
 }
 
+// ---- 赤バッジ: LINE新着証憑カウント ----------------------------------------
+async function refreshVoucherBadge() {
+  const c = currentClient();
+  const badge = document.getElementById('badge-vouchers');
+  if (!badge) return;
+  if (!c?.id) { badge.style.display = 'none'; return; }
+  try {
+    const res = await apiFetch(`/api/clients/${c.id}/vouchers/new-count`);
+    if (!res.ok) return;
+    const { count } = await res.json();
+    if (count > 0) {
+      badge.textContent = count > 99 ? '99+' : String(count);
+      badge.style.display = 'inline-flex';
+    } else {
+      badge.style.display = 'none';
+    }
+  } catch (e) { /* ignore */ }
+}
+
+// 30秒ごとにバッジ更新
+setInterval(refreshVoucherBadge, 30000);
+
 // Startup: await auth session, fetch user info, then load clients.
 (async () => {
   const session = await (window.__sessionPromise || Promise.resolve(null));
@@ -5963,5 +5990,6 @@ async function loadAndRenderClientPortal(clientId) {
   loadClientsFromApi().finally(() => {
     updateClientContextBar();
     applyHashRoute(true);
+    refreshVoucherBadge();
   });
 })();
