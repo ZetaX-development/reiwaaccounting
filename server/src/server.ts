@@ -25,6 +25,7 @@ import { voucherRoutes } from './routes/vouchers.js';
 import { integrationsDriveRoutes } from './routes/integrations-drive.js';
 import { integrationsLineRoutes } from './routes/integrations-line.js';
 import { journalReviewRoutes } from './routes/journal-reviews.js';
+import { journalPatternRoutes } from './routes/journal-patterns.js';
 import { todoRoutes } from './routes/todos.js';
 import multipart from '@fastify/multipart';
 
@@ -58,9 +59,11 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // Global auth guard — only applies to /api/* routes, bypassing static files and OAuth callbacks.
   app.addHook('preHandler', async (req: FastifyRequest, reply) => {
-    const path = req.url.split('?')[0];
-    if (!path.startsWith('/api/')) return;
-    if (AUTH_BYPASS.has(path)) return;
+    const urlPath = req.url.split('?')[0];
+    if (!urlPath.startsWith('/api/')) return;
+    if (AUTH_BYPASS.has(urlPath)) return;
+    // /api/portal/:token は公開エンドポイント（顧問先が直接アクセス）
+    if (urlPath.startsWith('/api/portal/')) return;
     await requireAuth(req, reply);
   });
 
@@ -82,6 +85,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(integrationsDriveRoutes);
   await app.register(integrationsLineRoutes);
   await app.register(journalReviewRoutes);
+  await app.register(journalPatternRoutes);
   await app.register(todoRoutes);
 
   app.setErrorHandler((err, _req, reply) => {

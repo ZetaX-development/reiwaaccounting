@@ -29,7 +29,7 @@ export async function todoRoutes(app: FastifyInstance) {
       return { error: { code: 'NOT_FOUND', message: 'client not found' } };
     }
 
-    const [todos, aiPendingCount, missingReceipts] = await Promise.all([
+    const [todos, aiPendingCount, aiDifficultCount, missingReceipts] = await Promise.all([
       prisma.todo.findMany({
         where: { clientId: client.id, firmId: req.user!.firmId, done: false },
         orderBy: { createdAt: 'desc' },
@@ -44,12 +44,16 @@ export async function todoRoutes(app: FastifyInstance) {
       prisma.journalAiReview.count({
         where: { clientId: client.id, firmId: req.user!.firmId, status: 'pending' },
       }),
+      prisma.journalAiReview.count({
+        where: { clientId: client.id, firmId: req.user!.firmId, status: 'difficult' },
+      }),
       computeMissingReceipts(client.id),
     ]);
 
     return {
       todos,
       aiPendingCount,
+      aiDifficultCount,
       missingReceiptCount: missingReceipts.length,
       missingReceipts: missingReceipts.slice(0, 10).map((receipt) => ({
         entryId: receipt.entryId,

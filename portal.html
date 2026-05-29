@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>月次レポート | Bookmee</title>
+  <style>
+    :root {
+      --primary: #2563eb;
+      --success: #16a34a;
+      --danger: #dc2626;
+      --gray-50: #f9fafb;
+      --gray-100: #f3f4f6;
+      --gray-200: #e5e7eb;
+      --gray-600: #4b5563;
+      --gray-900: #111827;
+      --radius: 8px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Yu Gothic', sans-serif;
+      background: var(--gray-50);
+      color: var(--gray-900);
+      line-height: 1.6;
+    }
+    header {
+      background: #fff;
+      border-bottom: 1px solid var(--gray-200);
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    header .logo { font-weight: 700; font-size: 20px; color: var(--primary); }
+    header .subtitle { font-size: 13px; color: var(--gray-600); }
+    .container { max-width: 900px; margin: 0 auto; padding: 32px 16px; }
+    .report-header { margin-bottom: 32px; }
+    .report-header h1 { font-size: 24px; font-weight: 700; margin-bottom: 4px; }
+    .report-header .meta { font-size: 13px; color: var(--gray-600); }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 32px; }
+    .card {
+      background: #fff;
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius);
+      padding: 20px;
+    }
+    .card .label { font-size: 12px; color: var(--gray-600); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .card .value { font-size: 28px; font-weight: 700; }
+    .card .value.positive { color: var(--success); }
+    .card .value.negative { color: var(--danger); }
+    .section { background: #fff; border: 1px solid var(--gray-200); border-radius: var(--radius); padding: 24px; margin-bottom: 24px; }
+    .section h2 { font-size: 16px; font-weight: 600; margin-bottom: 16px; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th { text-align: left; padding: 8px 12px; background: var(--gray-100); font-weight: 600; font-size: 12px; color: var(--gray-600); }
+    td { padding: 10px 12px; border-top: 1px solid var(--gray-100); }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    td.positive { color: var(--success); }
+    td.negative { color: var(--danger); }
+    .chart { display: flex; align-items: flex-end; gap: 8px; height: 140px; padding: 0 4px; }
+    .chart-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    .chart-bar-wrap { flex: 1; width: 100%; display: flex; flex-direction: column; justify-content: flex-end; position: relative; }
+    .bar { width: 100%; border-radius: 4px 4px 0 0; transition: height 0.4s; min-height: 2px; }
+    .bar.income { background: #93c5fd; }
+    .bar.expense { background: #fca5a5; }
+    .chart-label { font-size: 10px; color: var(--gray-600); text-align: center; white-space: nowrap; }
+    .ai-comment { background: #eff6ff; border-left: 3px solid var(--primary); padding: 12px 16px; border-radius: 0 var(--radius) var(--radius) 0; font-size: 14px; color: #1e40af; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 11px; font-weight: 600; }
+    .badge-forecast { background: #fef3c7; color: #92400e; }
+    .badge-actual { background: #d1fae5; color: #065f46; }
+    .loading { text-align: center; padding: 80px; color: var(--gray-600); }
+    .error-msg { text-align: center; padding: 80px; color: var(--danger); }
+    footer { text-align: center; padding: 32px; font-size: 12px; color: var(--gray-600); }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">Bookmee</div>
+    <div class="subtitle">経営月次レポート</div>
+  </header>
+
+  <div class="container" id="app">
+    <div class="loading">読み込み中...</div>
+  </div>
+
+  <footer>Powered by Bookmee — このページは税理士事務所から共有されました</footer>
+
+  <script>
+    const token = new URLSearchParams(location.search).get('token');
+    if (!token) {
+      document.getElementById('app').innerHTML = '<div class="error-msg">URLが無効です。税理士事務所にお問い合わせください。</div>';
+    } else {
+      fetch(`/api/portal/${token}`)
+        .then(r => {
+          if (!r.ok) throw new Error('not found');
+          return r.json();
+        })
+        .then(render)
+        .catch(() => {
+          document.getElementById('app').innerHTML = '<div class="error-msg">レポートが見つかりません。税理士事務所にお問い合わせください。</div>';
+        });
+    }
+
+    function fmt(n) {
+      if (n === undefined || n === null) return '—';
+      return '¥' + Math.abs(n).toLocaleString('ja-JP');
+    }
+
+    function render(data) {
+      const app = document.getElementById('app');
+      const sum = data.currentMonthSummary || {};
+      const profitClass = sum.profit >= 0 ? 'positive' : 'negative';
+      const profitSign = sum.profit >= 0 ? '+' : '-';
+
+      const allMonths = [...(data.monthlyPl || [])];
+      const maxVal = Math.max(...allMonths.map(m => Math.max(m.income || 0, m.expense || 0)), 1);
+
+      const chartHtml = allMonths.map(m => {
+        const iH = Math.round(((m.income || 0) / maxVal) * 120);
+        const eH = Math.round(((m.expense || 0) / maxVal) * 120);
+        const label = m.month.replace(/^\d{4}-/, '').replace(/^0/, '') + '月';
+        return `<div class="chart-col">
+          <div class="chart-bar-wrap">
+            <div class="bar income" style="height:${iH}px"></div>
+          </div>
+          <div class="chart-bar-wrap">
+            <div class="bar expense" style="height:${eH}px"></div>
+          </div>
+          <div class="chart-label">${label}</div>
+        </div>`;
+      }).join('');
+
+      const plRows = allMonths.map(m => {
+        const pc = m.profit >= 0 ? 'positive' : 'negative';
+        const label = m.month.replace(/^(\d{4})-(\d{2})$/, '$1年$2月');
+        return `<tr>
+          <td>${label}</td>
+          <td class="num">${fmt(m.income)}</td>
+          <td class="num">${fmt(m.expense)}</td>
+          <td class="num ${pc}">${m.profit >= 0 ? '+' : ''}${fmt(m.profit)}</td>
+        </tr>`;
+      }).reverse().join('');
+
+      const topIncomeRows = (data.topIncome || []).map(t =>
+        `<tr><td>${t.account}</td><td class="num">${fmt(t.amount)}</td></tr>`
+      ).join('');
+      const topExpenseRows = (data.topExpense || []).map(t =>
+        `<tr><td>${t.account}</td><td class="num">${fmt(t.amount)}</td></tr>`
+      ).join('');
+
+      const genDate = data.generatedAt ? new Date(data.generatedAt).toLocaleDateString('ja-JP') : '';
+
+      app.innerHTML = `
+        <div class="report-header">
+          <h1>${escHtml(data.clientName || '')} 様</h1>
+          <div class="meta">${escHtml(data.reportMonth || '')} レポート ・ 生成日: ${genDate}</div>
+        </div>
+
+        <div class="cards">
+          <div class="card">
+            <div class="label">売上・収入</div>
+            <div class="value positive">${fmt(sum.income)}</div>
+          </div>
+          <div class="card">
+            <div class="label">費用・支出</div>
+            <div class="value negative">${fmt(sum.expense)}</div>
+          </div>
+          <div class="card">
+            <div class="label">純利益</div>
+            <div class="value ${profitClass}">${profitSign}${fmt(sum.profit)}</div>
+          </div>
+          ${sum.profitMargin !== null ? `<div class="card">
+            <div class="label">利益率</div>
+            <div class="value ${profitClass}">${sum.profitMargin}%</div>
+          </div>` : ''}
+        </div>
+
+        ${data.monthlyPl && data.monthlyPl.length > 0 ? `
+        <div class="section">
+          <h2>月次推移</h2>
+          <div class="chart">${chartHtml}</div>
+          <div style="display:flex;gap:12px;margin-top:8px;font-size:12px;color:#4b5563">
+            <span><span style="display:inline-block;width:10px;height:10px;background:#93c5fd;border-radius:2px;margin-right:4px"></span>収入</span>
+            <span><span style="display:inline-block;width:10px;height:10px;background:#fca5a5;border-radius:2px;margin-right:4px"></span>支出</span>
+          </div>
+          <table style="margin-top:20px">
+            <thead><tr><th>期間</th><th style="text-align:right">収入</th><th style="text-align:right">支出</th><th style="text-align:right">純利益</th></tr></thead>
+            <tbody>${plRows}</tbody>
+          </table>
+        </div>` : ''}
+
+        ${topIncomeRows || topExpenseRows ? `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
+          ${topIncomeRows ? `<div class="section">
+            <h2>収入上位科目</h2>
+            <table><thead><tr><th>科目</th><th style="text-align:right">金額</th></tr></thead>
+            <tbody>${topIncomeRows}</tbody></table>
+          </div>` : ''}
+          ${topExpenseRows ? `<div class="section">
+            <h2>支出上位科目</h2>
+            <table><thead><tr><th>科目</th><th style="text-align:right">金額</th></tr></thead>
+            <tbody>${topExpenseRows}</tbody></table>
+          </div>` : ''}
+        </div>` : ''}
+      `;
+    }
+
+    function escHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+  </script>
+</body>
+</html>

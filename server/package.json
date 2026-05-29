@@ -13,6 +13,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "seed": "tsx prisma/seed.ts",
+    "seed:patterns": "tsx scripts/seed-journal-patterns.ts",
     "create-firm": "tsx scripts/create-firm.ts"
   },
   "dependencies": {

@@ -1963,6 +1963,11 @@ tbody tr:hover td {
   padding: 12px;
 }
 
+.mf-review-card.is-difficult {
+  border-color: #efb9c2;
+  background: #fff8f9;
+}
+
 .mf-review-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -2002,6 +2007,18 @@ tbody tr:hover td {
   align-items: center;
   gap: 8px;
   margin-top: 10px;
+}
+
+.mf-review-difficult-badge {
+  background: #fde9ed !important;
+  border-color: #f4b7c3 !important;
+  color: #9a1f38 !important;
+}
+
+.mf-review-difficult-note {
+  color: #9a1f38;
+  font-size: var(--fs-12);
+  font-weight: 700;
 }
 
 .settings-client-panel {

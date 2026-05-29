@@ -4,6 +4,7 @@ const appState = {
   activeFilter: "all",
   dashboardTodos: [],
   dashboardAiPendingCount: 0,
+  dashboardAiDifficultCount: 0,
   dashboardMissingReceipts: [],
   dashboardMissingCount: 0,
   mfReviewStatus: "pending",
@@ -90,6 +91,9 @@ const labels = {
   rules: "学習",
   settings: "設定",
   guide: "使い方",
+  "tax-suggestions": "コンサル / 節税提案",
+  cashflow: "コンサル / CF予測",
+  "client-portal": "コンサル / 顧問先ポータル",
 
   status: { urgent: "要確認", open: "作業中", done: "終わった" },
   stage: {
@@ -129,6 +133,9 @@ const labels = {
     rules: "この顧問先で過去にミスしやすかった点を、企業ごとのチェック項目として保存します。",
     settings: "事務所全体の運用設定。",
     guide: "経理丸ごとAIの基本的な使い方を確認できます。",
+    "tax-suggestions": "仕訳データをAIで分析して節税の提案を生成します。提案を「実施済み」「見送り」で管理できます。",
+    cashflow: "過去6ヶ月の仕訳から翌3ヶ月のキャッシュフローを予測します。資金繰りの警戒ラインを早期に把握できます。",
+    "client-portal": "顧問先が直接閲覧できる月次レポートURLを発行します。ログイン不要でアクセスできます。",
   },
 };
 
@@ -147,6 +154,9 @@ const viewDocumentTitles = {
   rules: "学習 | 経理丸ごとAI",
   settings: "設定 | 経理丸ごとAI",
   guide: "使い方 | 経理丸ごとAI",
+  "tax-suggestions": "節税提案 | 経理丸ごとAI",
+  cashflow: "CF予測 | 経理丸ごとAI",
+  "client-portal": "顧問先ポータル | 経理丸ごとAI",
 };
 
 function friendlyError(err) {
@@ -1710,7 +1720,7 @@ function renderDashboard() {
     return renderYearendDashboard();
   }
   let html = '<section class="dashboard-stack">';
-  html += '<div id="aiPendingBanner">' + renderDashboardAiPendingBannerHtml(appState.dashboardAiPendingCount || 0) + '</div>';
+  html += '<div id="aiPendingBanner">' + renderDashboardAiPendingBannerHtml(appState.dashboardAiPendingCount || 0, appState.dashboardAiDifficultCount || 0) + '</div>';
   html += '<div id="missingReceiptsBanner">' + renderDashboardMissingBannerHtml(appState.dashboardMissingCount || 0, appState.dashboardMissingReceipts || []) + '</div>';
   html += '<section class="dashboard-section-card">';
   html += '<div class="dashboard-section-head"><h3>手動ToDo</h3><span class="status-chip processing">' + (appState.dashboardTodos || []).length + '件</span></div>';
@@ -1751,16 +1761,20 @@ function decodeDataToken(token) {
   }
 }
 
-function renderDashboardAiPendingBannerHtml(aiPendingCount) {
-  const count = Number(aiPendingCount) || 0;
-  if (count <= 0) {
+function renderDashboardAiPendingBannerHtml(aiPendingCount, aiDifficultCount) {
+  const pendingCount = Number(aiPendingCount) || 0;
+  const difficultCount = Number(aiDifficultCount) || 0;
+  if (pendingCount <= 0 && difficultCount <= 0) {
     return '<section class="dashboard-section-card"><div class="dashboard-empty">AI摘要レビュー待ちは何もありません ✓</div></section>';
   }
   let html = '<section class="dashboard-section-card dashboard-alert">';
-  html += '<div class="dashboard-alert-title">AI摘要レビュー待ち ' + count + ' 件</div>';
+  html += '<div class="dashboard-alert-title">AI摘要レビュー待ち ' + pendingCount + ' 件</div>';
+  html += '<p class="dashboard-alert-sub">判断困難: ' + difficultCount + '件</p>';
   html += '<p class="dashboard-alert-sub">AI提案摘要を確認して一括反映できます。</p>';
   html += '<div class="dashboard-section-head" style="margin:0">';
-  html += '<button class="primary-action" data-action="ai-auto-classify">AI自動仕訳（' + count + '件）</button>';
+  if (pendingCount > 0) {
+    html += '<button class="primary-action" data-action="ai-auto-classify">AI自動仕訳（' + pendingCount + '件）</button>';
+  }
   html += '<button class="row-action" data-action="go-mf-review">詳細を見る →</button>';
   html += '</div></section>';
   return html;
@@ -1892,9 +1906,12 @@ async function loadAndRenderDashboard(clientId) {
     const payload = await res.json();
     appState.dashboardTodos = Array.isArray(payload.todos) ? payload.todos : [];
     appState.dashboardAiPendingCount = Number(payload.aiPendingCount) || 0;
+    appState.dashboardAiDifficultCount = Number(payload.aiDifficultCount) || 0;
     appState.dashboardMissingCount = Number(payload.missingReceiptCount) || 0;
     appState.dashboardMissingReceipts = Array.isArray(payload.missingReceipts) ? payload.missingReceipts : [];
   } catch (err) {
+    appState.dashboardAiPendingCount = 0;
+    appState.dashboardAiDifficultCount = 0;
     appState.dashboardMissingCount = 0;
     appState.dashboardMissingReceipts = [];
     showToast(friendlyError(err));
@@ -1902,7 +1919,10 @@ async function loadAndRenderDashboard(clientId) {
 
   const bannerSlot = $("#aiPendingBanner");
   if (bannerSlot) {
-    bannerSlot.innerHTML = renderDashboardAiPendingBannerHtml(appState.dashboardAiPendingCount || 0);
+    bannerSlot.innerHTML = renderDashboardAiPendingBannerHtml(
+      appState.dashboardAiPendingCount || 0,
+      appState.dashboardAiDifficultCount || 0,
+    );
     const autoClassifyBtn = bannerSlot.querySelector('[data-action="ai-auto-classify"]');
     if (autoClassifyBtn) {
       autoClassifyBtn.addEventListener("click", async () => {
@@ -2607,8 +2627,11 @@ async function loadAndRenderMfReview(clientId) {
   const listEl = document.getElementById('mfReviewList');
   const processBtn = document.getElementById('mfReviewProcessBtn');
   const statusEl = document.getElementById('mfReviewStatus');
-  const status = appState.mfReviewStatus === 'approved' ? 'approved' : 'pending';
+  const status = appState.mfReviewStatus === 'approved' || appState.mfReviewStatus === 'difficult'
+    ? appState.mfReviewStatus
+    : 'pending';
   const isApprovedView = status === 'approved';
+  const isDifficultView = status === 'difficult';
 
   if (!listEl) return;
 
@@ -2627,9 +2650,11 @@ async function loadAndRenderMfReview(clientId) {
   const pendingCount = data.pendingCount ?? 0;
 
   if (statusEl) {
-    statusEl.className = 'status-chip ' + (isApprovedView ? 'complete' : pendingCount > 0 ? 'review' : 'complete');
+    statusEl.className = 'status-chip ' + (isApprovedView ? 'complete' : isDifficultView ? 'error' : pendingCount > 0 ? 'review' : 'complete');
     if (isApprovedView) {
       statusEl.textContent = reviews.length > 0 ? `完了 ${reviews.length} 件` : '完了一覧はありません';
+    } else if (isDifficultView) {
+      statusEl.textContent = reviews.length > 0 ? `判断困難 ${reviews.length} 件` : '判断困難はありません';
     } else {
       statusEl.textContent = pendingCount > 0 ? `確認待ち ${pendingCount} 件` : '確認待ちなし';
     }
@@ -2638,22 +2663,29 @@ async function loadAndRenderMfReview(clientId) {
   if (reviews.length === 0) {
     listEl.innerHTML = isApprovedView
       ? '<div class="dashboard-empty">完了一覧はまだありません。</div>'
-      : '<div class="dashboard-empty">レビュー待ちの仕訳はありません。AI処理を実行すると摘要が空の仕訳を自動チェックします。</div>';
+      : isDifficultView
+        ? '<div class="dashboard-empty">判断困難の仕訳はありません。</div>'
+        : '<div class="dashboard-empty">レビュー待ちの仕訳はありません。AI処理を実行すると摘要が空の仕訳を自動チェックします。</div>';
   } else {
     let h = '';
     for (const r of reviews) {
       const conf = typeof r.aiConfidence === 'number' ? Math.round(r.aiConfidence * 100) : null;
       const confidenceClass = conf == null ? "processing" : conf >= 60 ? "complete" : "review";
-      h += `<article class="mf-review-card" data-review-id="${r.id}">`;
+      const isDifficultCard = r.status === 'difficult';
+      h += `<article class="mf-review-card${isDifficultCard ? ' is-difficult' : ''}" data-review-id="${r.id}">`;
       h += '<div class="dashboard-section-head" style="margin-bottom:10px">';
       h += `<div class="voucher-status-meta">${escapeHtml(r.transactionDate ?? '')} ・ ${escapeHtml(r.debitAccount ?? '')} / ${escapeHtml(r.creditAccount ?? '')} ・ ¥${(r.amount ?? 0).toLocaleString('ja-JP')}</div>`;
-      h += `<span class="status-chip ${confidenceClass}">信頼度 ${conf == null ? "—" : conf + "%"}</span>`;
+      if (isDifficultCard) {
+        h += '<span class="status-chip error mf-review-difficult-badge">AI判断困難</span>';
+      } else {
+        h += `<span class="status-chip ${confidenceClass}">信頼度 ${conf == null ? "—" : conf + "%"}</span>`;
+      }
       h += '</div>';
       h += '<div class="mf-review-grid">';
       h += '<div class="mf-review-field"><span>元の摘要（空欄）</span>';
       h += `<div class="mf-review-original">${escapeHtml(r.originalMemo || "—") || "—"}</div></div>`;
       h += '<div class="mf-review-field"><span>AI提案摘要</span>';
-      if (isApprovedView) {
+      if (isApprovedView || isDifficultView) {
         h += `<div class="mf-review-original">${escapeHtml(r.aiMemo ?? '—')}</div>`;
       } else {
         h += `<input class="mf-review-memo-input mf-review-input" value="${escapeHtml(r.aiMemo ?? '')}" data-review-id="${r.id}" />`;
@@ -2663,6 +2695,8 @@ async function loadAndRenderMfReview(clientId) {
       h += '<span class="voucher-status-meta">仕訳ID: ' + escapeHtml(r.mfJournalId || "—") + '</span>';
       if (isApprovedView) {
         h += `<span class="status-chip complete">完了</span>`;
+      } else if (isDifficultView) {
+        h += '<span class="mf-review-difficult-note">Todoに追加済み</span>';
       } else {
         h += '<div class="settings-client-actions">';
         h += `<button class="primary-action compact" data-action="mf-review-approve" data-review-id="${r.id}">承認してMFへ</button>`;
@@ -4549,6 +4583,9 @@ function renderView() {
     rules: () => renderRules(),                    // 学習・設定 > 学習
     settings: () => renderSettings(),              // 学習・設定 > 設定
     guide: () => renderGuide(),                    // サポート > 使い方
+    "tax-suggestions": () => renderTaxSuggestions(), // コンサル > 節税提案
+    cashflow: () => renderCashflow(),              // コンサル > CF予測
+    "client-portal": () => renderClientPortal(),   // コンサル > 顧問先ポータル
   };
   const renderer = views[appState.activeView] ?? views.dashboard;
   document.title = viewDocumentTitles[appState.activeView] || "経理丸ごとAI";
@@ -4599,6 +4636,18 @@ function renderView() {
   }
   if (appState.activeView === "rules") {
     loadAndRenderRules();
+  }
+  if (appState.activeView === "tax-suggestions") {
+    const c = currentClient();
+    if (c?.id) loadAndRenderTaxSuggestions(c.id);
+  }
+  if (appState.activeView === "cashflow") {
+    const c = currentClient();
+    if (c?.id) loadAndRenderCashflow(c.id);
+  }
+  if (appState.activeView === "client-portal") {
+    const c = currentClient();
+    if (c?.id) loadAndRenderClientPortal(c.id);
   }
   if (appState.activeView === "jobs-journal") {
     const c = currentClient();
@@ -5419,17 +5468,20 @@ function renderNav() {
     const filter = button.dataset.filter;
     const isMfReview = appState.activeView === "mf-review";
     if (isMfReview) {
-      if (filter === "all") {
-        button.style.display = "none";
-        button.classList.remove("active");
-        return;
-      }
       button.style.display = "";
-      const currentFilter = appState.mfReviewStatus === "approved" ? "done" : "urgent";
+      if (filter === 'all') button.textContent = '確認待ち';
+      if (filter === 'urgent') button.textContent = '判断困難';
+      if (filter === 'done') button.textContent = '完了';
+      let currentFilter = 'all';
+      if (appState.mfReviewStatus === 'difficult') currentFilter = 'urgent';
+      if (appState.mfReviewStatus === 'approved') currentFilter = 'done';
       button.classList.toggle("active", filter === currentFilter);
       return;
     }
     button.style.display = "";
+    if (filter === 'all') button.textContent = 'すべて';
+    if (filter === 'urgent') button.textContent = '要確認';
+    if (filter === 'done') button.textContent = '完了';
     button.classList.toggle("active", filter === appState.activeFilter);
   });
 }
@@ -5462,7 +5514,11 @@ document.querySelectorAll(".segment").forEach((button) => {
   button.addEventListener("click", () => {
     const selectedFilter = button.dataset.filter;
     if (appState.activeView === "mf-review") {
-      appState.mfReviewStatus = selectedFilter === "done" ? "approved" : "pending";
+      appState.mfReviewStatus = selectedFilter === 'done'
+        ? 'approved'
+        : selectedFilter === 'urgent'
+          ? 'difficult'
+          : 'pending';
       renderNav();
       const c = currentClient();
       if (c?.id) loadAndRenderMfReview(c.id);
@@ -5615,6 +5671,273 @@ document.querySelectorAll('[data-view-group="jobs"]').forEach((btn) => {
     }
   });
 });
+
+// =============================================================================
+// Spec 23: AI節税提案ビュー
+// =============================================================================
+
+function renderTaxSuggestions() {
+  const client = currentClient();
+  if (!client) return '<div class="view-placeholder">顧問先を選択してください</div>';
+  return `
+    <div class="view-header">
+      <h2>節税提案</h2>
+      <p class="view-desc">${labels.helper['tax-suggestions']}</p>
+    </div>
+    <div style="margin-bottom:16px">
+      <button id="taxAnalyzeBtn" class="btn btn-primary" style="margin-right:8px">AIで分析する</button>
+      <span id="taxAnalyzeStatus" style="font-size:13px;color:#6b7280"></span>
+    </div>
+    <div id="taxSuggestionsList"><div class="loading-text">読み込み中…</div></div>
+  `;
+}
+
+function renderTaxSuggestionCards(suggestions) {
+  if (!suggestions || suggestions.length === 0) {
+    return '<div class="empty-state">提案がありません。「AIで分析する」を押してください。</div>';
+  }
+  const priorityBadge = { high: '🔴 高', medium: '🟡 中', low: '🟢 低' };
+  const statusLabel = { open: '未対応', implemented: '実施済み', dismissed: '見送り' };
+  const categoryLabel = {
+    entertainment: '交際費', depreciation: '減価償却', timing: '計上タイミング',
+    officer_salary: '役員報酬', tax_method: '税務方式', other: 'その他',
+  };
+  return suggestions.map(s => `
+    <div class="card" style="margin-bottom:12px;padding:16px;border-left:4px solid ${s.priority === 'high' ? '#dc2626' : s.priority === 'medium' ? '#d97706' : '#16a34a'}">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
+        <div>
+          <span style="font-size:11px;background:#f3f4f6;padding:2px 8px;border-radius:99px;margin-right:6px">${escapeHtml(categoryLabel[s.category] || s.category)}</span>
+          <span style="font-size:11px;color:#6b7280">${priorityBadge[s.priority] || s.priority}</span>
+        </div>
+        <select class="tax-status-select" data-id="${s.id}" style="font-size:12px;border:1px solid #e5e7eb;border-radius:4px;padding:2px 6px">
+          <option value="open" ${s.status === 'open' ? 'selected' : ''}>未対応</option>
+          <option value="implemented" ${s.status === 'implemented' ? 'selected' : ''}>実施済み</option>
+          <option value="dismissed" ${s.status === 'dismissed' ? 'selected' : ''}>見送り</option>
+        </select>
+      </div>
+      <div style="font-weight:600;margin-bottom:6px">${escapeHtml(s.title)}</div>
+      <div style="font-size:13px;color:#374151;margin-bottom:8px">${escapeHtml(s.detail)}</div>
+      ${s.estimatedSaving ? `<div style="font-size:12px;color:#16a34a;font-weight:600">推定節税額: ¥${s.estimatedSaving.toLocaleString('ja-JP')}/年</div>` : ''}
+    </div>
+  `).join('');
+}
+
+async function loadAndRenderTaxSuggestions(clientId) {
+  const listEl = document.getElementById('taxSuggestionsList');
+  if (!listEl) return;
+  try {
+    const res = await apiFetch(`/api/clients/${clientId}/tax-suggestions`);
+    if (!res.ok) throw new Error('fetch failed');
+    const data = await res.json();
+    listEl.innerHTML = renderTaxSuggestionCards(data.suggestions || []);
+    // ステータス変更ハンドラ
+    listEl.querySelectorAll('.tax-status-select').forEach(sel => {
+      sel.addEventListener('change', async () => {
+        const r = await apiFetch(`/api/tax-suggestions/${sel.dataset.id}`, {
+          method: 'PATCH', body: JSON.stringify({ status: sel.value }),
+        });
+        if (!r.ok) sel.value = sel.value === 'open' ? 'implemented' : 'open'; // rollback
+      });
+    });
+  } catch (e) {
+    listEl.innerHTML = '<div class="error-text">取得に失敗しました</div>';
+  }
+  // 分析ボタン
+  const analyzeBtn = document.getElementById('taxAnalyzeBtn');
+  const statusEl = document.getElementById('taxAnalyzeStatus');
+  if (analyzeBtn) {
+    analyzeBtn.addEventListener('click', async () => {
+      analyzeBtn.disabled = true;
+      if (statusEl) statusEl.textContent = '分析中…';
+      try {
+        const res = await apiFetch(`/api/clients/${clientId}/tax-suggestions/analyze`, { method: 'POST' });
+        if (!res.ok) throw new Error('analyze failed');
+        const data = await res.json();
+        if (statusEl) statusEl.textContent = `${data.generated}件の提案を生成しました`;
+        await loadAndRenderTaxSuggestions(clientId);
+      } catch (e) {
+        if (statusEl) statusEl.textContent = '分析に失敗しました';
+      } finally {
+        analyzeBtn.disabled = false;
+      }
+    });
+  }
+}
+
+// =============================================================================
+// Spec 24: キャッシュフロー予測ビュー
+// =============================================================================
+
+function renderCashflow() {
+  const client = currentClient();
+  if (!client) return '<div class="view-placeholder">顧問先を選択してください</div>';
+  return `
+    <div class="view-header">
+      <h2>キャッシュフロー予測</h2>
+      <p class="view-desc">${labels.helper['cashflow']}</p>
+    </div>
+    <div style="margin-bottom:16px">
+      <button id="cfRefreshBtn" class="btn btn-secondary">再計算</button>
+    </div>
+    <div id="cfContent"><div class="loading-text">読み込み中…</div></div>
+  `;
+}
+
+function renderCashflowContent(data) {
+  const all = [...(data.actual || []), ...(data.forecast || [])];
+  if (all.length === 0) return '<div class="empty-state">仕訳データがありません。MFと連携してください。</div>';
+
+  const fmt = n => n === undefined || n === null ? '—' : (n >= 0 ? '+' : '') + '¥' + Math.abs(n).toLocaleString('ja-JP');
+  const fmtAbs = n => '¥' + Math.abs(n || 0).toLocaleString('ja-JP');
+  const actualMonths = new Set((data.actual || []).map(m => m.month));
+
+  const rows = all.map(m => {
+    const isForecast = !actualMonths.has(m.month);
+    const netClass = m.net >= 0 ? 'color:#16a34a' : 'color:#dc2626';
+    const badge = isForecast
+      ? '<span style="font-size:10px;background:#fef3c7;color:#92400e;padding:1px 6px;border-radius:99px;margin-left:6px">予測</span>'
+      : '<span style="font-size:10px;background:#d1fae5;color:#065f46;padding:1px 6px;border-radius:99px;margin-left:6px">実績</span>';
+    return `<tr>
+      <td>${m.month.replace(/^(\d{4})-(\d{2})$/, '$1年$2月')}${badge}</td>
+      <td style="text-align:right">${fmtAbs(m.inflow)}</td>
+      <td style="text-align:right">${fmtAbs(m.outflow)}</td>
+      <td style="text-align:right;font-weight:600;${netClass}">${fmt(m.net)}</td>
+    </tr>`;
+  }).reverse().join('');
+
+  const comment = data.aiComment ? `
+    <div style="background:#eff6ff;border-left:3px solid #2563eb;padding:12px 16px;border-radius:0 8px 8px 0;font-size:14px;color:#1e40af;margin-bottom:20px">
+      ${escapeHtml(data.aiComment)}
+    </div>` : '';
+
+  return `${comment}
+    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden">
+      <table style="width:100%;border-collapse:collapse;font-size:14px">
+        <thead><tr style="background:#f9fafb">
+          <th style="padding:10px 12px;text-align:left;font-size:12px;color:#6b7280">期間</th>
+          <th style="padding:10px 12px;text-align:right;font-size:12px;color:#6b7280">収入</th>
+          <th style="padding:10px 12px;text-align:right;font-size:12px;color:#6b7280">支出</th>
+          <th style="padding:10px 12px;text-align:right;font-size:12px;color:#6b7280">純CF</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+async function loadAndRenderCashflow(clientId) {
+  const contentEl = document.getElementById('cfContent');
+  if (!contentEl) return;
+  try {
+    const res = await apiFetch(`/api/clients/${clientId}/cashflow`);
+    if (!res.ok) throw new Error('fetch failed');
+    const data = await res.json();
+    contentEl.innerHTML = renderCashflowContent(data);
+  } catch (e) {
+    contentEl.innerHTML = '<div class="error-text">取得に失敗しました</div>';
+  }
+  const refreshBtn = document.getElementById('cfRefreshBtn');
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', async () => {
+      refreshBtn.disabled = true;
+      refreshBtn.textContent = '計算中…';
+      if (contentEl) contentEl.innerHTML = '<div class="loading-text">再計算中…</div>';
+      try {
+        const res = await apiFetch(`/api/clients/${clientId}/cashflow/refresh`, { method: 'POST' });
+        if (!res.ok) throw new Error('refresh failed');
+        const data = await res.json();
+        contentEl.innerHTML = renderCashflowContent(data);
+      } catch (e) {
+        contentEl.innerHTML = '<div class="error-text">再計算に失敗しました</div>';
+      } finally {
+        refreshBtn.disabled = false;
+        refreshBtn.textContent = '再計算';
+      }
+    });
+  }
+}
+
+// =============================================================================
+// Spec 25: 顧問先ポータルビュー
+// =============================================================================
+
+function renderClientPortal() {
+  const client = currentClient();
+  if (!client) return '<div class="view-placeholder">顧問先を選択してください</div>';
+  return `
+    <div class="view-header">
+      <h2>顧問先ポータル</h2>
+      <p class="view-desc">${labels.helper['client-portal']}</p>
+    </div>
+    <div id="portalContent"><div class="loading-text">読み込み中…</div></div>
+  `;
+}
+
+async function loadAndRenderClientPortal(clientId) {
+  const el = document.getElementById('portalContent');
+  if (!el) return;
+
+  const renderPortalSection = (token) => {
+    const portalUrl = `${location.protocol}//${location.host}/portal.html?token=${token}`;
+    el.innerHTML = `
+      <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:24px;max-width:600px">
+        <div style="font-weight:600;margin-bottom:12px">ポータルURL</div>
+        <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:12px;font-size:13px;word-break:break-all;margin-bottom:12px">
+          <a href="${portalUrl}" target="_blank" style="color:#2563eb">${escapeHtml(portalUrl)}</a>
+        </div>
+        <div style="display:flex;gap:8px;margin-bottom:20px">
+          <button id="portalCopyBtn" class="btn btn-secondary">URLをコピー</button>
+          <button id="portalOpenBtn" class="btn btn-secondary">プレビュー</button>
+          <button id="portalDisableBtn" class="btn" style="color:#dc2626;border-color:#dc2626">URL無効化</button>
+        </div>
+        <div style="font-size:12px;color:#6b7280">
+          このURLを顧問先に共有すると、ログイン不要で月次レポートを閲覧できます。<br>
+          URLを無効化するといつでもアクセスを停止できます。
+        </div>
+      </div>
+    `;
+    document.getElementById('portalCopyBtn')?.addEventListener('click', () => {
+      navigator.clipboard.writeText(portalUrl).then(() => {
+        const btn = document.getElementById('portalCopyBtn');
+        if (btn) { btn.textContent = 'コピーしました'; setTimeout(() => { btn.textContent = 'URLをコピー'; }, 2000); }
+      });
+    });
+    document.getElementById('portalOpenBtn')?.addEventListener('click', () => {
+      window.open(portalUrl, '_blank');
+    });
+    document.getElementById('portalDisableBtn')?.addEventListener('click', async () => {
+      if (!confirm('このURLを無効化しますか？顧問先はアクセスできなくなります。')) return;
+      const r = await apiFetch(`/api/clients/${clientId}/portal-token`, { method: 'DELETE' });
+      if (r.ok) loadAndRenderClientPortal(clientId);
+    });
+  };
+
+  try {
+    // まず既存トークンを取得しようと試みる（POST で取得or作成）
+    const res = await apiFetch(`/api/clients/${clientId}/portal-token`, { method: 'POST' });
+    if (!res.ok) throw new Error('fetch failed');
+    const data = await res.json();
+    renderPortalSection(data.token);
+  } catch (e) {
+    el.innerHTML = `
+      <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:24px;max-width:600px">
+        <div style="margin-bottom:16px;color:#374151">顧問先向けの月次レポートURLを発行します。</div>
+        <button id="portalCreateBtn" class="btn btn-primary">ポータルURLを発行する</button>
+      </div>
+    `;
+    document.getElementById('portalCreateBtn')?.addEventListener('click', async () => {
+      const btn = document.getElementById('portalCreateBtn');
+      if (btn) { btn.disabled = true; btn.textContent = '発行中…'; }
+      try {
+        const r = await apiFetch(`/api/clients/${clientId}/portal-token`, { method: 'POST' });
+        if (!r.ok) throw new Error('create failed');
+        const d = await r.json();
+        renderPortalSection(d.token);
+      } catch (err) {
+        el.innerHTML = '<div class="error-text">発行に失敗しました</div>';
+      }
+    });
+  }
+}
 
 // Startup: await auth session, fetch user info, then load clients.
 (async () => {

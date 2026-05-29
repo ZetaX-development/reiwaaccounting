@@ -38,6 +38,9 @@ model Firm {
   driveWatchChannels  DriveWatchChannel[]
   journalAiReviews    JournalAiReview[]
   todos               Todo[]
+  taxSuggestions      TaxSuggestion[]
+  cashFlowForecasts   CashFlowForecast[]
+  clientPortals       ClientPortal[]
 }
 
 model FirmMember {
@@ -372,7 +375,7 @@ model JournalAiReview {
   firmId          String
   clientId        String
   mfJournalId     String
-  status          String   @default("pending") // pending | approved | skipped | auto_applied
+  status          String   @default("pending") // pending | approved | skipped | auto_applied | difficult
   aiMemo          String?
   aiConfidence    Float?
   debitAccount    String?
@@ -387,6 +390,22 @@ model JournalAiReview {
   @@unique([clientId, mfJournalId])
   @@index([firmId, status])
   @@index([clientId])
+}
+
+model JournalPattern {
+  id            String   @id @default(cuid())
+  debit         String
+  credit        String
+  scenario      String
+  memoExamples  String[]
+  industry      String?
+  tags          String[]
+  amountHint    String?
+  embeddingJson String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([debit, credit])
 }
 
 model Todo {
@@ -457,4 +476,56 @@ model LineUserMapping {
   updatedAt   DateTime @updatedAt
 
   @@unique([firmId, lineUserId])
+}
+
+// Spec 23: AI節税提案エンジン
+model TaxSuggestion {
+  id              String   @id @default(cuid())
+  firm            Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  firmId          String
+  clientId        String
+  category        String   // 'entertainment' | 'depreciation' | 'timing' | 'tax_method' | 'officer_salary' | 'other'
+  title           String
+  detail          String
+  estimatedSaving Int?     // 推定節税額（円）、null=算出困難
+  priority        String   @default("medium") // 'high' | 'medium' | 'low'
+  status          String   @default("open")   // 'open' | 'implemented' | 'dismissed'
+  analyzedAt      DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([clientId, status])
+  @@index([firmId])
+}
+
+// Spec 24: キャッシュフロー予測
+model CashFlowForecast {
+  id            String   @id @default(cuid())
+  firm          Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  firmId        String
+  clientId      String
+  forecastMonth String   // 'YYYY-MM'
+  inflow        Int      // 収入予測（円）
+  outflow       Int      // 支出予測（円）
+  net           Int      // 純CF（inflow - outflow）
+  aiComment     String?  // AIコメント
+  confidence    Float?   // 0-1
+  isActual      Boolean  @default(false) // true=実績、false=予測
+  createdAt     DateTime @default(now())
+
+  @@unique([clientId, forecastMonth])
+  @@index([clientId])
+}
+
+// Spec 25: 顧問先ポータル
+model ClientPortal {
+  id           String    @id @default(cuid())
+  firm         Firm      @relation(fields: [firmId], references: [id], onDelete: Cascade)
+  firmId       String
+  clientId     String    @unique
+  token        String    @unique @default(cuid())
+  enabled      Boolean   @default(true)
+  lastViewedAt DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 }
