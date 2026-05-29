@@ -114,14 +114,14 @@ select:focus {
 }
 
 .app-shell {
-  display: grid;
-  grid-template-columns: 276px minmax(0, 1fr);
   min-height: 100vh;
 }
 
 .sidebar {
-  position: sticky;
+  position: fixed;
   top: 0;
+  left: 0;
+  width: 276px;
   display: flex;
   height: 100vh;
   flex-direction: column;
@@ -129,6 +129,8 @@ select:focus {
   padding: 22px;
   border-right: 1px solid var(--line);
   background: linear-gradient(180deg, #fcfdfb 0%, #f7faf7 100%);
+  overflow-y: auto;
+  z-index: 100;
 }
 
 .brand {
@@ -568,6 +570,7 @@ select:focus {
 
 .workspace {
   min-width: 0;
+  margin-left: 276px;
   padding: 24px;
 }
 
