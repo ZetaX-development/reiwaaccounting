@@ -27,6 +27,9 @@ import { integrationsLineRoutes } from './routes/integrations-line.js';
 import { journalReviewRoutes } from './routes/journal-reviews.js';
 import { journalPatternRoutes } from './routes/journal-patterns.js';
 import { todoRoutes } from './routes/todos.js';
+import { taxSuggestionRoutes } from './routes/tax-suggestions.js';
+import { cashflowRoutes } from './routes/cashflow.js';
+import { portalReportRoutes } from './routes/portal-report.js';
 import multipart from '@fastify/multipart';
 
 const AUTH_BYPASS = new Set([
@@ -87,6 +90,9 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(journalReviewRoutes);
   await app.register(journalPatternRoutes);
   await app.register(todoRoutes);
+  await app.register(taxSuggestionRoutes);
+  await app.register(cashflowRoutes);
+  await app.register(portalReportRoutes);
 
   app.setErrorHandler((err, _req, reply) => {
     logger.error({ err }, 'unhandled');
