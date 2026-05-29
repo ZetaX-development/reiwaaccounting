@@ -8,6 +8,10 @@ process.env.GMAIL_USER = '';
 process.env.GMAIL_APP_PASSWORD = '';
 process.env.SENDGRID_API_KEY = '';
 process.env.EMAIL_FROM = '';
+
+// env モジュールのキャッシュをリセットして上記の空値を確実に反映させる
+import { __resetEnvCache } from '../src/env.js';
+__resetEnvCache();
 // Tests run against an isolated Postgres on port 5433 (see docker-compose.yml
 // `postgres-test` service). Falls back to the dev DB if TEST_DATABASE_URL is
 // explicitly cleared — but `npm test` sets it via the script.
