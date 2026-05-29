@@ -339,7 +339,16 @@ async function handlePostback(event: LineWebhookEvent): Promise<void> {
 
   const voucher = await prisma.voucher.findUnique({
     where: { id: voucherId },
-    select: { id: true },
+    select: {
+      id: true,
+      clientId: true,
+      client: {
+        select: {
+          name: true,
+          mfAccessToken: true,
+        },
+      },
+    },
   });
   if (!voucher) {
     if (event.replyToken) {
@@ -377,6 +386,38 @@ async function handlePostback(event: LineWebhookEvent): Promise<void> {
 
   // Spec 20: MoneyForward 自動入力
   if (action === 'mf_write') {
+    if (!voucher.clientId) {
+      await prisma.voucher.update({
+        where: { id: voucherId },
+        data: {
+          mfWriteStatus: 'failed',
+          mfWriteError: 'mf_write_rejected: clientId is null',
+          mfWriteAt: new Date(),
+        },
+      });
+      if (event.replyToken) {
+        await lineService.replyMessage(event.replyToken, [
+          { type: 'text', text: '顧問先が未設定のため入力できません。先に顧問先を選択してください。' },
+        ]);
+      }
+      return;
+    }
+    if (!voucher.client?.mfAccessToken) {
+      await prisma.voucher.update({
+        where: { id: voucherId },
+        data: {
+          mfWriteStatus: 'failed',
+          mfWriteError: `mf_write_rejected: mf token missing for clientId=${voucher.clientId}`,
+          mfWriteAt: new Date(),
+        },
+      });
+      if (event.replyToken) {
+        await lineService.replyMessage(event.replyToken, [
+          { type: 'text', text: '顧問先のMoneyForward連携が未完了です。ダッシュボードで再連携してください。' },
+        ]);
+      }
+      return;
+    }
     await prisma.voucher.update({
       where: { id: voucherId },
       data: { mfWriteStatus: 'pending' },

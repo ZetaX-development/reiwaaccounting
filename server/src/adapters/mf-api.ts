@@ -211,11 +211,18 @@ async function mfPost<T>(token: string, path: string, body: unknown): Promise<{ 
     const text = await res.body.text();
     if (res.statusCode === 401) {
       logger.warn({ path }, 'mf POST returned 401');
-      return { data: null, status: 401, error: '認証エラー（トークン期限切れ）' };
+      return { data: null, status: 401, error: `認証エラー（401）: ${text.slice(0, 200)}` };
     }
     if (res.statusCode >= 400) {
       logger.warn({ status: res.statusCode, path, text: text.slice(0, 300) }, 'mf POST non-2xx');
-      return { data: null, status: res.statusCode, error: text.slice(0, 200) };
+      if (res.statusCode === 403) {
+        return {
+          data: null,
+          status: 403,
+          error: `権限エラー（403）: journal.write スコープ不足の可能性があります。${text.slice(0, 200)}`,
+        };
+      }
+      return { data: null, status: res.statusCode, error: `HTTP ${res.statusCode}: ${text.slice(0, 200)}` };
     }
     return { data: JSON.parse(text) as T, status: res.statusCode };
   } catch (err) {
@@ -392,6 +399,22 @@ export async function fetchAccountMap(token: string): Promise<Map<string, string
   return map;
 }
 
+export interface ResolveClientTokenResult {
+  ok: boolean;
+  token?: string;
+  error?: string;
+}
+
+export async function resolveClientToken(clientExternalId: string): Promise<ResolveClientTokenResult> {
+  const clientRecord = await loadClientToken(clientExternalId);
+  if (!clientRecord) return { ok: false, error: 'クライアントが見つかりません' };
+  const token = await ensureToken(clientRecord);
+  if (!token) {
+    return { ok: false, error: 'MFアクセストークンがありません。OAuth連携を確認してください。' };
+  }
+  return { ok: true, token };
+}
+
 export interface CreateJournalInput {
   transactionDate: string; // 'YYYY-MM-DD'
   debitAccountId: string;
@@ -411,11 +434,16 @@ export interface CreateJournalResult {
 export async function createJournalEntry(
   clientExternalId: string,
   input: CreateJournalInput,
+  options?: { token?: string },
 ): Promise<CreateJournalResult> {
-  const clientRecord = await loadClientToken(clientExternalId);
-  if (!clientRecord) return { ok: false, error: 'クライアントが見つかりません' };
-  const token = await ensureToken(clientRecord);
-  if (!token) return { ok: false, error: 'MFアクセストークンがありません。OAuth連携を確認してください。' };
+  let resolvedToken = options?.token;
+  if (!resolvedToken) {
+    const resolved = await resolveClientToken(clientExternalId);
+    if (!resolved.ok || !resolved.token) {
+      return { ok: false, error: resolved.error ?? 'MFアクセストークンがありません。OAuth連携を確認してください。' };
+    }
+    resolvedToken = resolved.token;
+  }
 
   const body = {
     journal: {
@@ -438,7 +466,7 @@ export async function createJournalEntry(
     },
   };
 
-  const result = await mfPost<{ journal?: { id?: string } }>(token, '/api/v3/journals', body);
+  const result = await mfPost<{ journal?: { id?: string } }>(resolvedToken, '/api/v3/journals', body);
   if (!result.data) {
     return { ok: false, error: result.error ?? `HTTP ${result.status}` };
   }

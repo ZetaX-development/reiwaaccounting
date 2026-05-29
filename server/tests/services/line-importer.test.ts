@@ -26,6 +26,7 @@ beforeEach(async () => {
   __clearPendingQuestionCacheForTests();
   await prisma.voucher.deleteMany();
   await prisma.lineUserMapping.deleteMany();
+  await prisma.client.deleteMany({ where: { name: 'テスト顧問先' } });
 });
 
 afterEach(() => {
@@ -38,6 +39,7 @@ afterEach(() => {
 afterAll(async () => {
   await prisma.voucher.deleteMany();
   await prisma.lineUserMapping.deleteMany();
+  await prisma.client.deleteMany({ where: { name: 'テスト顧問先' } });
   await prisma.$disconnect();
 });
 
@@ -302,6 +304,83 @@ describe('handleWebhookEvents — postback action=approve', () => {
 
     const row = await prisma.voucher.findUnique({ where: { id: v.id } });
     expect(row?.journalStatus).toBe('approved');
+  });
+});
+
+describe('handleWebhookEvents — postback action=mf_write fail-early', () => {
+  it('marks failed and replies when clientId is missing', async () => {
+    const v = await prisma.voucher.create({
+      data: {
+        firmId: 'demo-firm',
+        clientId: null,
+        filename: 'x2.jpg',
+        mimeType: 'image/jpeg',
+        size: 3,
+        imageData: jpgBuffer(),
+        source: 'line',
+        lineUserId: 'Ummm',
+        journalStatus: 'drafted',
+      },
+    });
+    const replySpy = vi.spyOn(lineService, 'replyMessage').mockResolvedValue(undefined);
+
+    const event: LineWebhookEvent = {
+      type: 'postback',
+      replyToken: 'rt-mf-1',
+      source: { type: 'user', userId: 'Ummm' },
+      postback: { data: `voucherId=${v.id}&action=mf_write` },
+    };
+    await handleWebhookEvents([event]);
+
+    const row = await prisma.voucher.findUnique({ where: { id: v.id } });
+    expect(row?.mfWriteStatus).toBe('failed');
+    expect(row?.mfWriteError).toContain('clientId is null');
+    expect(replySpy).toHaveBeenCalledOnce();
+    expect((replySpy.mock.calls[0][1][0] as { type: string; text: string }).text).toContain(
+      '顧問先が未設定',
+    );
+  });
+
+  it('marks failed and replies when MF token is missing', async () => {
+    const client = await prisma.client.create({
+      data: {
+        firmId: 'demo-firm',
+        name: 'テスト顧問先',
+        fiscalYearStart: new Date('2026-01-01'),
+        fiscalYearEnd: new Date('2026-12-31'),
+        mfAccessToken: null,
+      },
+    });
+    const v = await prisma.voucher.create({
+      data: {
+        firmId: 'demo-firm',
+        clientId: client.id,
+        filename: 'x3.jpg',
+        mimeType: 'image/jpeg',
+        size: 3,
+        imageData: jpgBuffer(),
+        source: 'line',
+        lineUserId: 'Unnn',
+        journalStatus: 'drafted',
+      },
+    });
+    const replySpy = vi.spyOn(lineService, 'replyMessage').mockResolvedValue(undefined);
+
+    const event: LineWebhookEvent = {
+      type: 'postback',
+      replyToken: 'rt-mf-2',
+      source: { type: 'user', userId: 'Unnn' },
+      postback: { data: `voucherId=${v.id}&action=mf_write` },
+    };
+    await handleWebhookEvents([event]);
+
+    const row = await prisma.voucher.findUnique({ where: { id: v.id } });
+    expect(row?.mfWriteStatus).toBe('failed');
+    expect(row?.mfWriteError).toContain(`clientId=${client.id}`);
+    expect(replySpy).toHaveBeenCalledOnce();
+    expect((replySpy.mock.calls[0][1][0] as { type: string; text: string }).text).toContain(
+      '再連携',
+    );
   });
 });
 

@@ -3,7 +3,8 @@
 最終確認日: 2026-05-16
 仕様参照元: <https://developers.api-accounting.moneyforward.com/v3/openapi.yaml>
 
-bookmee は MF クラウド会計の **読み取り専用 API** を OAuth 2.0 で叩きます。書き込みは spec 08 の方針通り行いません。
+bookmee は MF クラウド会計 API を OAuth 2.0 で利用します。  
+通常は読み取り中心ですが、**Spec 20（2026-05-27）で LINE→MF の仕訳作成（`journal.write`）を許可**しています。
 
 ## ホスト構成
 
@@ -30,6 +31,7 @@ bookmee は MF クラウド会計の **読み取り専用 API** を OAuth 2.0 �
 | スコープ | 用途 | bookmee で使う場面 |
 |---|---|---|
 | `mfc/accounting/journal.read` | 仕訳の参照 | レビューセンター・差戻しの元データ |
+| `mfc/accounting/journal.write` | 仕訳の作成 | LINE「MFに入力する」からの仕訳作成 |
 | `mfc/accounting/accounts.read` | 勘定科目・補助科目の参照 | 仕訳整形・分類表示 |
 | `mfc/accounting/sub_accounts.read` | 補助科目の参照 | 同上 |
 | `mfc/accounting/departments.read` | 部門の参照 | 部門別集計 |
@@ -39,7 +41,8 @@ bookmee は MF クラウド会計の **読み取り専用 API** を OAuth 2.0 �
 | `mfc/accounting/report.read` | 帳票の参照 | 試算表 (BS/PL) 取得 |
 | `mfc/accounting/connected_account.read` | 連携サービス参照 | 同期元の確認 |
 
-書き込み系 (`*.write`) はスコープに含めません。
+既存連携が 2026-05-27 以前に作られている場合、`journal.write` がトークンに含まれていない可能性があります。  
+その場合は **OAuth 連携をやり直してスコープを再同意**してください。
 
 ## アプリ登録手順 (アプリポータル)
 
