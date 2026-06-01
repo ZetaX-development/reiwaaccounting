@@ -93,9 +93,13 @@ model KnowledgeChunk {
 - 既存の `findSimilarPatterns` に加えて `findSimilarKnowledge(queryText, 3)` を呼ぶ。
 - `buildUserPrompt` に **【参考解説（会計事典）】** 節を追加し、取得チャンクの `title` ＋ `content` を上位 2〜3 件**そのまま**注入する（トリム等の小細工はせず、保守性を優先）。
 - `buildSystemPrompt` に一文追加: 「参考解説（会計事典）が提示された場合は、勘定科目の選択・消費税区分・個人/法人の違いの判断根拠として活用してよい」。
-- `RagResult` に `knowledgeUsed: string[]`（使用チャンク id）を追加し、トレーサビリティを残す。
+- `RagResult` に `knowledgeUsed?: string[]`（使用チャンク id）を**オプショナル**で追加し、トレーサビリティを残す。オプショナルにすることで、`RagResult` を組み立てる 3 か所（正常・OPENAI_API_KEY 未設定・catch）のうち追記漏れがあってもビルドが通り、安全側に倒す。
 
 注入量は「コスト無視・保守優先」の方針に従い固定（最大 3 件丸ごと）。
+
+### フォールバック（既存挙動の保全）
+
+書籍ナレッジが未投入（`KnowledgeChunk` が 0 件、または seed 未実行）でも、`findSimilarKnowledge` は**空配列を返し**、【参考解説】節は出力されず、`generateMemoWithRag` は **spec 23 と同じ挙動**で動く。embedding 失敗・OpenAI 未設定時も同様に空配列にフォールバックし、既存パターン検索のみで生成を続ける。これにより、この機能の追加が既存 RAG のリグレッションを起こさないことを構造的に保証する。
 
 ## 取り込みスクリプト
 
@@ -130,4 +134,5 @@ CLAUDE.md「開発フロー」に準拠:
 3. `chunkKnowledgeMarkdown` のユニットテストが green（継続ページ結合・前付け除外・メタ抽出）。
 4. `findSimilarKnowledge` が、クエリ（例「自動車税を現金で支払った」）に対し租税公課セクションを上位に返す。
 5. `generateMemoWithRag` の出力プロンプトに【参考解説（会計事典）】節が含まれ、`knowledgeUsed` が埋まる。
-6. `npm test` が全 green。`npx tsc --noEmit` で新規エラーを出さない（既知の pre-existing エラーは対象外）。
+6. `KnowledgeChunk` が 0 件でも `generateMemoWithRag` が spec 23 と同じ挙動で動く（【参考解説】節は出ず、既存パターンのみで生成）。
+7. `npm test` が全 green。`npx tsc --noEmit` で新規エラーを出さない（既知の pre-existing エラーは対象外）。
