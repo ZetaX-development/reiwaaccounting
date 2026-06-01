@@ -20,16 +20,10 @@ interface OcrJson {
   invoice_number: string | null;
 }
 
-function resolveTarget(
-  contactEndpoints: unknown,
-  channel: 'mock' | 'email' | 'line',
-): string {
-  if (!contactEndpoints || typeof contactEndpoints !== 'object') return 'unknown';
-  const map = contactEndpoints as Record<string, string | null | undefined>;
-  if (channel === 'email') return map.email ?? 'unknown';
-  if (channel === 'line') return map.line_works ?? map.line ?? 'unknown';
-  return map.email ?? 'unknown';
-}
+// spec 28: 当面ハードコードのデモ宛先。
+// TODO: 顧問先ごとの連絡先メール（会社情報→連絡先タブ＝Client.contactEndpoints.email、
+//       PATCH /api/clients/:id/contact で保存）を宛先に使うよう差し替える。
+const DEMO_INQUIRY_EMAIL = 'kkouta2017@gmail.com';
 
 function composeBody(args: {
   clientName: string;
@@ -73,6 +67,7 @@ export async function inquireAboutVoucher(voucherId: string): Promise<void> {
     select: {
       id: true,
       clientId: true,
+      source: true,
       ocrJson: true,
       draftJournalJson: true,
       journalStatus: true,
@@ -80,21 +75,24 @@ export async function inquireAboutVoucher(voucherId: string): Promise<void> {
   });
   if (!voucher) return;
 
+  // spec 28: LINE 由来の証憑は sendLinePushForVoucherStatus（spec 16）が送信者本人に
+  // 質問を返すので、ここではメールを送らない（二重送信の防止）。web/drive のみ対象。
+  if (voucher.source === 'line') return;
+
   let clientName = '(顧問先不明)';
-  let contactEndpoints: unknown = null;
   if (voucher.clientId) {
     const client = await prisma.client.findUnique({
       where: { id: voucher.clientId },
-      select: { name: true, contactEndpoints: true },
+      select: { name: true },
     });
     if (client) {
       clientName = client.name;
-      contactEndpoints = client.contactEndpoints;
     }
   }
 
-  const channel = env.OUTREACH_CHANNEL;
-  const target = resolveTarget(contactEndpoints, channel);
+  // mock はローカル/テストの安全弁。それ以外は email で実送信（Resend）。
+  const channel = env.OUTREACH_CHANNEL === 'mock' ? 'mock' : 'email';
+  const target = DEMO_INQUIRY_EMAIL;
   const { subject, body } = composeBody({
     clientName,
     ocr: voucher.ocrJson as OcrJson | null,

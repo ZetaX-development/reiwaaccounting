@@ -16,11 +16,12 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-async function createVoucherFixture(): Promise<string> {
+async function createVoucherFixture(source = 'manual'): Promise<string> {
   const v = await prisma.voucher.create({
     data: {
       firmId: 'demo-firm',
       clientId: 'aoyama-design',
+      source,
       filename: 'sample.jpg',
       mimeType: 'image/jpeg',
       size: 4,
@@ -69,6 +70,33 @@ describe('inquireAboutVoucher', () => {
     expect(row?.inquiryAt).not.toBeNull();
     expect(row?.inquiryChannel).toBe('mock');
     expect(row?.journalStatus).toBe('inquired');
+  });
+
+  it('skips LINE-sourced vouchers (handled by the LINE push path)', async () => {
+    process.env.OUTREACH_CHANNEL = 'mock';
+    __resetEnvCache();
+    const id = await createVoucherFixture('line');
+
+    await inquireAboutVoucher(id);
+
+    const inquiries = await prisma.voucherInquiry.findMany({ where: { voucherId: id } });
+    expect(inquiries).toHaveLength(0);
+    const row = await prisma.voucher.findUnique({ where: { id } });
+    expect(row?.inquiryAt).toBeNull();
+    expect(row?.journalStatus).toBe('needs_info');
+  });
+
+  it('sends web/drive inquiries to the hardcoded demo address', async () => {
+    process.env.OUTREACH_CHANNEL = 'mock';
+    __resetEnvCache();
+    for (const source of ['manual', 'drive']) {
+      const id = await createVoucherFixture(source);
+      await inquireAboutVoucher(id);
+      const inquiries = await prisma.voucherInquiry.findMany({ where: { voucherId: id } });
+      expect(inquiries).toHaveLength(1);
+      expect(inquiries[0].channel).toBe('mock');
+      expect(inquiries[0].target).toBe('kkouta2017@gmail.com');
+    }
   });
 
   it('records failure when channel adapter is not implemented', async () => {
