@@ -33,6 +33,7 @@ const appState = {
   lineUsers: [],
   lineVerifyResult: null,
   lineLoadedAt: null,
+  inboundPollTimer: null,
   user: null, // { authUserId, firmId, role, email, firmName } — set on startup
 };
 
@@ -1286,6 +1287,41 @@ function showToast(message, type) {
   toast.classList.add("show");
   clearTimeout(showToast.timer);
   showToast.timer = setTimeout(() => toast.classList.remove("show"), 2400);
+}
+
+// spec 27: LINE/Drive からの証憑投入を検知してトースト表示する。
+function buildInboundMessage(counts) {
+  const parts = [];
+  if (counts.line > 0) parts.push("LINEから" + counts.line + "件");
+  if (counts.drive > 0) parts.push("Google Driveから" + counts.drive + "件");
+  if (parts.length === 0) return "";
+  return parts.join("、") + "の証憑が追加されました";
+}
+
+async function checkInboundVouchers() {
+  if (typeof document !== "undefined" && document.hidden) return;
+  const since = localStorage.getItem("bookmee.lastInboundSeenAt");
+  try {
+    const url = since
+      ? "/api/vouchers/inbound-since?since=" + encodeURIComponent(since)
+      : "/api/vouchers/inbound-since";
+    const res = await apiFetch(url);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (since && data.total > 0) {
+      const msg = buildInboundMessage(data.counts);
+      if (msg) showToast(msg, "info");
+    }
+    if (data.now) localStorage.setItem("bookmee.lastInboundSeenAt", data.now);
+  } catch (err) {
+    console.warn("inbound voucher check failed", err);
+  }
+}
+
+function startInboundPolling() {
+  checkInboundVouchers();
+  if (appState.inboundPollTimer) return;
+  appState.inboundPollTimer = setInterval(checkInboundVouchers, 15000);
 }
 
 function setButtonPending(button, pending, pendingText) {
@@ -5963,5 +5999,6 @@ async function loadAndRenderClientPortal(clientId) {
   loadClientsFromApi().finally(() => {
     updateClientContextBar();
     applyHashRoute(true);
+    startInboundPolling();
   });
 })();
