@@ -3,6 +3,7 @@ import OpenAI from 'openai';
 import { __resetEnvCache } from '../../src/env.js';
 import { generateMemoWithRag } from '../../src/services/journal-rag-service.js';
 import { findSimilarPatterns } from '../../src/services/journal-pattern-service.js';
+import { findSimilarKnowledge } from '../../src/services/knowledge-service.js';
 
 vi.mock('openai', () => ({
   default: vi.fn(),
@@ -12,8 +13,13 @@ vi.mock('../../src/services/journal-pattern-service.js', () => ({
   findSimilarPatterns: vi.fn(),
 }));
 
+vi.mock('../../src/services/knowledge-service.js', () => ({
+  findSimilarKnowledge: vi.fn(),
+}));
+
 const MockedOpenAI = OpenAI as unknown as ReturnType<typeof vi.fn>;
 const mockedFindSimilarPatterns = findSimilarPatterns as unknown as ReturnType<typeof vi.fn>;
+const mockedFindSimilarKnowledge = findSimilarKnowledge as unknown as ReturnType<typeof vi.fn>;
 
 const basePatterns = [
   {
@@ -53,6 +59,7 @@ describe('generateMemoWithRag', () => {
     process.env.OPENAI_API_KEY = 'sk-test';
     __resetEnvCache();
     mockedFindSimilarPatterns.mockResolvedValue(basePatterns);
+    mockedFindSimilarKnowledge.mockResolvedValue([]);
   });
 
   it('returns auto_applied when confidence=0.9 and canJudge=true', async () => {
@@ -212,6 +219,67 @@ describe('generateMemoWithRag', () => {
       (m: { role: string }) => m.role === 'system',
     )?.content as string;
     expect(systemMessage).toContain('建設業');
+  });
+
+  it('injects knowledge section and records knowledgeUsed when chunks found', async () => {
+    mockedFindSimilarKnowledge.mockResolvedValue([
+      {
+        id: 'k-1',
+        source: 'siwake-jiten',
+        page: 'p.32-33',
+        title: '1-01 租税公課',
+        content: '税金の支払いは租税公課で処理する。',
+        accounts: ['租税公課', '現金'],
+        taxClass: '対象外',
+        tags: ['個人', '法人'],
+        similarity: 0.88,
+      },
+    ]);
+    const create = mockChatResponse({
+      memo: '自動車税 納付',
+      confidence: 0.9,
+      reasoning: '事典の解説と整合',
+      canJudge: true,
+    });
+
+    const result = await generateMemoWithRag({
+      debit: '租税公課',
+      credit: '現金',
+      amount: 50000,
+      date: '2026-05-29',
+      originalMemo: '',
+    });
+
+    expect(result.knowledgeUsed).toEqual(['k-1']);
+    const userMessage = create.mock.calls[0][0].messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content as string;
+    expect(userMessage).toContain('参考解説');
+    expect(userMessage).toContain('1-01 租税公課');
+  });
+
+  it('omits knowledge section when no chunks found (fallback to spec23 behavior)', async () => {
+    mockedFindSimilarKnowledge.mockResolvedValue([]);
+    const create = mockChatResponse({
+      memo: '大阪出張旅費',
+      confidence: 0.9,
+      reasoning: 'パターンのみで判定',
+      canJudge: true,
+    });
+
+    const result = await generateMemoWithRag({
+      debit: '旅費交通費',
+      credit: '現金',
+      amount: 18420,
+      date: '2026-05-29',
+      originalMemo: '',
+    });
+
+    expect(result.knowledgeUsed).toEqual([]);
+    const userMessage = create.mock.calls[0][0].messages.find(
+      (m: { role: string }) => m.role === 'user',
+    )?.content as string;
+    expect(userMessage).not.toContain('参考解説');
   });
 
   it('returns difficult without API key', async () => {
