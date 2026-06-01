@@ -408,6 +408,23 @@ model JournalPattern {
   @@index([debit, credit])
 }
 
+model KnowledgeChunk {
+  id            String   @id @default(cuid())
+  source        String
+  page          String
+  title         String
+  content       String
+  accounts      String[]
+  taxClass      String?
+  tags          String[]
+  embeddingJson String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([source, title])
+  @@index([source])
+}
+
 model Todo {
   id        String   @id @default(cuid())
   firm      Firm     @relation(fields: [firmId], references: [id], onDelete: Cascade)
