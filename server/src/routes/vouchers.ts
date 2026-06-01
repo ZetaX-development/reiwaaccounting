@@ -6,6 +6,7 @@ import {
   getVoucherImage,
   deleteVoucher,
   runOcrForVoucher,
+  countInboundSince,
 } from '../services/voucher-service.js';
 import { findMatchForVoucher } from '../services/matching-service.js';
 import { generateDraftJournal } from '../services/journal-draft-service.js';
@@ -233,6 +234,22 @@ const ALLOWED_MIMES = new Set([
 ]);
 
 export async function voucherRoutes(app: FastifyInstance) {
+  // spec 27: LINE/Drive からの証憑投入を検知するための集計エンドポイント。
+  app.get('/api/vouchers/inbound-since', async (req) => {
+    const { since } = req.query as { since?: string };
+    let sinceDate: Date | null = null;
+    if (since) {
+      const d = new Date(since);
+      if (!Number.isNaN(d.getTime())) sinceDate = d;
+    }
+    const result = await countInboundSince(req.user!.firmId, sinceDate);
+    return {
+      now: result.now.toISOString(),
+      total: result.total,
+      counts: result.counts,
+    };
+  });
+
   app.post('/api/vouchers', async (req, reply) => {
     let data;
     try {

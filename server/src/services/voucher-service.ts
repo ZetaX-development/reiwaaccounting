@@ -261,3 +261,33 @@ export async function assignAndMatchVoucher(id: string): Promise<void> {
     }
   }
 }
+
+/**
+ * spec 27: since より後・now 以下に投入された LINE/Drive 証憑を source 別に数える。
+ * since が null の場合は now だけ返し total=0（初回アクセスで過去分を通知しないため）。
+ * 区間を (since, now] にすることで、呼び出し側が次回 since=now を使えば二重計上しない。
+ */
+export async function countInboundSince(
+  firmId: string,
+  since: Date | null,
+): Promise<{ now: Date; total: number; counts: { line: number; drive: number } }> {
+  const now = new Date();
+  if (!since) {
+    return { now, total: 0, counts: { line: 0, drive: 0 } };
+  }
+  const grouped = await prisma.voucher.groupBy({
+    by: ['source'],
+    where: {
+      firmId,
+      source: { in: ['line', 'drive'] },
+      uploadedAt: { gt: since, lte: now },
+    },
+    _count: { _all: true },
+  });
+  const counts = { line: 0, drive: 0 };
+  for (const g of grouped) {
+    if (g.source === 'line') counts.line = g._count._all;
+    else if (g.source === 'drive') counts.drive = g._count._all;
+  }
+  return { now, total: counts.line + counts.drive, counts };
+}
