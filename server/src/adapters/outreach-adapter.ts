@@ -20,8 +20,9 @@ export class MockOutreachAdapter implements OutreachAdapter {
   }
 }
 
-// Send a real email via SendGrid v3 if SENDGRID_API_KEY is set in env.
-// Otherwise returns a "not configured" error so the caller can fall back to
+// Send a real email. Prefers Resend (https://api.resend.com/emails) when
+// RESEND_API_KEY is set, otherwise falls back to SendGrid v3. If neither is
+// configured, returns a "not configured" error so the caller can fall back to
 // the mock adapter or surface the issue to the user.
 export class EmailOutreachAdapter implements OutreachAdapter {
   readonly channel = 'email' as const;
@@ -30,6 +31,30 @@ export class EmailOutreachAdapter implements OutreachAdapter {
     subject: string,
     body: string,
   ): Promise<{ ok: boolean; error?: string }> {
+    const resendKey = process.env.RESEND_API_KEY;
+    if (resendKey) {
+      const from =
+        process.env.RESEND_FROM || process.env.OUTREACH_EMAIL_FROM || 'onboarding@resend.dev';
+      try {
+        const res = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${resendKey}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({ from, to: [target], subject, text: body }),
+        });
+        if (res.status >= 300) {
+          const errText = await res.text().catch(() => '');
+          return { ok: false, error: `resend ${res.status}: ${errText.slice(0, 200)}` };
+        }
+        return { ok: true };
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return { ok: false, error: `resend request failed: ${msg}` };
+      }
+    }
+
     const apiKey = process.env.SENDGRID_API_KEY;
     const from = process.env.OUTREACH_EMAIL_FROM || process.env.EMAIL_FROM;
     if (!apiKey) {

@@ -22,6 +22,8 @@ const schema = z.object({
   MF_BASE_URL: z.string().default(''),
   SENDGRID_API_KEY: z.string().default(''),
   EMAIL_FROM: z.string().default(''),
+  RESEND_API_KEY: z.string().default(''),
+  RESEND_FROM: z.string().default('onboarding@resend.dev'),
   GMAIL_USER: z.string().optional(),
   GMAIL_APP_PASSWORD: z.string().optional(),
   SLACK_BOT_TOKEN: z.string().default(''),

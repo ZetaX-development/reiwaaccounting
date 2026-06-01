@@ -73,6 +73,9 @@ describe('inquireAboutVoucher', () => {
 
   it('records failure when channel adapter is not implemented', async () => {
     process.env.OUTREACH_CHANNEL = 'email';
+    // .env (Prisma 経由でロードされる) のキーに依存せず「未設定なら失敗」を決定的に検証する
+    delete process.env.RESEND_API_KEY;
+    delete process.env.SENDGRID_API_KEY;
     __resetEnvCache();
     const id = await createVoucherFixture();
 
