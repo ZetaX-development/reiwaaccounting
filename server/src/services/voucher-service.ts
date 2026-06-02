@@ -291,3 +291,60 @@ export async function countInboundSince(
   }
   return { now, total: counts.line + counts.drive, counts };
 }
+
+/**
+ * spec 31: 通知センター用。firm 内の最近の LINE/Drive 証憑を新しい順で返す。
+ */
+export async function listInboundRecent(
+  firmId: string,
+  limit: number,
+): Promise<Array<{
+  id: string;
+  source: string;
+  uploadedAt: Date;
+  vendor: string | null;
+  amount: number | null;
+  account: string | null;
+  clientId: string | null;
+  clientName: string | null;
+  journalStatus: string;
+}>> {
+  const capped = Math.min(Math.max(Math.trunc(limit) || 20, 1), 50);
+  const rows = await prisma.voucher.findMany({
+    where: { firmId, source: { in: ['line', 'drive'] } },
+    orderBy: { uploadedAt: 'desc' },
+    take: capped,
+    select: {
+      id: true,
+      source: true,
+      uploadedAt: true,
+      journalStatus: true,
+      clientId: true,
+      ocrJson: true,
+      draftJournalJson: true,
+      client: { select: { name: true } },
+    },
+  });
+  return rows.map((r) => {
+    const ocr = (r.ocrJson ?? {}) as { vendor_name?: unknown; amount?: unknown };
+    const draft = (r.draftJournalJson ?? {}) as { debit?: { account?: unknown; amount?: unknown } };
+    const debit = draft.debit ?? {};
+    const amount =
+      typeof ocr.amount === 'number'
+        ? ocr.amount
+        : typeof debit.amount === 'number'
+          ? debit.amount
+          : null;
+    return {
+      id: r.id,
+      source: r.source,
+      uploadedAt: r.uploadedAt,
+      vendor: typeof ocr.vendor_name === 'string' ? ocr.vendor_name : null,
+      amount,
+      account: typeof debit.account === 'string' ? debit.account : null,
+      clientId: r.clientId,
+      clientName: r.client?.name ?? null,
+      journalStatus: r.journalStatus,
+    };
+  });
+}

@@ -7,6 +7,7 @@ import {
   deleteVoucher,
   runOcrForVoucher,
   countInboundSince,
+  listInboundRecent,
 } from '../services/voucher-service.js';
 import { findMatchForVoucher } from '../services/matching-service.js';
 import { generateDraftJournal } from '../services/journal-draft-service.js';
@@ -249,6 +250,14 @@ export async function voucherRoutes(app: FastifyInstance) {
       total: result.total,
       counts: result.counts,
     };
+  });
+
+  // spec 31: 通知センター用。最近の LINE/Drive 証憑を一覧で返す。
+  app.get('/api/vouchers/inbound-recent', async (req) => {
+    const { limit } = req.query as { limit?: string };
+    const n = limit ? Number(limit) : 20;
+    const result = await listInboundRecent(req.user!.firmId, Number.isFinite(n) ? n : 20);
+    return result.map((r) => ({ ...r, uploadedAt: r.uploadedAt.toISOString() }));
   });
 
   app.post('/api/vouchers', async (req, reply) => {
