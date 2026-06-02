@@ -1407,6 +1407,82 @@ function renderNotifBadge() {
   else { badge.hidden = true; }
 }
 
+function notifSourceLabel(s) { return s === 'line' ? 'LINE' : s === 'drive' ? 'Drive' : s; }
+
+function notifRelTime(iso) {
+  const m = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (m < 1) return 'たった今';
+  if (m < 60) return m + '分前';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + '時間前';
+  return Math.floor(h / 24) + '日前';
+}
+
+function renderNotifPanel() {
+  const panel = document.getElementById('notifPanel');
+  if (!panel) return;
+  const seen = localStorage.getItem('bookmee.notifSeenAt') || '';
+  const items = appState.notifications || [];
+  const rows = items.length
+    ? items.map((n) => {
+        const unread = n.uploadedAt > seen;
+        const amt = n.amount != null ? '¥' + Number(n.amount).toLocaleString('ja-JP') : '';
+        const acct = n.account || '（未分類）';
+        const cli = n.clientName || '未割当';
+        return `<button class="notif-item${unread ? ' notif-unread' : ''}" data-notif-voucher="${n.id}" data-notif-client="${n.clientId || ''}">
+          <span class="notif-source">${notifSourceLabel(n.source)}</span>
+          <span class="notif-main">${escapeHtml(acct)} ${amt}</span>
+          <span class="notif-sub">${escapeHtml(cli)} ・ ${notifRelTime(n.uploadedAt)}</span>
+        </button>`;
+      }).join('')
+    : '<div class="notif-empty">通知はありません</div>';
+  panel.innerHTML = `<div class="notif-head"><span>通知</span><button id="notifClear" type="button">クリア</button></div>${rows}`;
+}
+
+function highlightVoucherAfterRender(voucherId, tries) {
+  tries = tries || 0;
+  const el = document.getElementById('voucher-card-' + voucherId);
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('voucher-highlight');
+    setTimeout(() => el.classList.remove('voucher-highlight'), 2000);
+    return;
+  }
+  if (tries < 20) setTimeout(() => highlightVoucherAfterRender(voucherId, tries + 1), 150);
+}
+
+function setupNotifications() {
+  const bell = document.getElementById('notifBell');
+  const panel = document.getElementById('notifPanel');
+  if (!bell || !panel) return;
+  bell.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (panel.hidden) { renderNotifPanel(); panel.hidden = false; }
+    else { panel.hidden = true; }
+  });
+  panel.addEventListener('click', (e) => {
+    const clr = e.target.closest('#notifClear');
+    if (clr) {
+      localStorage.setItem('bookmee.notifSeenAt', new Date().toISOString());
+      renderNotifBadge();
+      renderNotifPanel();
+      return;
+    }
+    const item = e.target.closest('[data-notif-voucher]');
+    if (item) {
+      appState.matchingTab = item.dataset.notifClient || 'unassigned';
+      panel.hidden = true;
+      location.hash = '#/matching-results';
+      highlightVoucherAfterRender(item.dataset.notifVoucher);
+    }
+  });
+  document.addEventListener('click', (e) => {
+    if (!panel.hidden && !panel.contains(e.target) && e.target.id !== 'notifBell') {
+      panel.hidden = true;
+    }
+  });
+}
+
 function startInboundPolling() {
   checkInboundVouchers();
   refreshNotifications();
@@ -4163,7 +4239,7 @@ function renderMatchingResults() {
       }
 
       return `
-      <div class="matching-card-pending">
+      <div class="matching-card-pending" id="voucher-card-${v.id}">
         <img data-voucher-img="${v.id}" alt="${escapeHtml(v.filename)}" style="background:#f3f4f6;" />
         <div class="matching-side">
           <div class="matching-label matching-status-${status}">${statusLabel}</div>
@@ -6106,6 +6182,7 @@ async function loadAndRenderClientPortal(clientId) {
   loadClientsFromApi().finally(() => {
     updateClientContextBar();
     applyHashRoute(true);
+    setupNotifications();
     startInboundPolling();
   });
 })();
