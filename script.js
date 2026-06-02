@@ -1338,7 +1338,7 @@ function inferToastType(message) {
   return "info";
 }
 
-function showToast(message, type) {
+function showToast(message, type, durationMs) {
   if (!toast) return;
   const resolvedType = type || inferToastType(message);
   toast.textContent = message;
@@ -1346,7 +1346,7 @@ function showToast(message, type) {
   toast.classList.add("toast-" + resolvedType);
   toast.classList.add("show");
   clearTimeout(showToast.timer);
-  showToast.timer = setTimeout(() => toast.classList.remove("show"), 2400);
+  showToast.timer = setTimeout(() => toast.classList.remove("show"), durationMs || 2400);
 }
 
 // spec 27: LINE/Drive からの証憑投入を検知してトースト表示する。
@@ -1370,7 +1370,7 @@ async function checkInboundVouchers() {
     const data = await res.json();
     if (since && data.total > 0) {
       const msg = buildInboundMessage(data.counts);
-      if (msg) showToast(msg, "info");
+      if (msg) showToast(msg, "info", 5400);
     }
     if (data.now) localStorage.setItem("bookmee.lastInboundSeenAt", data.now);
   } catch (err) {
