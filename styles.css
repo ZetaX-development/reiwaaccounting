@@ -3748,3 +3748,19 @@ textarea {
 .guide-shortcuts { display: flex; flex-direction: column; gap: 12px; }
 .shortcut-row { display: flex; align-items: center; gap: 16px; }
 kbd { display: inline-block; padding: 4px 10px; background: var(--bg-secondary, #f3f4f6); border: 1px solid var(--border, #d1d5db); border-radius: 6px; font-family: monospace; font-size: 0.875rem; }
+
+/* spec 31: 通知センター */
+.notif-wrap { position: relative; display: inline-flex; align-items: center; }
+.notif-bell { position: relative; background: none; border: none; font-size: 18px; cursor: pointer; line-height: 1; padding: 6px; }
+.notif-badge { position: absolute; top: -2px; right: -2px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: #ef4444; color: #fff; font-size: 11px; line-height: 16px; text-align: center; }
+.notif-panel { position: absolute; top: 36px; right: 0; width: 320px; max-height: 420px; overflow-y: auto; background: #fff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 10px; box-shadow: 0 12px 32px rgba(0,0,0,0.18); z-index: 1000; padding: 6px; }
+.notif-head { display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; font-weight: 600; }
+.notif-head button { background: none; border: 1px solid #e2e8f0; border-radius: 6px; padding: 2px 8px; cursor: pointer; font-size: 12px; }
+.notif-item { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; text-align: left; background: none; border: none; border-radius: 8px; padding: 8px; cursor: pointer; }
+.notif-item:hover { background: #f1f5f9; }
+.notif-unread { background: #ecfdf5; }
+.notif-source { font-size: 11px; color: #059669; font-weight: 600; }
+.notif-main { font-size: 13px; }
+.notif-sub { font-size: 11px; color: #64748b; }
+.notif-empty { padding: 16px; color: #64748b; font-size: 13px; text-align: center; }
+.voucher-highlight { outline: 3px solid #10b981; outline-offset: 2px; transition: outline 0.2s; }

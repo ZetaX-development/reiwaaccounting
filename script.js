@@ -34,6 +34,7 @@ const appState = {
   lineVerifyResult: null,
   lineLoadedAt: null,
   inboundPollTimer: null,
+  notifications: [],
   user: null, // { authUserId, firmId, role, email, firmName } — set on startup
 };
 
@@ -1378,10 +1379,42 @@ async function checkInboundVouchers() {
   }
 }
 
+// spec 31: 通知センター。最近の LINE/Drive 証憑を取得して未読バッジを更新する。
+async function refreshNotifications() {
+  try {
+    const res = await apiFetch('/api/vouchers/inbound-recent?limit=20');
+    if (!res.ok) return;
+    appState.notifications = await res.json();
+    if (!localStorage.getItem('bookmee.notifSeenAt')) {
+      localStorage.setItem('bookmee.notifSeenAt', new Date().toISOString());
+    }
+    renderNotifBadge();
+  } catch (err) {
+    console.warn('refreshNotifications failed', err);
+  }
+}
+
+function notifUnreadCount() {
+  const seen = localStorage.getItem('bookmee.notifSeenAt') || '';
+  return (appState.notifications || []).filter((n) => n.uploadedAt > seen).length;
+}
+
+function renderNotifBadge() {
+  const badge = document.getElementById('notifBadge');
+  if (!badge) return;
+  const n = notifUnreadCount();
+  if (n > 0) { badge.textContent = String(n); badge.hidden = false; }
+  else { badge.hidden = true; }
+}
+
 function startInboundPolling() {
   checkInboundVouchers();
+  refreshNotifications();
   if (appState.inboundPollTimer) return;
-  appState.inboundPollTimer = setInterval(checkInboundVouchers, 15000);
+  appState.inboundPollTimer = setInterval(() => {
+    checkInboundVouchers();
+    refreshNotifications();
+  }, 15000);
 }
 
 function setButtonPending(button, pending, pendingText) {
@@ -3561,7 +3594,7 @@ async function loadApprovedDraftsIntoSlot(clientId) {
     }
     html += '</tbody></table></div>';
     html +=
-      '<small class="sync-fresh">bookmee で生成・承認されたドラフト。MF にはまだ転記されていません（手動入力してください）。</small>';
+      '<small class="sync-fresh">bookmee で生成・承認されたドラフト。MF にはまだ転記されていません（CSVをエクスポートして、MFに入れてください）。</small>';
     html += '</section>';
     slot.innerHTML = html;
     slot.querySelectorAll('[data-voucher-open]').forEach((btn) => {
