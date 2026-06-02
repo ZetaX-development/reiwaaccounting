@@ -47,6 +47,8 @@ describe('applyVoucherReply', () => {
     const row = await prisma.voucher.findUnique({ where: { id } });
     const answers = (row?.lineAnswers ?? {}) as Record<string, string>;
     expect(answers['メール返信']).toBe('参加者は田中さんと佐藤さん、店舗は新橋店です');
+    // 再ドラフトは setImmediate でバックグラウンド実行されるので、次の tick まで待つ
+    await new Promise((resolve) => setImmediate(resolve));
     expect(mockedGenerateDraft).toHaveBeenCalledWith(id);
   });
 

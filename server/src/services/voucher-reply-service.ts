@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { logger } from '../lib/logger.js';
 import { generateDraftJournal } from './journal-draft-service.js';
 
 /** spec 29: メール返信を取り込む際の回答キー（lineAnswers をチャネル非依存の回答マップとして再利用） */
@@ -23,7 +24,13 @@ export async function applyVoucherReply(voucherId: string, text: string): Promis
     data: { lineAnswers: { ...existing, [EMAIL_REPLY_KEY]: text } },
   });
 
-  // 返信を「追加情報」として再ドラフト（既存実装が lineAnswers を AI に注入する）
-  await generateDraftJournal(voucherId);
+  // 返信を「追加情報」として再ドラフト。OpenAI 呼び出しで数十秒かかるため、
+  // リクエストはブロックせず LINE 経路と同様にバックグラウンドで実行する
+  // （同期 await だと応答が ~60s 固まり、UI で連打される原因になっていた）。
+  setImmediate(() => {
+    void generateDraftJournal(voucherId).catch((err) => {
+      logger.warn({ err, voucherId }, 'email reply re-draft failed');
+    });
+  });
   return true;
 }

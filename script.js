@@ -521,12 +521,18 @@ async function inquireVoucherClient(id) {
 }
 
 // spec 29: 顧客のメール返信本文を取り込んで仕訳ドラフトを作り直す（疑似受信）
-async function submitVoucherReply(id) {
+// 再ドラフト(OpenAI)はサーバ側でバックグラウンド実行され即応答する。完了まで数十秒
+// かかるので、ボタンを無効化（連打防止）し、matching を数回ポーリング更新して反映する。
+async function submitVoucherReply(id, btn) {
   const ta = document.querySelector(`[data-voucher-reply-text="${id}"]`);
   const text = ta && ta.value ? ta.value.trim() : '';
   if (!text) {
     showToast('返信内容を入力してください');
     return;
+  }
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '取り込み中…';
   }
   try {
     const res = await apiFetch(`/api/vouchers/${id}/email-reply`, {
@@ -535,10 +541,25 @@ async function submitVoucherReply(id) {
       body: JSON.stringify({ text }),
     });
     if (!res.ok) throw new Error('reply failed');
-    showToast('返信を取り込み、仕訳を作り直しました');
+    showToast('返信を取り込みました。仕訳を作り直しています…');
     appState.matchingLoadedTab = null;
     loadMatchingData();
+    // 再ドラフト完了（drafting → drafted/needs_info）まで最大 ~96 秒ポーリング更新
+    let tries = 0;
+    const timer = setInterval(() => {
+      tries += 1;
+      if (appState.activeView !== 'matching-results' || tries > 12) {
+        clearInterval(timer);
+        return;
+      }
+      appState.matchingLoadedTab = null;
+      loadMatchingData();
+    }, 8000);
   } catch (err) {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '返信を取り込む';
+    }
     showToast(friendlyError(err));
   }
 }
@@ -5030,7 +5051,7 @@ function renderView() {
     });
     viewContent.querySelectorAll('[data-voucher-reply]').forEach((btn) => {
       btn.addEventListener('click', () => {
-        submitVoucherReply(btn.dataset.voucherReply);
+        submitVoucherReply(btn.dataset.voucherReply, btn);
       });
     });
     viewContent.querySelectorAll('[data-matching-approve]').forEach((btn) => {
