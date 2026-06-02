@@ -58,6 +58,22 @@ async function loadVoucherImageBlob(voucherId) {
   }
 }
 
+// 証憑画像/PDF を新しいタブで開く。/api/vouchers/:id/image は JWT 必須なので
+// 素の <a href>/window.open では Authorization ヘッダが付かず UNAUTHORIZED になる。
+// apiFetch で取得して blob URL を開く。クリックのジェスチャ内でタブを先に開き、
+// 取得後に遷移させてポップアップブロックを回避する。
+async function openVoucherImage(voucherId) {
+  const w = window.open('', '_blank');
+  const url = await loadVoucherImageBlob(voucherId);
+  if (!url) {
+    if (w) w.close();
+    showToast('画像の取得に失敗しました');
+    return;
+  }
+  if (w) w.location.href = url;
+  else window.open(url, '_blank');
+}
+
 function hydrateVoucherImages() {
   document.querySelectorAll('[data-voucher-img]').forEach(async (img) => {
     const id = img.dataset.voucherImg;
@@ -3518,7 +3534,7 @@ async function loadApprovedDraftsIntoSlot(clientId) {
       html += '<td class="num">' + yen(credit.amount) + '</td>';
       html += '<td>' + cell(d.description) + '</td>';
       html +=
-        '<td><a href="/api/vouchers/' + v.id + '/image" target="_blank">画像</a></td>';
+        '<td><button class="vendor-link" data-voucher-open="' + v.id + '">画像</button></td>';
       html += '</tr>';
       no += 1;
     }
@@ -3527,6 +3543,9 @@ async function loadApprovedDraftsIntoSlot(clientId) {
       '<small class="sync-fresh">bookmee で生成・承認されたドラフト。MF にはまだ転記されていません（手動入力してください）。</small>';
     html += '</section>';
     slot.innerHTML = html;
+    slot.querySelectorAll('[data-voucher-open]').forEach((btn) => {
+      btn.addEventListener('click', () => openVoucherImage(btn.dataset.voucherOpen));
+    });
   } catch (_err) {
     // best-effort
   }
@@ -3627,7 +3646,7 @@ async function loadAndRenderJobsVouchers() {
         const id = card.dataset.voucherId;
         const mimeType = String(card.dataset.mimeType || '').toLowerCase();
         if (mimeType.includes('pdf')) {
-          window.open(`/api/vouchers/${id}/image`, '_blank');
+          openVoucherImage(id);
           return;
         }
         const modal = document.querySelector('#voucherModal');
@@ -4928,7 +4947,7 @@ function renderView() {
         const id = card.dataset.voucherId;
         const mimeType = String(card.dataset.mimeType || '').toLowerCase();
         if (mimeType.includes('pdf')) {
-          window.open(`/api/vouchers/${id}/image`, '_blank');
+          openVoucherImage(id);
           return;
         }
         const modal = document.querySelector('#voucherModal');
