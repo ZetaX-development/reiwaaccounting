@@ -42,6 +42,21 @@ describe('EmailOutreachAdapter', () => {
     expect(payload.text).toBe('この証憑のシーンを教えてください');
   });
 
+  it('includes attachments in the Resend payload when provided', async () => {
+    process.env.RESEND_API_KEY = 're_test_key';
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(JSON.stringify({ id: 'abc' }), { status: 200 }));
+
+    await new EmailOutreachAdapter().send('kkouta2017@gmail.com', 's', 'b', [
+      { filename: 'receipt.jpg', content: 'AAEC', contentType: 'image/jpeg' },
+    ]);
+
+    const init = fetchSpy.mock.calls[0]?.[1] as RequestInit;
+    const payload = JSON.parse(init.body as string);
+    expect(payload.attachments).toEqual([{ filename: 'receipt.jpg', content: 'AAEC' }]);
+  });
+
   it('returns error with resend status when Resend responds >= 300', async () => {
     process.env.RESEND_API_KEY = 're_test_key';
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(

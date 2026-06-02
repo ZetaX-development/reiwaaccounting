@@ -504,6 +504,29 @@ async function inquireVoucherClient(id) {
   }
 }
 
+// spec 29: 顧客のメール返信本文を取り込んで仕訳ドラフトを作り直す（疑似受信）
+async function submitVoucherReply(id) {
+  const ta = document.querySelector(`[data-voucher-reply-text="${id}"]`);
+  const text = ta && ta.value ? ta.value.trim() : '';
+  if (!text) {
+    showToast('返信内容を入力してください');
+    return;
+  }
+  try {
+    const res = await apiFetch(`/api/vouchers/${id}/email-reply`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) throw new Error('reply failed');
+    showToast('返信を取り込み、仕訳を作り直しました');
+    appState.matchingLoadedTab = null;
+    loadMatchingData();
+  } catch (err) {
+    showToast(friendlyError(err));
+  }
+}
+
 async function approveVoucherJournal(id) {
   try {
     const res = await apiFetch(`/api/vouchers/${id}/journal`, {
@@ -3998,6 +4021,10 @@ function renderMatchingResults() {
                 <button class="matching-inquire-btn" data-matching-inquire="${v.id}" ${js === 'inquired' ? 'disabled' : ''}>
                   ${js === 'inquired' ? '問い合わせ送信済み' : '情報を依頼'}
                 </button>
+                <div class="voucher-reply-box" style="margin-top:8px">
+                  <textarea data-voucher-reply-text="${v.id}" rows="2" placeholder="顧客からのメール返信を貼り付け" style="width:100%;box-sizing:border-box"></textarea>
+                  <button class="matching-inquire-btn" data-voucher-reply="${v.id}" style="margin-top:4px">返信を取り込む</button>
+                </div>
               </div>`
           : '';
         const mfStatus = v.mfWriteStatus;
@@ -4978,6 +5005,11 @@ function renderView() {
     viewContent.querySelectorAll('[data-matching-inquire]').forEach((btn) => {
       btn.addEventListener('click', () => {
         inquireVoucherClient(btn.dataset.matchingInquire);
+      });
+    });
+    viewContent.querySelectorAll('[data-voucher-reply]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        submitVoucherReply(btn.dataset.voucherReply);
       });
     });
     viewContent.querySelectorAll('[data-matching-approve]').forEach((btn) => {

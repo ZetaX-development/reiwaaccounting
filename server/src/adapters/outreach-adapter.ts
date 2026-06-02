@@ -1,9 +1,17 @@
+export interface OutreachAttachment {
+  filename: string;
+  /** base64 エンコード済みのファイル内容 */
+  content: string;
+  contentType: string;
+}
+
 export interface OutreachAdapter {
   readonly channel: 'email' | 'line' | 'mock';
   send(
     target: string,
     subject: string,
     body: string,
+    attachments?: OutreachAttachment[],
   ): Promise<{ ok: boolean; error?: string }>;
 }
 
@@ -13,9 +21,11 @@ export class MockOutreachAdapter implements OutreachAdapter {
     target: string,
     subject: string,
     body: string,
+    attachments?: OutreachAttachment[],
   ): Promise<{ ok: boolean; error?: string }> {
+    const att = attachments?.length ? ` attachments=${attachments.length}` : '';
     // eslint-disable-next-line no-console
-    console.log(`[outreach:mock] to=${target} subject=${subject}\n${body}`);
+    console.log(`[outreach:mock] to=${target} subject=${subject}${att}\n${body}`);
     return { ok: true };
   }
 }
@@ -30,19 +40,27 @@ export class EmailOutreachAdapter implements OutreachAdapter {
     target: string,
     subject: string,
     body: string,
+    attachments?: OutreachAttachment[],
   ): Promise<{ ok: boolean; error?: string }> {
     const resendKey = process.env.RESEND_API_KEY;
     if (resendKey) {
       const from =
         process.env.RESEND_FROM || process.env.OUTREACH_EMAIL_FROM || 'onboarding@resend.dev';
       try {
+        const payload: Record<string, unknown> = { from, to: [target], subject, text: body };
+        if (attachments?.length) {
+          payload.attachments = attachments.map((a) => ({
+            filename: a.filename,
+            content: a.content,
+          }));
+        }
         const res = await fetch('https://api.resend.com/emails', {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${resendKey}`,
             'content-type': 'application/json',
           },
-          body: JSON.stringify({ from, to: [target], subject, text: body }),
+          body: JSON.stringify(payload),
         });
         if (res.status >= 300) {
           const errText = await res.text().catch(() => '');
@@ -64,18 +82,27 @@ export class EmailOutreachAdapter implements OutreachAdapter {
       return { ok: false, error: 'OUTREACH_EMAIL_FROM is not set' };
     }
     try {
+      const sgPayload: Record<string, unknown> = {
+        personalizations: [{ to: [{ email: target }] }],
+        from: { email: from },
+        subject,
+        content: [{ type: 'text/plain', value: body }],
+      };
+      if (attachments?.length) {
+        sgPayload.attachments = attachments.map((a) => ({
+          content: a.content,
+          filename: a.filename,
+          type: a.contentType,
+          disposition: 'attachment',
+        }));
+      }
       const res = await fetch('https://api.sendgrid.com/v3/mail/send', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${apiKey}`,
           'content-type': 'application/json',
         },
-        body: JSON.stringify({
-          personalizations: [{ to: [{ email: target }] }],
-          from: { email: from },
-          subject,
-          content: [{ type: 'text/plain', value: body }],
-        }),
+        body: JSON.stringify(sgPayload),
       });
       if (res.status >= 300) {
         const errText = await res.text().catch(() => '');
@@ -101,6 +128,7 @@ export class LineOutreachAdapter implements OutreachAdapter {
     target: string,
     subject: string,
     body: string,
+    _attachments?: OutreachAttachment[],
   ): Promise<{ ok: boolean; error?: string }> {
     const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
     if (!token) {

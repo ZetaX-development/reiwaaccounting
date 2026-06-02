@@ -71,6 +71,9 @@ export async function inquireAboutVoucher(voucherId: string): Promise<void> {
       ocrJson: true,
       draftJournalJson: true,
       journalStatus: true,
+      imageData: true,
+      filename: true,
+      mimeType: true,
     },
   });
   if (!voucher) return;
@@ -100,8 +103,20 @@ export async function inquireAboutVoucher(voucherId: string): Promise<void> {
     voucherId: voucher.id,
   });
 
+  // spec 29: レシート写真を添付（顧客が何の証憑か分かるように）
+  const attachments =
+    voucher.imageData && voucher.imageData.length > 0
+      ? [
+          {
+            filename: voucher.filename || `receipt-${voucher.id}.jpg`,
+            content: Buffer.from(voucher.imageData).toString('base64'),
+            contentType: voucher.mimeType || 'image/jpeg',
+          },
+        ]
+      : undefined;
+
   const adapter = getOutreachAdapter(channel);
-  const result = await adapter.send(target, subject, body);
+  const result = await adapter.send(target, subject, body, attachments);
 
   await prisma.voucherInquiry.create({
     data: {

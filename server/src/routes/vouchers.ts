@@ -11,6 +11,7 @@ import {
 import { findMatchForVoucher } from '../services/matching-service.js';
 import { generateDraftJournal } from '../services/journal-draft-service.js';
 import { inquireAboutVoucher } from '../services/outreach-service.js';
+import { applyVoucherReply } from '../services/voucher-reply-service.js';
 import { writeJournalToMf } from '../services/mf-browser-service.js';
 import { prisma } from '../lib/prisma.js';
 
@@ -463,6 +464,28 @@ export async function voucherRoutes(app: FastifyInstance) {
         inquireAboutVoucher(req.params.id).catch(() => {});
       });
       reply.code(202);
+      return { ok: true };
+    },
+  );
+
+  // spec 29: 顧客のメール返信を取り込んで仕訳ドラフトを作り直す（疑似受信。本文を直接渡す）
+  app.post<{ Params: { id: string }; Body: { text?: string } }>(
+    '/api/vouchers/:id/email-reply',
+    async (req, reply) => {
+      const text = (req.body?.text ?? '').trim();
+      if (!text) {
+        reply.code(400);
+        return { error: { code: 'BAD_REQUEST', message: 'text is required' } };
+      }
+      const row = await prisma.voucher.findFirst({
+        where: { id: req.params.id, firmId: req.user!.firmId },
+        select: { id: true },
+      });
+      if (!row) {
+        reply.code(404);
+        return { error: { code: 'NOT_FOUND', message: 'voucher not found' } };
+      }
+      await applyVoucherReply(req.params.id, text);
       return { ok: true };
     },
   );
