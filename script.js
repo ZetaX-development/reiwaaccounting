@@ -4027,7 +4027,9 @@ function renderMatchingResults() {
         const cell = (s) => s ? escapeHtml(String(s)) : '—';
         const statusBadge =
           js === 'approved'
-            ? '<span class="matching-draft-badge badge-approved">承認済</span>'
+            ? (dj.autoClassified
+                ? '<span class="matching-draft-badge badge-approved">自動仕訳済</span>'
+                : '<span class="matching-draft-badge badge-approved">承認済</span>')
             : js === 'inquired'
               ? `<span class="matching-draft-badge badge-inquired">問合せ済 ${v.inquiryAt ? new Date(v.inquiryAt).toLocaleDateString('ja-JP') : ''}</span>`
               : js === 'needs_info'
