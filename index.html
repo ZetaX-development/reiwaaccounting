@@ -19,6 +19,13 @@
       @keyframes __pi-spin { to { transform:rotate(360deg); } }
       #__pageInit p { color:#94a3b8;font-family:sans-serif;font-size:.9rem;margin:0; }
     </style>
+    <script>
+      // 15秒後にスピナーを強制削除（JSエラーで消えない場合のフォールバック）
+      setTimeout(function() {
+        var el = document.getElementById('__pageInit');
+        if (el) { el.style.opacity = '0'; el.style.transition = 'opacity .3s'; setTimeout(function(){ el.remove(); }, 300); }
+      }, 15000);
+    </script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
     <script>
       // Supabase session init — runs before script.js.
@@ -51,8 +58,6 @@
               loginRedirect();
               return null;
             }
-            // localStorage に古いセッションが残っていると login 画面に行けなくなる。
-            // 期限切れ or サーバー拒否ならクリアしてログインへ戻す。
             if (session.expires_at && session.expires_at * 1000 < Date.now()) {
               return rejectStaleSession('session_expired');
             }
