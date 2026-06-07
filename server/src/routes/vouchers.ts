@@ -682,6 +682,18 @@ export async function voucherRoutes(app: FastifyInstance) {
   });
 
   // 赤バッジ用: LINEから届いた未処理証憑の件数
+  app.get('/api/vouchers/new-count', async (req) => {
+    const count = await prisma.voucher.count({
+      where: {
+        firmId: req.user!.firmId,
+        source: 'line',
+        journalStatus: { notIn: ['approved', 'skipped'] },
+      },
+    });
+    return { count };
+  });
+
+  // 赤バッジ用: 顧問先ごとのLINE未処理証憑の件数
   app.get<{ Params: { id: string } }>(
     '/api/clients/:id/vouchers/new-count',
     async (req, reply) => {

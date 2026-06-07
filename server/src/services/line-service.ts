@@ -39,7 +39,14 @@ export interface LineTextMessage {
   quickReply?: { items: QuickReplyItem[] };
 }
 
-export type LineMessage = LineTextMessage;
+export interface LineFlexMessage {
+  type: 'flex';
+  altText: string;
+  contents: unknown;
+  quickReply?: { items: QuickReplyItem[] };
+}
+
+export type LineMessage = LineTextMessage | LineFlexMessage;
 
 export class LineApiError extends Error {
   constructor(
@@ -199,6 +206,19 @@ export async function pushQuickReply(
     type: 'text',
     text,
     quickReply: { items },
+  };
+  await pushMessage(userId, [msg]);
+}
+
+export async function pushFlexMessage(
+  userId: string,
+  altText: string,
+  contents: unknown,
+): Promise<void> {
+  const msg: LineFlexMessage = {
+    type: 'flex',
+    altText,
+    contents,
   };
   await pushMessage(userId, [msg]);
 }

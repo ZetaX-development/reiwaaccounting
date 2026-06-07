@@ -506,22 +506,96 @@ export async function sendLinePushForVoucherStatus(
   }
 
   if (v.journalStatus === 'drafted') {
-    const draft = (v.draftJournalJson ?? {}) as Record<string, unknown>;
+    const draft = parseDraftJournal(v.draftJournalJson);
     const debit = (typeof draft.debit === 'object' && draft.debit !== null ? draft.debit : {}) as Record<string, unknown>;
+    const credit = (typeof draft.credit === 'object' && draft.credit !== null ? draft.credit : {}) as Record<string, unknown>;
     const account =
       typeof debit.account === 'string' ? debit.account :
       typeof draft.account === 'string' ? draft.account : // fallback for old flat format
       '（勘定科目）';
-    const amount =
+    const creditAccount =
+      typeof credit.account === 'string' ? credit.account : '（貸方科目）';
+    const amountValue =
       typeof debit.amount === 'number'
-        ? `¥${debit.amount.toLocaleString('ja-JP')}`
+        ? debit.amount
         : typeof draft.amount === 'number' // fallback for old flat format
-          ? `¥${draft.amount.toLocaleString('ja-JP')}`
-          : '';
-    const summaryText = `${account} ${amount} で仕訳を作成しました。`.trim();
+          ? draft.amount
+          : null;
+    const amountLabel =
+      amountValue != null ? `¥${amountValue.toLocaleString('ja-JP')}` : '—';
+    const description =
+      typeof draft.description === 'string' && draft.description.trim().length > 0
+        ? draft.description.trim()
+        : '—';
+    const transactionDate = formatDateYmd(
+      typeof draft.transactionDate === 'string' ? draft.transactionDate : undefined,
+    );
+    const summaryText = `${account} ${amountLabel} で仕訳を作成しました。`.trim();
 
-    // 1. 仕訳サマリ
-    await lineService.pushMessage(v.lineUserId, [{ type: 'text', text: summaryText }]);
+    const draftCard = {
+      type: 'bubble',
+      size: 'mega',
+      header: {
+        type: 'box',
+        layout: 'vertical',
+        backgroundColor: '#10b981',
+        paddingAll: '12px',
+        contents: [
+          {
+            type: 'text',
+            text: '✅ 仕訳ドラフト作成',
+            color: '#ffffff',
+            weight: 'bold',
+            size: 'md',
+          },
+        ],
+      },
+      body: {
+        type: 'box',
+        layout: 'vertical',
+        spacing: 'sm',
+        contents: [
+          buildFlexKeyValue('取引日', transactionDate),
+          buildFlexKeyValue('金額', amountLabel),
+          buildFlexKeyValue('借方', account),
+          buildFlexKeyValue('貸方', creditAccount),
+          buildFlexKeyValue('摘要', description),
+        ],
+      },
+      footer: {
+        type: 'box',
+        layout: 'horizontal',
+        spacing: 'sm',
+        contents: [
+          {
+            type: 'button',
+            style: 'primary',
+            color: '#10b981',
+            height: 'sm',
+            action: {
+              type: 'postback',
+              label: '✅ 承認する',
+              data: `voucherId=${voucherId}&action=approve`,
+              displayText: '仕訳を承認する',
+            },
+          },
+          {
+            type: 'button',
+            style: 'secondary',
+            height: 'sm',
+            action: {
+              type: 'postback',
+              label: '✏️ 修正が必要',
+              data: `voucherId=${voucherId}&action=rematch`,
+              displayText: '修正が必要',
+            },
+          },
+        ],
+      },
+    };
+
+    // 1. 仕訳サマリ（Flex）
+    await lineService.pushFlexMessage(v.lineUserId, summaryText, draftCard);
 
     // 2. MF入力確認 (Spec 20) — MF連携済みクライアントのみ表示
     const hasMfToken = Boolean(v.client?.mfAccessToken);
@@ -575,6 +649,63 @@ export async function sendLinePushForVoucherStatus(
 
 function buildQuestion(field: string): string {
   return `仕訳の確認のため教えてください：${field}`;
+}
+
+function parseDraftJournal(raw: unknown): Record<string, unknown> {
+  if (!raw) return {};
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (parsed && typeof parsed === 'object') {
+        return parsed as Record<string, unknown>;
+      }
+      return {};
+    } catch {
+      return {};
+    }
+  }
+  if (raw && typeof raw === 'object') {
+    return raw as Record<string, unknown>;
+  }
+  return {};
+}
+
+function formatDateYmd(value: string | undefined): string {
+  const now = new Date();
+  const fallback = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')}`;
+  if (!value) return fallback;
+  const trimmed = value.trim();
+  if (!trimmed) return fallback;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed.replace(/-/g, '/');
+  if (/^\d{4}\/\d{2}\/\d{2}$/.test(trimmed)) return trimmed;
+  const dt = new Date(trimmed);
+  if (Number.isNaN(dt.getTime())) return fallback;
+  return `${dt.getFullYear()}/${String(dt.getMonth() + 1).padStart(2, '0')}/${String(dt.getDate()).padStart(2, '0')}`;
+}
+
+function buildFlexKeyValue(label: string, value: string): Record<string, unknown> {
+  return {
+    type: 'box',
+    layout: 'baseline',
+    spacing: 'md',
+    contents: [
+      {
+        type: 'text',
+        text: `${label}:`,
+        color: '#6b7280',
+        size: 'sm',
+        flex: 3,
+      },
+      {
+        type: 'text',
+        text: value,
+        color: '#111827',
+        size: 'sm',
+        wrap: true,
+        flex: 7,
+      },
+    ],
+  };
 }
 
 // ---- test helpers ------------------------------------------------------

@@ -3478,6 +3478,7 @@ function renderJobsVouchers() {
   let html = '<div class="jobs-vouchers-layout">';
   html += '<div id="missingAlertSlot"></div>';
   html += '<div id="missingTableSlot"></div>';
+  html += '<div id="lineInboxSlot"></div>';
   html += '<section class="dashboard-section-card">';
   html += '<div class="dashboard-section-head"><h3>証憑一覧</h3><span id="jobsVoucherCount" class="status-chip processing">読み込み中</span></div>';
   html += renderVoucherCsvExportBar();
@@ -3531,17 +3532,150 @@ function renderJobsVoucherCardHtml(voucher, clientId) {
   return html;
 }
 
+function parseVoucherDraftJournal(raw) {
+  if (!raw) return {};
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch (_err) {
+      return {};
+    }
+  }
+  return typeof raw === 'object' ? raw : {};
+}
+
+function formatLineInboxDate(dateText, fallbackDateText) {
+  const source = dateText || fallbackDateText;
+  const dt = source ? new Date(source) : new Date();
+  if (Number.isNaN(dt.getTime())) return '—';
+  return String(dt.getMonth() + 1).padStart(2, '0') + '/' + String(dt.getDate()).padStart(2, '0');
+}
+
+function lineInboxStatusMeta(status) {
+  if (status === 'drafted') return { css: 'drafted', text: '✅ 仕訳済み' };
+  if (status === 'needs_info' || status === 'inquired') return { css: 'needs-info', text: '❓ 情報確認中' };
+  if (status === 'approved') return { css: 'approved', text: '✔ 承認済み' };
+  if (status === 'pending' || status === 'unprocessed') return { css: 'processing', text: '🔄 処理中' };
+  return { css: 'processing', text: '🔄 処理中' };
+}
+
+function renderLineInboxCardHtml(voucher) {
+  const draft = parseVoucherDraftJournal(voucher.draftJournalJson);
+  const debit = draft && typeof draft.debit === 'object' ? draft.debit : {};
+  const credit = draft && typeof draft.credit === 'object' ? draft.credit : {};
+  const debitAccount = (debit && typeof debit.account === 'string' ? debit.account : draft.account) || '未設定';
+  const creditAccount = (credit && typeof credit.account === 'string' ? credit.account : '未設定');
+  const amountNum = typeof debit.amount === 'number'
+    ? debit.amount
+    : typeof draft.amount === 'number'
+      ? draft.amount
+      : (voucher.ocrJson && typeof voucher.ocrJson === 'object' && typeof voucher.ocrJson.amount === 'number' ? voucher.ocrJson.amount : null);
+  const amountLabel = amountNum != null ? '¥' + Number(amountNum).toLocaleString('ja-JP') : '金額未確定';
+  const txDate = typeof draft.transactionDate === 'string' ? draft.transactionDate : null;
+  const dateText = formatLineInboxDate(txDate, voucher.uploadedAt);
+  const status = lineInboxStatusMeta(voucher.journalStatus);
+  const thumb = String(voucher.mimeType || '').toLowerCase().includes('pdf')
+    ? '<div class="line-notif-pdf">📄</div>'
+    : '<img src="/api/vouchers/' + encodeURIComponent(voucher.id) + '/image" alt="証憑" loading="lazy" />';
+
+  return `
+    <div class="line-notif-card" data-status="${escapeHtml(status.css)}" data-line-voucher-id="${escapeHtml(voucher.id)}">
+      <div class="line-notif-thumb">${thumb}</div>
+      <div class="line-notif-body">
+        <div class="line-notif-meta">
+          <span class="line-notif-date">${escapeHtml(dateText)}</span>
+          <span class="line-notif-status-badge ${escapeHtml(status.css)}">${escapeHtml(status.text)}</span>
+        </div>
+        <div class="line-notif-amount">${escapeHtml(amountLabel)}</div>
+        <div class="line-notif-account">${escapeHtml(String(debitAccount))} → ${escapeHtml(String(creditAccount))}</div>
+      </div>
+      <div class="line-notif-actions">
+        <button class="row-action" data-line-open-voucher="${escapeHtml(voucher.id)}" data-line-open-mime="${escapeHtml(voucher.mimeType || '')}">確認</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderLineInboxHtml(lineVouchers) {
+  const rows = Array.isArray(lineVouchers) ? lineVouchers : [];
+  if (rows.length === 0) return '';
+  return `
+    <section class="line-inbox">
+      <div class="line-inbox-header">
+        <span class="line-inbox-icon">💬</span>
+        <strong>LINE受信トレイ</strong>
+        <span class="line-inbox-count">${rows.length}件</span>
+      </div>
+      <div class="line-inbox-feed">
+        ${rows.map((v) => renderLineInboxCardHtml(v)).join('')}
+      </div>
+    </section>
+  `;
+}
+
+async function fetchLineVouchers(clientId) {
+  const primaryPath = '/api/clients/' + encodeURIComponent(clientId) + '/vouchers?source=line&limit=10';
+  try {
+    const res = await apiFetch(primaryPath);
+    if (res.ok) {
+      const body = await res.json();
+      const list = Array.isArray(body) ? body : body?.vouchers;
+      if (Array.isArray(list)) return list.slice(0, 10);
+    }
+  } catch (_err) {
+    // fall through to legacy endpoint
+  }
+  const fallbackRes = await apiFetch('/api/vouchers?clientId=' + encodeURIComponent(clientId));
+  if (!fallbackRes.ok) return [];
+  const fallbackRows = await fallbackRes.json();
+  return (Array.isArray(fallbackRows) ? fallbackRows : [])
+    .filter((v) => v.source === 'line')
+    .slice(0, 10);
+}
+
+function openVoucherPreview(voucherId, mimeType) {
+  const normalized = String(mimeType || '').toLowerCase();
+  if (normalized.includes('pdf')) {
+    window.open(`/api/vouchers/${voucherId}/image`, '_blank');
+    return;
+  }
+  const modal = document.querySelector('#voucherModal');
+  const img = document.querySelector('#voucherModalImg');
+  if (modal && img) {
+    img.src = '';
+    loadVoucherImageBlob(voucherId).then((url) => {
+      if (url) img.src = url;
+    });
+    modal.hidden = false;
+  }
+}
+
 async function loadAndRenderJobsVouchers() {
   const client = currentClient();
   if (!client?.id) return;
   const grid = document.getElementById('jobsVouchersGrid');
   const countEl = document.getElementById('jobsVoucherCount');
+  const inboxSlot = document.getElementById('lineInboxSlot');
   if (!grid || !countEl) return;
   try {
-    const res = await apiFetch('/api/vouchers?clientId=' + encodeURIComponent(client.id));
+    const [res, lineRowsRaw] = await Promise.all([
+      apiFetch('/api/vouchers?clientId=' + encodeURIComponent(client.id)),
+      fetchLineVouchers(client.id),
+    ]);
     if (!res.ok) throw new Error('fetch failed');
     const vouchers = await res.json();
     const rows = Array.isArray(vouchers) ? vouchers : [];
+    const lineRows = Array.isArray(lineRowsRaw) ? lineRowsRaw : [];
+    if (inboxSlot) {
+      inboxSlot.innerHTML = renderLineInboxHtml(lineRows);
+      inboxSlot.querySelectorAll('[data-line-open-voucher]').forEach((btn) => {
+        btn.addEventListener('click', (event) => {
+          event.stopPropagation();
+          openVoucherPreview(btn.dataset.lineOpenVoucher, btn.dataset.lineOpenMime);
+        });
+      });
+    }
     countEl.textContent = rows.length + '件';
     countEl.className = 'status-chip ' + (rows.length === 0 ? 'complete' : 'processing');
     if (rows.length === 0) {
@@ -3566,20 +3700,8 @@ async function loadAndRenderJobsVouchers() {
       card.addEventListener('click', (event) => {
         if (event.target.closest('button') || event.target.closest('summary') || event.target.closest('details')) return;
         const id = card.dataset.voucherId;
-        const mimeType = String(card.dataset.mimeType || '').toLowerCase();
-        if (mimeType.includes('pdf')) {
-          window.open(`/api/vouchers/${id}/image`, '_blank');
-          return;
-        }
-        const modal = document.querySelector('#voucherModal');
-        const img = document.querySelector('#voucherModalImg');
-        if (modal && img) {
-          img.src = '';
-          loadVoucherImageBlob(id).then((url) => {
-            if (url) img.src = url;
-          });
-          modal.hidden = false;
-        }
+        const mimeType = card.dataset.mimeType;
+        openVoucherPreview(id, mimeType);
       });
     });
     const closeBtn = document.querySelector('#voucherModalClose');
@@ -5946,25 +6068,36 @@ async function loadAndRenderClientPortal(clientId) {
 
 // ---- 赤バッジ: LINE新着証憑カウント ----------------------------------------
 async function refreshVoucherBadge() {
-  const c = currentClient();
   const badge = document.getElementById('badge-vouchers');
   if (!badge) return;
-  if (!c?.id) { badge.style.display = 'none'; return; }
   try {
-    const res = await apiFetch(`/api/clients/${c.id}/vouchers/new-count`);
+    const res = await apiFetch('/api/vouchers/new-count');
     if (!res.ok) return;
     const { count } = await res.json();
+    const prev = parseInt(badge.dataset.prevCount || '0', 10);
     if (count > 0) {
       badge.textContent = count > 99 ? '99+' : String(count);
       badge.style.display = 'inline-flex';
     } else {
       badge.style.display = 'none';
     }
+    // 件数が増えた場合にトースト通知
+    if (count > prev && prev >= 0 && document.visibilityState === 'visible') {
+      showToast(`💬 LINE新着 ${count}件`, 'info');
+    }
+    badge.dataset.prevCount = String(count);
   } catch (e) { /* ignore */ }
 }
 
-// 30秒ごとにバッジ更新
-setInterval(refreshVoucherBadge, 30000);
+// 15秒ごとにバッジ更新
+setInterval(refreshVoucherBadge, 15000);
+
+// フォーカス復帰時に即時更新
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    refreshVoucherBadge();
+  }
+});
 
 // Startup: await auth session, fetch user info, then load clients.
 (async () => {
