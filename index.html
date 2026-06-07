@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>経理丸ごとAI</title>
+    <title>経理丸投げAI</title>
     <meta
       name="description"
       content="税理士事務所向けに、記帳完了後のレビュー・差戻し・進捗管理・顧問先連絡をAIで支援するSaaS。"
@@ -12,6 +12,13 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="./styles.css" />
+    <!-- インラインスピナー: styles.css / JS の読み込み完了前に白い画面が出ないようにする -->
+    <style>
+      #__pageInit { position:fixed;inset:0;z-index:9999;background:#0f172a;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:1rem; }
+      #__pageInit svg { animation:__pi-spin .7s linear infinite; }
+      @keyframes __pi-spin { to { transform:rotate(360deg); } }
+      #__pageInit p { color:#94a3b8;font-family:sans-serif;font-size:.9rem;margin:0; }
+    </style>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
     <script>
       // Supabase session init — runs before script.js.
@@ -19,7 +26,6 @@
       (function () {
         const SUPABASE_URL = 'https://kmgjmlcijhgaqddtjdou.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImttZ2ptbGNpamhnYXFkZHRqZG91Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MDI0MDEsImV4cCI6MjA5NTI3ODQwMX0.oX5bfJ-FRb6LWFmzR479IqPtx3sU_ZWaDtX_S41-EtU';
-        const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         // localhost では Supabase 認証をバイパス（DEV_BYPASS_AUTH と対になる）
         var isLocalDev = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
@@ -28,11 +34,35 @@
           window.__bookmeeSession = devSession;
           window.__sessionPromise = Promise.resolve(devSession);
         } else {
-          window.__sessionPromise = sb.auth.getSession().then(function (result) {
+          var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+          window.__supabaseClient = sb;
+          function loginRedirect(reason) {
+            var q = reason ? 'error=' + reason + '&' : '';
+            window.location.href = '/login.html?' + q + 'redirect=' + encodeURIComponent(location.pathname + location.search + location.hash);
+          }
+          async function rejectStaleSession(reason) {
+            try { await sb.auth.signOut(); } catch (_) {}
+            loginRedirect(reason || 'session_expired');
+            return null;
+          }
+          window.__sessionPromise = sb.auth.getSession().then(async function (result) {
             var session = result.data && result.data.session;
             if (!session) {
-              window.location.href = '/login.html?redirect=' + encodeURIComponent(location.pathname + location.search + location.hash);
+              loginRedirect();
               return null;
+            }
+            // localStorage に古いセッションが残っていると login 画面に行けなくなる。
+            // 期限切れ or サーバー拒否ならクリアしてログインへ戻す。
+            if (session.expires_at && session.expires_at * 1000 < Date.now()) {
+              return rejectStaleSession('session_expired');
+            }
+            try {
+              var meRes = await fetch('/api/auth/me', {
+                headers: { Authorization: 'Bearer ' + session.access_token },
+              });
+              if (!meRes.ok) return rejectStaleSession('session_expired');
+            } catch (_) {
+              return rejectStaleSession('session_expired');
             }
             window.__bookmeeSession = session;
             sb.auth.onAuthStateChange(function (event, s) {
@@ -44,6 +74,7 @@
         }
 
         window.__bookmeeSignOut = function () {
+          if (typeof sb === 'undefined') { window.location.href = '/login.html'; return Promise.resolve(); }
           return sb.auth.signOut().then(function () {
             window.location.href = '/login.html';
           });
@@ -52,15 +83,28 @@
     </script>
   </head>
   <body>
+    <!-- JS実行前に即座に表示されるフルページスピナー。script.jsが初期化完了後に非表示にする -->
+    <div id="__pageInit">
+      <svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="20" cy="20" r="16" stroke="#1e293b" stroke-width="4"/>
+        <path d="M20 4a16 16 0 0 1 16 16" stroke="#10b981" stroke-width="4" stroke-linecap="round"/>
+      </svg>
+      <p>読み込んでいます…</p>
+    </div>
     <div class="app-shell">
       <aside class="sidebar">
         <a class="brand" href="#">
           <span class="brand-mark">経</span>
           <span>
-            <strong>経理丸ごとAI</strong>
+            <strong>経理丸投げAI</strong>
             <small>for 税理士事務所</small>
           </span>
         </a>
+
+        <div class="mode-switch" id="modeSwitchBar">
+          <button class="mode-switch-btn" id="modeBtnSimple">かんたん</button>
+          <button class="mode-switch-btn active" id="modeBtnNormal">通常</button>
+        </div>
 
         <div id="clientContextBar" style="display:none;padding:.5rem 1rem .5rem;border-bottom:1px solid #e3e7ee;margin-bottom:.5rem">
           <p style="font-size:.7rem;color:#8899aa;margin:0 0 2px">選択中の顧問先</p>
@@ -76,34 +120,36 @@
 
           <p class="nav-group-label">業務</p>
           <button class="nav-item" data-view="company">顧問先</button>
+          <button class="nav-item simple-mode-hidden" data-view="crm">顧問先CRM</button>
           <button class="nav-item nav-parent" data-view-group="jobs">
             月次業務 <span class="nav-caret">▾</span>
           </button>
           <div class="nav-sub" id="jobsSub">
             <button class="nav-item nav-sub-item" data-view="jobs-journal" title="MFの仕訳一覧。AIが空摘要を自動補完します">仕訳</button>
-            <button class="nav-item nav-sub-item" data-view="mf-review" title="AIが提案した摘要を確認・承認してMFに反映">摘要レビュー</button>
-            <button class="nav-item nav-sub-item" data-view="jobs-vouchers" title="領収書・請求書の一覧と突合状況">証憑<span class="nav-badge" id="badge-vouchers" style="display:none"></span></button>
-            <button class="nav-item nav-sub-item" data-view="jobs-monthly-check">月次チェック</button>
+            <button class="nav-item nav-sub-item simple-mode-hidden" data-view="mf-review" title="AIが提案した摘要を確認・承認してMFに反映">摘要レビュー</button>
+            <button class="nav-item nav-sub-item simple-mode-hidden" data-view="jobs-vouchers" title="領収書・請求書の一覧と突合状況">証憑<span class="nav-badge" id="badge-vouchers" style="display:none"></span></button>
+            <button class="nav-item nav-sub-item simple-mode-hidden" data-view="jobs-monthly-check">月次チェック</button>
           </div>
           <button class="nav-item" data-view="vouchers-register" title="弥生会計などへインポートできるCSVを出力">証憑登録</button>
-          <button class="nav-item" data-view="matching-results">突合結果</button>
-          <button class="nav-item" data-view="portal">メッセージ</button>
+          <button class="nav-item simple-mode-hidden" data-view="matching-results">突合結果</button>
+          <button class="nav-item simple-mode-hidden" data-view="portal">メッセージ</button>
 
-          <p class="nav-group-label">コンサル</p>
-          <button class="nav-item" data-view="tax-suggestions" title="AIが仕訳データから節税機会を提案します">節税提案</button>
-          <button class="nav-item" data-view="cashflow" title="過去の仕訳から翌3ヶ月のキャッシュフローを予測します">CF予測</button>
-          <button class="nav-item" data-view="client-portal" title="顧問先向けの月次レポートURLを発行します">顧問先ポータル</button>
+          <p class="nav-group-label simple-mode-hidden">コンサル</p>
+          <button class="nav-item simple-mode-hidden" data-view="tax-suggestions" title="AIが仕訳データから節税機会を提案します">節税提案</button>
+          <button class="nav-item simple-mode-hidden" data-view="cashflow" title="過去の仕訳から翌3ヶ月のキャッシュフローを予測します">CF予測</button>
+          <button class="nav-item simple-mode-hidden" data-view="client-portal" title="顧問先向けの月次レポートURLを発行します">顧問先ポータル</button>
 
-          <p class="nav-group-label">連携</p>
-          <button class="nav-item" data-view="integrations-drive">Google Drive</button>
-          <button class="nav-item" data-view="integrations-line" title="LINE Botの設定。顧問先がLINEで領収書を送れるようになります">LINE</button>
+          <p class="nav-group-label simple-mode-hidden">連携</p>
+          <button class="nav-item simple-mode-hidden" data-view="integrations-drive">Google Drive</button>
+          <button class="nav-item simple-mode-hidden" data-view="integrations-line" title="LINE Botの設定。顧問先がLINEで領収書を送れるようになります">LINE</button>
 
           <p class="nav-group-label">学習・設定</p>
-          <button class="nav-item" data-view="rules">学習</button>
+          <button class="nav-item simple-mode-hidden" data-view="rules">学習</button>
+          <button class="nav-item simple-mode-hidden" data-view="training">新人研修</button>
           <button class="nav-item" data-view="settings">設定</button>
 
-          <p class="nav-group-label">サポート</p>
-          <button class="nav-item" data-view="guide">使い方</button>
+          <p class="nav-group-label simple-mode-hidden">サポート</p>
+          <button class="nav-item simple-mode-hidden" data-view="guide">使い方</button>
         </nav>
 
         <div class="nav-user-info" id="navUserInfo"></div>
@@ -176,13 +222,40 @@
             </div>
           </div>
 
-          <div id="viewContent"></div>
+          <div id="bootBanner" class="boot-banner" hidden role="alert"></div>
+          <div id="viewContent">
+            <div class="boot-loading" id="bootLoading">
+              <div class="spinner"></div>
+              <p id="bootLoadingMsg">データを読み込んでいます…</p>
+              <small>初回は少し時間がかかることがあります</small>
+            </div>
+          </div>
         </section>
       </main>
     </div>
 
     <div id="onboardingOverlayRoot"></div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <!-- フィードバック/問題報告 FAB -->
+    <button id="feedbackTrigger" class="feedback-fab" title="問題・フィードバックを報告">? 問題を報告</button>
+    <div id="feedbackModal" class="feedback-modal" hidden role="dialog" aria-modal="true" aria-labelledby="feedbackModalTitle">
+      <div class="feedback-backdrop" id="feedbackBackdrop"></div>
+      <div class="feedback-content">
+        <h3 id="feedbackModalTitle" class="feedback-title">問題・フィードバックを送る</h3>
+        <p class="feedback-hint">内容は開発チームにのみ送信されます。</p>
+        <label class="feedback-label" for="feedbackTitleInput">タイトル</label>
+        <input id="feedbackTitleInput" class="feedback-input" type="text" placeholder="例: CSV出力が動かない" maxlength="200" />
+        <label class="feedback-label" for="feedbackBodyInput">詳細</label>
+        <textarea id="feedbackBodyInput" class="feedback-textarea" rows="5" placeholder="状況をできるだけ詳しく教えてください"></textarea>
+        <div class="feedback-actions">
+          <button id="feedbackClose" class="ghost-btn">キャンセル</button>
+          <button id="feedbackSubmit" class="primary-action">送信する</button>
+        </div>
+      </div>
+    </div>
+    <!-- かんたんモード: 全画面オーバーレイ -->
+    <div id="simpleRoot" hidden aria-label="かんたんモード"></div>
     <script src="./script.js"></script>
   </body>
 </html>

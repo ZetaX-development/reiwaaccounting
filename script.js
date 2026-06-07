@@ -2,6 +2,9 @@ const appState = {
   activeClient: 0,
   activeView: "dashboard",
   activeFilter: "all",
+  clients: [],
+  crmSearch: "",
+  crmStatusFilter: "all",
   dashboardTodos: [],
   dashboardAiPendingCount: 0,
   dashboardAiDifficultCount: 0,
@@ -10,6 +13,7 @@ const appState = {
   mfReviewStatus: "pending",
   search: "",
   currentRole: (typeof localStorage !== "undefined" && localStorage.getItem("bookmee.role")) || "tax_accountant",
+  simpleMode: (typeof localStorage !== "undefined" && localStorage.getItem("bookmee.simpleMode") === "true"),
   expandedHistory: {}, // taskId -> bool
   pendingDraftBody: null,
   vouchers: [],
@@ -71,7 +75,7 @@ function hydrateVoucherImages() {
 }
 
 // Loaded from /api/clients on startup. Empty until the first fetch resolves.
-let clients = [];
+let clients = appState.clients;
 
 // 中央集約 labels: API は英語コード (e.g. "awaiting_approval") を返す。
 // UI は常に labels.* を経由して日本語化する。
@@ -79,6 +83,7 @@ const labels = {
   // View titles (eyebrow)
   dashboard: "ToDo",
   company: "顧問先",
+  crm: "顧問先CRM",
   "jobs-journal": "月次業務 / 仕訳",
   "jobs-vouchers": "月次業務 / 証憑",
   "jobs-monthly-check": "月次業務 / 月次チェック",
@@ -89,6 +94,7 @@ const labels = {
   "integrations-line": "連携 / LINE",
   "mf-review": "月次業務 / 摘要レビュー",
   rules: "学習",
+  training: "新人研修",
   settings: "設定",
   guide: "使い方",
   "tax-suggestions": "コンサル / 節税提案",
@@ -121,6 +127,7 @@ const labels = {
   helper: {
     dashboard: "AIが先にチェックした件のうち、あなたが今日触る分だけ表示しています。",
     company: "選んだ顧問先の会社情報・連携状況・過去の取引履歴を確認できます。",
+    crm: "顧問先の対応状況、最終連絡日、未処理件数をまとめて確認できます。",
     "jobs-journal": "マネーフォワードから取り込んだ仕訳一覧です。",
     "jobs-vouchers": "領収書が足りていない取引と、依頼文の作成。",
     "jobs-monthly-check": "前月比や残高チェックなど月次レビューの観点。",
@@ -131,6 +138,7 @@ const labels = {
     "integrations-line": "公式 LINE アカウントに送られた画像を自動取り込みします。スタッフが LINE で画像を送るだけで Voucher になります。",
     "mf-review": "摘要が空のMF仕訳をAIで自動補完します。信頼度が高いものは自動適用、低いものだけ確認が必要です。",
     rules: "この顧問先で過去にミスしやすかった点を、企業ごとのチェック項目として保存します。",
+    training: "事務所のルールとAI補正履歴から、新人向け研修カードを自動生成します。",
     settings: "事務所全体の運用設定。",
     guide: "経理丸ごとAIの基本的な使い方を確認できます。",
     "tax-suggestions": "仕訳データをAIで分析して節税の提案を生成します。提案を「実施済み」「見送り」で管理できます。",
@@ -142,6 +150,7 @@ const labels = {
 const viewDocumentTitles = {
   dashboard: "ToDo | 経理丸ごとAI",
   company: "顧問先 | 経理丸ごとAI",
+  crm: "顧問先CRM | 経理丸ごとAI",
   "jobs-journal": "仕訳 | 経理丸ごとAI",
   "jobs-vouchers": "証憑 | 経理丸ごとAI",
   "jobs-monthly-check": "月次チェック | 経理丸ごとAI",
@@ -152,6 +161,7 @@ const viewDocumentTitles = {
   "integrations-line": "LINE連携 | 経理丸ごとAI",
   "mf-review": "摘要レビュー | 経理丸ごとAI",
   rules: "学習 | 経理丸ごとAI",
+  training: "新人研修 | 経理丸ごとAI",
   settings: "設定 | 経理丸ごとAI",
   guide: "使い方 | 経理丸ごとAI",
   "tax-suggestions": "節税提案 | 経理丸ごとAI",
@@ -317,6 +327,7 @@ async function loadClientsFromApi() {
     const filtered = detailed.filter(Boolean);
     if (filtered.length > 0) {
       clients = filtered;
+      appState.clients = clients;
       restoreClientOrder();
     }
   } catch (err) {
@@ -405,6 +416,12 @@ async function uploadVouchers(files) {
     form.append('file', file);
     if (appState.voucherTab !== 'unassigned') {
       form.append('clientId', appState.voucherTab);
+    }
+    // 証憑種別（請求書/売上 vs 経費/領収書）
+    const voucherTypeEl = document.querySelector('input[name="voucherType"]:checked');
+    const voucherType = voucherTypeEl?.value || 'manual';
+    if (voucherType === 'invoice') {
+      form.append('voucherSource', 'invoice');
     }
     try {
       const res = await apiFetch('/api/vouchers', {
@@ -1222,6 +1239,10 @@ function adaptApiClient(d) {
     message: d.messageDraft ?? "",
     contactPrimary: d.contactPrimary,
     contactEndpoints: d.contactEndpoints ?? {},
+    memo: d.memo ?? "",
+    tags: d.tags ?? [],
+    crmStatus: d.crmStatus ?? "active",
+    lastContactAt: d.lastContactAt ?? null,
     vendorSyncs: d.vendorSyncs ?? [],
     fiscalYearEnd: d.fiscalYearEnd ?? null,
     yearendKpi: d.yearendKpi ?? null,
@@ -1713,6 +1734,14 @@ function renderTable(rows, columns) {
 function renderDashboard() {
   const client = currentClient();
   if (!client) {
+    if (!clients || clients.length === 0) {
+      return '<div class="dashboard-empty" style="padding:2.5rem 2rem;line-height:1.8">' +
+        '<div style="font-size:1.4rem;margin-bottom:.75rem">ようこそ</div>' +
+        '<p style="font-weight:400;color:#374151">まず「顧問先」から顧問先を追加してください。</p>' +
+        '<p style="font-weight:400;color:#374151;margin-top:.5rem">MoneyForward Cloud Accountingとの連携後、仕訳データが表示されます。</p>' +
+        '<button class="primary-action" style="margin-top:1.25rem" onclick="document.querySelector(\'[data-view=company]\')?.click()">顧問先を追加する →</button>' +
+        '</div>';
+    }
     return '<div class="dashboard-empty">顧問先を選択してください。</div>';
   }
   // Spec 05 F3: yearend mode shows yearend checklist instead of tasks.
@@ -1722,6 +1751,7 @@ function renderDashboard() {
   let html = '<section class="dashboard-stack">';
   html += '<div id="aiPendingBanner">' + renderDashboardAiPendingBannerHtml(appState.dashboardAiPendingCount || 0, appState.dashboardAiDifficultCount || 0) + '</div>';
   html += '<div id="missingReceiptsBanner">' + renderDashboardMissingBannerHtml(appState.dashboardMissingCount || 0, appState.dashboardMissingReceipts || []) + '</div>';
+  html += '<div id="unknownWithdrawalBanner">' + renderUnknownWithdrawalBannerHtml() + '</div>';
   html += '<section class="dashboard-section-card">';
   html += '<div class="dashboard-section-head"><h3>手動ToDo</h3><span class="status-chip processing">' + (appState.dashboardTodos || []).length + '件</span></div>';
   html += '<div id="todoList">' + renderDashboardTodoListHtml(appState.dashboardTodos || []) + '</div>';
@@ -1759,6 +1789,32 @@ function decodeDataToken(token) {
   } catch (_) {
     return token || "";
   }
+}
+
+function renderUnknownWithdrawalBannerHtml() {
+  // 不明出金照会フォーム（手動で出金情報を入力して照会メッセージを送る）
+  return `
+    <section class="dashboard-section-card dashboard-withdrawal">
+      <div class="dashboard-section-head">
+        <h3>不明出金の照会</h3>
+        <span class="status-chip warning">銀行明細から確認</span>
+      </div>
+      <p class="dashboard-alert-sub">銀行口座からの現金引き出しや用途不明の出金について、顧問先に内容確認メッセージを送れます。</p>
+      <div class="withdrawal-entries" id="withdrawalEntries">
+        <div class="withdrawal-entry">
+          <input type="date" class="withdrawal-date" placeholder="日付" />
+          <input type="number" class="withdrawal-amount" placeholder="金額（円）" min="1" />
+          <input type="text" class="withdrawal-desc" placeholder="明細の摘要（例: 現金引出）" />
+          <button class="withdrawal-remove-btn" title="削除">×</button>
+        </div>
+      </div>
+      <div class="withdrawal-actions">
+        <button class="btn btn-secondary withdrawal-add-btn" id="withdrawalAddEntry">＋ 出金を追加</button>
+        <button class="btn btn-primary" id="withdrawalSendInquiry">照会メッセージを送信</button>
+      </div>
+      <div id="withdrawalResult" class="withdrawal-result" hidden></div>
+    </section>
+  `;
 }
 
 function renderDashboardAiPendingBannerHtml(aiPendingCount, aiDifficultCount) {
@@ -2584,6 +2640,10 @@ function escapeHtml(s) {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+function escapeAttribute(s) {
+  return escapeHtml(s).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
 // Mirror of server-side formatForChannel (kept simple)
 function formatBodyForChannel(text, channel) {
   if (!text) return "";
@@ -3022,8 +3082,88 @@ function renderCompanyInfo(c) {
       html += '<div style="margin-top:1rem"><a href="/api/mf/oauth/start?clientId=' + escapeHtml(c.id) + '" class="btn btn-primary">MoneyForwardと連携する</a></div>';
     }
   }
+  if (c.vendor === 'freee' || !c.vendor) {
+    if (c.freeeExternalId) {
+      html += '<div style="margin-top:1rem"><span class="status-chip complete">freee連携済み</span></div>';
+    } else {
+      html += '<div style="margin-top:1rem"><a href="/api/freee/oauth/start?clientId=' + escapeHtml(c.id) + '" class="btn btn-primary">freeeと連携する</a></div>';
+    }
+  }
+  // オンボーディングガイド: 未設定項目があれば設定を促す
+  const endpointsForCheck = c.contactEndpoints || {};
+  const hasContactConfigured = !!(endpointsForCheck.email || endpointsForCheck.chatwork || endpointsForCheck.line || endpointsForCheck.line_works);
+  const needsAccountingConn = !c.mfConnected && !c.freeeExternalId && c.vendor !== 'yayoi';
+  if (!hasContactConfigured || needsAccountingConn) {
+    html += '<div class="client-setup-guide">';
+    html += '<p class="client-setup-guide-title">セットアップを完了しましょう</p>';
+    if (needsAccountingConn) {
+      html += '<div class="client-setup-item pending">会計ソフトとの連携が未完了です（上のボタンから連携できます）</div>';
+    }
+    if (!hasContactConfigured) {
+      html += '<div class="client-setup-item pending">連絡先が未設定です — <button class="link-btn" data-company-tab="contact">「連絡先」タブで設定する →</button></div>';
+    }
+    html += '</div>';
+  }
+  const crmStatus = ["active", "pending", "inactive"].includes(c.crmStatus) ? c.crmStatus : "active";
+  const lastContactDate = c.lastContactAt ? String(c.lastContactAt).slice(0, 10) : "";
+  html += '<div class="company-crm-form">';
+  html += '<div><p class="eyebrow">CRM情報</p><h4>顧問先対応メモ</h4></div>';
+  html += '<div class="company-crm-field">';
+  html += '<label for="companyCrmMemo">メモ</label>';
+  html += '<textarea id="companyCrmMemo" rows="5" placeholder="次回連絡時の確認事項など">' + escapeHtml(c.memo || "") + '</textarea>';
+  html += '<button class="primary-action compact" data-action="company-crm-save">メモを保存</button>';
+  html += '</div>';
+  html += '<div class="company-crm-field">';
+  html += '<label for="companyCrmTags">タグ（カンマ区切り）</label>';
+  html += '<input id="companyCrmTags" type="text" value="' + escapeAttribute((c.tags || []).join(", ")) + '" placeholder="重点顧客, 飲食業">';
+  html += '<button class="primary-action compact" data-action="company-crm-save">タグを保存</button>';
+  html += '</div>';
+  html += '<div class="company-crm-status-row">';
+  html += '<div><label for="companyCrmStatus">ステータス</label><select id="companyCrmStatus">';
+  html += '<option value="active"' + (crmStatus === "active" ? " selected" : "") + '>対応中</option>';
+  html += '<option value="pending"' + (crmStatus === "pending" ? " selected" : "") + '>確認待ち</option>';
+  html += '<option value="inactive"' + (crmStatus === "inactive" ? " selected" : "") + '>完了</option>';
+  html += '</select></div>';
+  html += '<div><label for="companyCrmLastContactAt">最終連絡日</label><input id="companyCrmLastContactAt" type="date" value="' + escapeAttribute(lastContactDate) + '"></div>';
+  html += '<button class="primary-action compact" data-action="company-crm-save">状態を保存</button>';
+  html += '</div>';
+  html += '</div>';
   html += '</section>';
   return html;
+}
+
+async function saveCompanyCrm(button) {
+  const client = currentClient();
+  if (!client?.id) return;
+
+  const memo = ($("#companyCrmMemo")?.value || "").trim();
+  const tags = ($("#companyCrmTags")?.value || "")
+    .split(/[,、]/)
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+  const crmStatus = $("#companyCrmStatus")?.value || "active";
+  const lastContactAt = $("#companyCrmLastContactAt")?.value || null;
+  const payload = { memo, tags, crmStatus, lastContactAt };
+
+  setButtonPending(button, true, "保存中...");
+  try {
+    const res = await apiFetch("/api/clients/" + encodeURIComponent(client.id), {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error?.message || "HTTP " + res.status);
+    }
+    Object.assign(client, payload);
+    showToast("CRM情報を保存しました", "success");
+    render();
+  } catch (err) {
+    showToast("CRM情報の保存に失敗しました", "error");
+  } finally {
+    setButtonPending(button, false);
+  }
 }
 
 function renderCompanyContact(c) {
@@ -3506,11 +3646,15 @@ function renderJobsVoucherCardHtml(voucher, clientId) {
       ? '<span class="voucher-source-badge src-drive">Drive</span>'
       : voucher.source === 'line'
         ? '<span class="voucher-source-badge src-line">LINE</span>'
-        : '';
+        : voucher.source === 'cc_csv'
+          ? '<span class="voucher-source-badge src-cc">CC CSV</span>'
+          : '';
   const mimeType = String(voucher.mimeType || '').toLowerCase();
   const thumb = mimeType.includes('pdf')
     ? '<div class="pdf">📄</div>'
-    : `<img data-voucher-img="${voucher.id}" alt="${escapeHtml(voucher.filename || "voucher")}" />`;
+    : mimeType.includes('csv')
+      ? '<div class="pdf">CSV</div>'
+      : `<img data-voucher-img="${voucher.id}" alt="${escapeHtml(voucher.filename || "voucher")}" />`;
   const mfStatus = voucher.mfWriteStatus || 'none';
   const canWrite = mfStatus !== 'done' && mfStatus !== 'writing' && mfStatus !== 'pending';
   let html = '<article class="voucher-status-card" data-voucher-id="' + voucher.id + '" data-mime-type="' + escapeHtml(voucher.mimeType || "") + '">';
@@ -3530,6 +3674,17 @@ function renderJobsVoucherCardHtml(voucher, clientId) {
   }
   html += '</div></article>';
   return html;
+}
+
+// 仕訳ドラフトをMF手入力用のテキスト形式に変換（スタッフのコピペ用）
+function formatJournalCopyText(txDate, debit, credit, description) {
+  const y = (n) => n != null ? '¥' + Number(n).toLocaleString('ja-JP') : '—';
+  const c = (s) => s || '—';
+  const debitLine = [c(debit.account), c(debit.subAccount), c(debit.partner), c(debit.taxClass), y(debit.amount)]
+    .join(' | ');
+  const creditLine = [c(credit.account), c(credit.subAccount), c(credit.partner), c(credit.taxClass), y(credit.amount)]
+    .join(' | ');
+  return `【仕訳ドラフト】\n取引日: ${c(txDate)}\n借方: ${debitLine}\n貸方: ${creditLine}\n摘要: ${c(description)}`;
 }
 
 function parseVoucherDraftJournal(raw) {
@@ -3636,7 +3791,7 @@ async function fetchLineVouchers(clientId) {
 
 function openVoucherPreview(voucherId, mimeType) {
   const normalized = String(mimeType || '').toLowerCase();
-  if (normalized.includes('pdf')) {
+  if (normalized.includes('pdf') || normalized.includes('csv')) {
     window.open(`/api/vouchers/${voucherId}/image`, '_blank');
     return;
   }
@@ -3765,9 +3920,30 @@ function renderJobsMonthlyCheck() {
   return html;
 }
 
+function renderCcCsvUploadSection(clientId) {
+  let html = '<section class="dashboard-section-card cc-csv-upload-card">';
+  html += '<div class="dashboard-section-head">';
+  html += '<div><p class="eyebrow">CC明細インポート</p><h3>クレジットカード明細CSV</h3></div>';
+  html += '</div>';
+  html += '<p class="cc-csv-upload-help">カード会社のWebからダウンロードしたCSVをアップロードすると、各行を証憑として登録してAI仕訳ドラフトを生成します。</p>';
+  html += '<div class="cc-csv-upload-form">';
+  html += '<input type="file" id="ccCsvInput" accept=".csv,text/csv" hidden>';
+  html += '<label for="ccCsvInput" class="primary-action cc-csv-file-label">📎 CSVを選ぶ</label>';
+  html += '<span id="ccCsvFilename" class="cc-csv-filename"></span>';
+  html += '<button id="ccCsvUploadBtn" class="primary-action" disabled>アップロード</button>';
+  html += '</div>';
+  if (!clientId) {
+    html += '<p class="cc-result-warn">アップロードする顧問先を選択してください。</p>';
+  }
+  html += '<div id="ccCsvResult" class="cc-csv-result" aria-live="polite"></div>';
+  html += '</section>';
+  return html;
+}
+
 function renderVoucherRegister() {
   const tab = appState.voucherTab;
   const counts = appState.voucherCounts || {};
+  const client = currentClient();
   // `clients` is the module-level array populated from /api/clients on startup
   const clientNameById = Object.fromEntries(
     (clients || []).map((c) => [c.id, c.name]),
@@ -3828,7 +4004,7 @@ function renderVoucherRegister() {
         ocrHtml = `<div class="voucher-ocr ocr-running"><span class="spinner-sm"></span>OCR 中…</div>`;
       } else if (ocr === 'failed') {
         ocrHtml = `<div class="voucher-ocr ocr-failed"><span>OCR 失敗</span><button class="voucher-ocr-retry" data-voucher-retry-ocr="${v.id}">再試行</button></div>`;
-      } else if (ocr === 'done' && v.ocrJson) {
+      } else if ((ocr === 'done' || ocr === 'skipped') && v.ocrJson) {
         const j = v.ocrJson;
         const amount = j.amount != null ? '¥' + j.amount.toLocaleString('ja-JP') : '—';
         const vendor = j.vendor_name ? escapeHtml(j.vendor_name) : '—';
@@ -3870,7 +4046,9 @@ function renderVoucherRegister() {
           ? '<span class="voucher-source-badge src-drive">Drive</span>'
           : v.source === 'line'
             ? '<span class="voucher-source-badge src-line">LINE</span>'
-            : '';
+            : v.source === 'cc_csv'
+              ? '<span class="voucher-source-badge src-cc">CC CSV</span>'
+              : '';
       const captionHtml = v.caption
         ? `<div class="voucher-caption">${escapeHtml(v.caption)}</div>`
         : '';
@@ -3903,8 +4081,10 @@ function renderVoucherRegister() {
       return `
       <div class="voucher-card" data-voucher-id="${v.id}" data-mime-type="${escapeHtml(v.mimeType || '')}" draggable="true">
         ${String(v.mimeType || '').toLowerCase().includes('pdf')
-          ? '<div class="voucher-pdf-thumb">📄</div>'
-          : `<img data-voucher-img="${v.id}" alt="${escapeHtml(v.filename)}" style="background:#f3f4f6;" />`}
+          ? '<div class="voucher-document-thumb">📄</div>'
+          : String(v.mimeType || '').toLowerCase().includes('csv')
+            ? '<div class="voucher-document-thumb">CSV</div>'
+            : `<img data-voucher-img="${v.id}" alt="${escapeHtml(v.filename)}" style="background:#f3f4f6;" />`}
         <button class="voucher-delete" data-voucher-delete="${v.id}" aria-label="削除">×</button>
         <div class="voucher-meta">
           <div class="voucher-filename">${escapeHtml(v.filename)}${sourceBadge}</div>
@@ -3920,12 +4100,38 @@ function renderVoucherRegister() {
     })
     .join('');
 
+  // 弥生CSV出力バー（顧問先タブ選択時のみ表示）
+  const yayoiExportBar = tab !== 'unassigned' ? `
+    <div class="yayoi-export-bar">
+      <div class="yayoi-export-info">
+        <strong>弥生会計インポート用CSV</strong>
+        <span class="yayoi-export-hint">日付で絞り込んで出力できます（空欄なら全件）</span>
+      </div>
+      <div class="yayoi-export-controls">
+        <input type="date" id="yayoiFromDate" class="yayoi-date-input" placeholder="開始日" title="開始日" />
+        <span>〜</span>
+        <input type="date" id="yayoiToDate" class="yayoi-date-input" placeholder="終了日" title="終了日" />
+        <button class="btn btn-primary" id="yayoiExportBtn">弥生CSVをダウンロード</button>
+      </div>
+    </div>
+  ` : '';
+
   return `
     <section class="voucher-register">
+      ${yayoiExportBar}
+      ${renderCcCsvUploadSection(client?.id)}
       <div class="voucher-dropzone" id="voucherDropzone">
         <div class="voucher-drop-icon">⬆</div>
         <p class="voucher-dropzone-label">証憑ファイルをここにドラッグ＆ドロップ</p>
         <small class="voucher-status-meta">JPEG / PNG / GIF / WebP (10MBまで)</small>
+        <div class="voucher-type-selector">
+          <label class="voucher-type-opt">
+            <input type="radio" name="voucherType" value="manual" checked /> 経費・領収書
+          </label>
+          <label class="voucher-type-opt">
+            <input type="radio" name="voucherType" value="invoice" /> 請求書（売上）
+          </label>
+        </div>
         <label class="voucher-pick-btn">
           ファイルを選択してアップロード
           <input type="file" id="voucherFileInput" multiple
@@ -4138,6 +4344,7 @@ function renderMatchingResults() {
               <button class="matching-redraft-btn" data-matching-redraft="${v.id}">再生成</button>
               ${js !== 'approved' ? `<button class="matching-approve-btn" data-matching-approve="${v.id}">承認</button>` : ''}
               ${mfWriteBtn}
+              <button class="matching-copy-btn" data-matching-copy="${v.id}" data-copy-text="${escapeAttribute(formatJournalCopyText(txDate, debit, credit, d.description))}">📋 コピー</button>
             </div>
           </div>`;
       } else if (status === 'unmatched' && v.ocrStatus === 'done') {
@@ -4553,6 +4760,134 @@ function renderIntegrationsLine() {
   `;
 }
 
+// ─────────────────────────────────────────────
+// Training view state
+// ─────────────────────────────────────────────
+const trainingState = {
+  cards: [],          // TrainingCard[]
+  currentIdx: 0,
+  showAnswer: false,
+  loading: false,
+  stats: null,
+};
+
+function renderTraining() {
+  const s = trainingState;
+  const stats = s.stats;
+  const statsHtml = stats
+    ? `<div class="training-stats-row">
+        <div class="training-stat"><span class="training-stat-num">${stats.ruleCount}</span><span>学習ルール</span></div>
+        <div class="training-stat"><span class="training-stat-num">${stats.correctionCount}</span><span>AI補正実績</span></div>
+        <div class="training-stat"><span class="training-stat-num">${stats.cardCount}</span><span>生成可能カード数</span></div>
+      </div>`
+    : '<p class="training-loading">データを読み込み中…</p>';
+
+  if (s.loading) {
+    return `<section class="training-view"><div class="training-header">
+      <p class="eyebrow">新人研修</p><h2>研修カード練習</h2></div>
+      <div class="training-generating"><div class="spinner"></div><p>研修カードを生成中…</p></div></section>`;
+  }
+
+  if (s.cards.length === 0) {
+    return `<section class="training-view">
+      <div class="training-header">
+        <div><p class="eyebrow">新人研修</p><h2>研修カード練習</h2></div>
+      </div>
+      <div class="training-intro">
+        <p>事務所のルール・AIによる補正実績から、<strong>新人向け仕訳練習カード</strong>を自動生成します。<br>問題形式で答えを確認しながら、実務パターンを効率よく習得できます。</p>
+        ${statsHtml}
+        <div class="training-actions">
+          <button class="primary-action" id="trainingGenBtn" ${!stats ? 'disabled' : ''}>
+            研修カードを生成する
+          </button>
+          <button class="training-ai-btn" id="trainingGenAiBtn" ${!stats ? 'disabled' : ''} title="OpenAI APIキーが必要です">
+            ✨ AIで問題を強化して生成
+          </button>
+        </div>
+        <p class="training-note">事務所のデータがベースなので、汎用テキストより実務に直結した問題が作れます。</p>
+      </div>
+    </section>`;
+  }
+
+  const card = s.cards[s.currentIdx];
+  const total = s.cards.length;
+  const progress = Math.round(((s.currentIdx + 1) / total) * 100);
+  const diffLabel = card.difficulty === 'hard' ? '難' : card.difficulty === 'medium' ? '中' : '易';
+  const diffClass = card.difficulty === 'hard' ? 'diff-hard' : card.difficulty === 'medium' ? 'diff-medium' : 'diff-easy';
+  const typeLabel = card.type === 'rule' ? 'ルール確認' : card.type === 'correction' ? 'AI補正実例' : '業種知識';
+
+  return `<section class="training-view">
+    <div class="training-header">
+      <div><p class="eyebrow">新人研修</p><h2>研修カード練習</h2></div>
+      <button class="training-reset-btn" id="trainingResetBtn">最初からやり直す</button>
+    </div>
+    <div class="training-progress-bar"><div class="training-progress-fill" style="width:${progress}%"></div></div>
+    <p class="training-progress-label">${s.currentIdx + 1} / ${total} 問</p>
+
+    <div class="training-card ${s.showAnswer ? 'flipped' : ''}">
+      <div class="training-card-inner">
+        <div class="training-card-front">
+          <div class="training-card-meta">
+            <span class="training-type-badge">${typeLabel}</span>
+            <span class="training-diff-badge ${diffClass}">${diffLabel}</span>
+            ${card.clientName ? `<span class="training-client-badge">${escapeHtml(card.clientName)}</span>` : ''}
+          </div>
+          <div class="training-question">${escapeHtml(card.question).replace(/\n/g, '<br>')}</div>
+          <button class="primary-action training-flip-btn" id="trainingFlipBtn">答えを見る</button>
+        </div>
+        <div class="training-card-back">
+          <p class="training-answer-label">答え</p>
+          <div class="training-answer">${escapeHtml(card.answer).replace(/\n/g, '<br>')}</div>
+          ${card.hint ? `<div class="training-hint">💡 ${escapeHtml(card.hint)}</div>` : ''}
+          <div class="training-nav">
+            <button class="training-prev-btn" id="trainingPrevBtn" ${s.currentIdx === 0 ? 'disabled' : ''}>← 前へ</button>
+            <button class="primary-action training-next-btn" id="trainingNextBtn">
+              ${s.currentIdx === total - 1 ? '完了 🎉' : '次の問題 →'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>`;
+}
+
+async function loadTrainingStats() {
+  try {
+    const res = await apiFetch('/api/training/stats');
+    if (res.ok) {
+      trainingState.stats = await res.json();
+    }
+  } catch (e) {
+    console.warn('training stats failed', e);
+  }
+}
+
+async function generateTrainingCards(useAI) {
+  trainingState.loading = true;
+  trainingState.cards = [];
+  trainingState.currentIdx = 0;
+  trainingState.showAnswer = false;
+  render();
+  try {
+    const res = await apiFetch('/api/training/cards', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ useAI: !!useAI, limit: 20 }),
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const body = await res.json();
+    trainingState.cards = body.cards || [];
+    if (trainingState.cards.length === 0) {
+      showToast('ルール・補正データがまだありません。仕訳を使い込んでから試してください。', 'info');
+    }
+  } catch (err) {
+    showToast('生成に失敗しました: ' + String(err), 'error');
+  } finally {
+    trainingState.loading = false;
+    render();
+  }
+}
+
 function renderGuide() {
   return `
     <div class="guide-page">
@@ -4693,6 +5028,7 @@ function renderView() {
   const views = {
     dashboard: () => renderDashboard(),            // 今日 > ToDo
     company: () => renderCompany(),                // 業務 > 顧問先
+    crm: () => renderCrm(),                         // 業務 > 顧問先CRM
     "jobs-journal": () => renderJobsJournal(),     // 業務 > 月次業務 > 仕訳
     "jobs-vouchers": () => renderJobsVouchers(),   // 業務 > 月次業務 > 証憑
     "jobs-monthly-check": () => renderJobsMonthlyCheck(), // 業務 > 月次業務 > 月次チェック
@@ -4703,6 +5039,7 @@ function renderView() {
     "integrations-line": () => renderIntegrationsLine(),
     "mf-review": () => renderMfReview(),           // 業務 > 月次業務 > 摘要レビュー
     rules: () => renderRules(),                    // 学習・設定 > 学習
+    training: () => renderTraining(),              // 学習・設定 > 新人研修
     settings: () => renderSettings(),              // 学習・設定 > 設定
     guide: () => renderGuide(),                    // サポート > 使い方
     "tax-suggestions": () => renderTaxSuggestions(), // コンサル > 節税提案
@@ -4739,6 +5076,49 @@ function renderView() {
   if (appState.activeView === "company") {
     loadAndRenderCompanyTab();
   }
+  if (appState.activeView === "crm") {
+    const addClientBtn = viewContent.querySelector('[data-action="crm-add-client"]');
+    if (addClientBtn) {
+      addClientBtn.addEventListener("click", () => {
+        appState.activeView = "settings";
+        location.hash = "#/settings";
+        setTimeout(() => {
+          const btn = document.querySelector('[data-action="settings-add-client"]');
+          if (!btn) return;
+          btn.click();
+          document.getElementById("clientMgmtForm")?.scrollIntoView({ behavior: "smooth" });
+        }, 300);
+      });
+    }
+    const searchInput = viewContent.querySelector("#crmSearchInput");
+    if (searchInput) {
+      searchInput.addEventListener("input", () => {
+        appState.crmSearch = searchInput.value;
+        const cursor = searchInput.selectionStart;
+        renderView();
+        const nextInput = viewContent.querySelector("#crmSearchInput");
+        if (nextInput) {
+          nextInput.focus();
+          nextInput.setSelectionRange(cursor, cursor);
+        }
+      });
+    }
+    viewContent.querySelectorAll("[data-crm-status-filter]").forEach((button) => {
+      button.addEventListener("click", () => {
+        appState.crmStatusFilter = button.dataset.crmStatusFilter;
+        renderView();
+      });
+    });
+    viewContent.querySelectorAll("[data-crm-client-id]").forEach((card) => {
+      card.addEventListener("click", () => {
+        const index = appState.clients.findIndex((item) => item.id === card.dataset.crmClientId);
+        if (index < 0) return;
+        appState.activeClient = index;
+        updateClientContextBar();
+        location.hash = "#/company";
+      });
+    });
+  }
   // Spec 03 F2: portal channel tab handlers + initial threads load
   viewContent.querySelectorAll("[data-portal-channel]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -4758,6 +5138,50 @@ function renderView() {
   }
   if (appState.activeView === "rules") {
     loadAndRenderRules();
+  }
+  if (appState.activeView === "training") {
+    // Load stats if not yet loaded
+    if (!trainingState.stats) {
+      loadTrainingStats().then(() => render());
+    }
+    // Bind generate buttons
+    const genBtn = viewContent.querySelector('#trainingGenBtn');
+    const genAiBtn = viewContent.querySelector('#trainingGenAiBtn');
+    const flipBtn = viewContent.querySelector('#trainingFlipBtn');
+    const nextBtn = viewContent.querySelector('#trainingNextBtn');
+    const prevBtn = viewContent.querySelector('#trainingPrevBtn');
+    const resetBtn = viewContent.querySelector('#trainingResetBtn');
+
+    if (genBtn) genBtn.addEventListener('click', () => generateTrainingCards(false));
+    if (genAiBtn) genAiBtn.addEventListener('click', () => generateTrainingCards(true));
+    if (flipBtn) flipBtn.addEventListener('click', () => {
+      trainingState.showAnswer = true;
+      render();
+    });
+    if (nextBtn) nextBtn.addEventListener('click', () => {
+      if (trainingState.currentIdx >= trainingState.cards.length - 1) {
+        showToast('全問完了！お疲れさまでした 🎉', 'success');
+        trainingState.cards = [];
+        trainingState.currentIdx = 0;
+      } else {
+        trainingState.currentIdx++;
+        trainingState.showAnswer = false;
+      }
+      render();
+    });
+    if (prevBtn) prevBtn.addEventListener('click', () => {
+      if (trainingState.currentIdx > 0) {
+        trainingState.currentIdx--;
+        trainingState.showAnswer = false;
+        render();
+      }
+    });
+    if (resetBtn) resetBtn.addEventListener('click', () => {
+      trainingState.cards = [];
+      trainingState.currentIdx = 0;
+      trainingState.showAnswer = false;
+      render();
+    });
   }
   if (appState.activeView === "tax-suggestions") {
     const c = currentClient();
@@ -4826,6 +5250,63 @@ function renderView() {
         submitTodo();
       });
     });
+
+    // 不明出金照会フォームのイベント
+    const withdrawalAddBtn = viewContent.querySelector('#withdrawalAddEntry');
+    const withdrawalSendBtn = viewContent.querySelector('#withdrawalSendInquiry');
+    const withdrawalEntries = viewContent.querySelector('#withdrawalEntries');
+
+    if (withdrawalAddBtn && withdrawalEntries) {
+      withdrawalAddBtn.addEventListener('click', () => {
+        const entry = document.createElement('div');
+        entry.className = 'withdrawal-entry';
+        entry.innerHTML = `
+          <input type="date" class="withdrawal-date" placeholder="日付" />
+          <input type="number" class="withdrawal-amount" placeholder="金額（円）" min="1" />
+          <input type="text" class="withdrawal-desc" placeholder="明細の摘要（例: 現金引出）" />
+          <button class="withdrawal-remove-btn" title="削除">×</button>
+        `;
+        entry.querySelector('.withdrawal-remove-btn').addEventListener('click', () => entry.remove());
+        withdrawalEntries.appendChild(entry);
+      });
+      // 最初の行の削除ボタン
+      withdrawalEntries.querySelector('.withdrawal-remove-btn')?.addEventListener('click', function() {
+        if (withdrawalEntries.querySelectorAll('.withdrawal-entry').length > 1) this.closest('.withdrawal-entry').remove();
+      });
+    }
+
+    if (withdrawalSendBtn) {
+      withdrawalSendBtn.addEventListener('click', async () => {
+        const client = currentClient();
+        if (!client?.id) { showToast('顧問先を選択してください', 'error'); return; }
+        const rows = Array.from(viewContent.querySelectorAll('.withdrawal-entry')).map(row => ({
+          date: row.querySelector('.withdrawal-date')?.value || '',
+          amount: parseInt(row.querySelector('.withdrawal-amount')?.value || '0', 10) || 0,
+          description: row.querySelector('.withdrawal-desc')?.value || '',
+        })).filter(r => r.date && r.amount > 0);
+        if (rows.length === 0) { showToast('日付と金額を入力してください', 'error'); return; }
+        const resultEl = viewContent.querySelector('#withdrawalResult');
+        setButtonPending(withdrawalSendBtn, true, '送信中...');
+        try {
+          const res = await apiFetch(`/api/clients/${encodeURIComponent(client.id)}/inquire-withdrawals`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ entries: rows }),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(body.error?.message || '送信失敗');
+          if (resultEl) {
+            resultEl.hidden = false;
+            resultEl.innerHTML = '<div class="withdrawal-sent"><strong>照会メッセージを送信しました</strong><pre class="withdrawal-preview">' + escapeHtml(body.body || '') + '</pre></div>';
+          }
+          showToast('照会メッセージを送信しました', 'success');
+        } catch (err) {
+          showToast(friendlyError(err), 'error');
+        } finally {
+          setButtonPending(withdrawalSendBtn, false, '照会メッセージを送信');
+        }
+      });
+    }
   }
   if (appState.activeView === "mf-review") {
     const c = currentClient();
@@ -4835,6 +5316,105 @@ function renderView() {
     if (appState.vouchersLoadedTab !== appState.voucherTab) {
       loadVouchers();
     }
+    const ccInput = viewContent.querySelector("#ccCsvInput");
+    const ccBtn = viewContent.querySelector("#ccCsvUploadBtn");
+    const ccFilename = viewContent.querySelector("#ccCsvFilename");
+    const ccResult = viewContent.querySelector("#ccCsvResult");
+    if (ccInput && ccBtn && ccFilename && ccResult) {
+      ccInput.addEventListener("change", () => {
+        const file = ccInput.files && ccInput.files[0];
+        ccFilename.textContent = file ? file.name : "";
+        ccBtn.disabled = !file || !currentClient()?.id;
+      });
+      ccBtn.addEventListener("click", async () => {
+        const file = ccInput.files && ccInput.files[0];
+        if (!file) return;
+        const client = currentClient();
+        if (!client?.id) {
+          showToast("顧問先を選択してください", "error");
+          return;
+        }
+
+        setButtonPending(ccBtn, true, "処理中...");
+        ccResult.innerHTML = "";
+        try {
+          const formData = new FormData();
+          formData.append("file", file);
+          const res = await apiFetch(
+            "/api/clients/" + encodeURIComponent(client.id) + "/cc-statement-import",
+            { method: "POST", body: formData },
+          );
+          const body = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw new Error(body.error?.message || "HTTP " + res.status);
+          }
+
+          const total = Number(body.total) || 0;
+          const created = Number(body.created) || 0;
+          const skipped = Number(body.skipped) || 0;
+          const errors = Array.isArray(body.errors) ? body.errors : [];
+          let message = '<div class="cc-result-box">';
+          message += '<p class="cc-result-success">✓ ' + created + '件の証憑を登録しました（全' + total + '行）</p>';
+          if (skipped > 0) {
+            message += '<p class="cc-result-warn">スキップ: ' + skipped + '件</p>';
+          }
+          if (errors.length > 0) {
+            message += '<ul class="cc-result-errors">' +
+              errors.slice(0, 5).map((error) => '<li>' + escapeHtml(String(error)) + '</li>').join('') +
+              '</ul>';
+          }
+          message += '</div>';
+          ccResult.innerHTML = message;
+          showToast(created + "件の証憑を登録しました", "success");
+          appState.vouchersLoadedTab = null;
+          await loadVouchers();
+        } catch (err) {
+          ccResult.innerHTML = '<p class="cc-result-error">' + escapeHtml(String(err)) + '</p>';
+          showToast("インポートに失敗しました", "error");
+        } finally {
+          setButtonPending(ccBtn, false, "アップロード");
+          ccBtn.disabled = true;
+          ccInput.value = "";
+          ccFilename.textContent = "";
+        }
+      });
+    }
+    // 弥生CSVダウンロードボタン
+    const yayoiBtn = viewContent.querySelector('#yayoiExportBtn');
+    if (yayoiBtn) {
+      yayoiBtn.addEventListener('click', async () => {
+        const clientId = currentClient()?.id;
+        if (!clientId) { showToast('顧問先を選択してください', 'error'); return; }
+        const fromDate = viewContent.querySelector('#yayoiFromDate')?.value || '';
+        const toDate = viewContent.querySelector('#yayoiToDate')?.value || '';
+        let url = `/api/clients/${encodeURIComponent(clientId)}/vouchers/export-csv?format=yayoi&status=all`;
+        if (fromDate) url += `&from=${encodeURIComponent(fromDate)}`;
+        if (toDate) url += `&to=${encodeURIComponent(toDate)}`;
+        try {
+          setButtonPending(yayoiBtn, true, '出力中...');
+          const res = await apiFetch(url);
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            throw new Error(body?.error?.message || 'csv export failed');
+          }
+          const blob = await res.blob();
+          const disposition = res.headers.get('content-disposition');
+          const filename = filenameFromDisposition(disposition) || `yayoi-journals-${new Date().toISOString().slice(0, 10)}.csv`;
+          const dlUrl = URL.createObjectURL(blob);
+          try {
+            const a = document.createElement('a');
+            a.href = dlUrl; a.download = filename;
+            document.body.appendChild(a); a.click(); a.remove();
+          } finally { URL.revokeObjectURL(dlUrl); }
+          showToast('弥生CSVをダウンロードしました', 'success');
+        } catch (err) {
+          showToast(friendlyError(err), 'error');
+        } finally {
+          setButtonPending(yayoiBtn, false, '弥生CSVをダウンロード');
+        }
+      });
+    }
+
     const dropzone = document.querySelector('#voucherDropzone');
     const fileInput = document.querySelector('#voucherFileInput');
     if (dropzone) {
@@ -4986,7 +5566,7 @@ function renderView() {
         ) return;
         const id = card.dataset.voucherId;
         const mimeType = String(card.dataset.mimeType || '').toLowerCase();
-        if (mimeType.includes('pdf')) {
+        if (mimeType.includes('pdf') || mimeType.includes('csv')) {
           window.open(`/api/vouchers/${id}/image`, '_blank');
           return;
         }
@@ -5074,6 +5654,16 @@ function renderView() {
     viewContent.querySelectorAll('[data-matching-mfwrite]').forEach((btn) => {
       btn.addEventListener('click', () => {
         writeMfJournal(btn.dataset.matchingMfwrite);
+      });
+    });
+    viewContent.querySelectorAll('[data-matching-copy]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const text = decodeDataToken(btn.dataset.copyText);
+        navigator.clipboard.writeText(text).then(() => {
+          showToast('仕訳テキストをコピーしました', 'success');
+        }).catch(() => {
+          showToast('コピーに失敗しました', 'error');
+        });
       });
     });
     hydrateVoucherImages();
@@ -5223,6 +5813,10 @@ function renderView() {
         appState.activeClient = Number(button.dataset.clientTarget);
         location.hash = "#/dashboard";
         showToast("レビュー対象の顧問先を開きました。");
+        return;
+      }
+      if (action === "company-crm-save") {
+        saveCompanyCrm(button);
         return;
       }
       if (action === "approve" && taskIndex !== null) {
@@ -5609,6 +6203,15 @@ function renderNav() {
 }
 
 function render() {
+  const simpleRoot = document.getElementById('simpleRoot');
+  const appShell = document.querySelector('.app-shell');
+  if (appState.simpleMode) {
+    if (simpleRoot) { simpleRoot.hidden = false; simpleRoot.innerHTML = renderSimpleApp(); bindSimpleEvents(); }
+    if (appShell) appShell.style.display = 'none';
+    return;
+  }
+  if (simpleRoot) simpleRoot.hidden = true;
+  if (appShell) appShell.style.display = '';
   renderClients();
   renderSummary();
   renderNav();
@@ -5763,6 +6366,238 @@ if (roleSel) {
     appState.tasksLoadedClient = null;
     loadTasksForCurrentClient().finally(render);
   });
+}
+
+// Simple mode toggle
+// ══════════════════════════════════════════════════════════
+//  かんたんモード — 完全独立UI
+//  写真 → OCR + AIドラフト → OK / NG の3画面だけ
+// ══════════════════════════════════════════════════════════
+const simpleApp = {
+  phase: 'idle',      // idle | uploading | processing | result | approved | error
+  voucherId: null,
+  clientId: null,
+  draft: null,        // draftJournalJson
+  ocrJson: null,
+  errorMsg: null,
+  _pollTimer: null,
+};
+
+function renderSimpleApp() {
+  const s = simpleApp;
+  const clientOpts = (clients || []).map((c) =>
+    `<option value="${escapeAttribute(c.id)}"${c.id === s.clientId ? ' selected' : ''}>${escapeHtml(c.name)}</option>`
+  ).join('');
+  const clientBar = `
+    <div class="sa-client-bar">
+      <select id="saClientSelect" class="sa-client-select">
+        <option value="">顧問先を選ぶ▼</option>
+        ${clientOpts}
+      </select>
+    </div>`;
+
+  let body = '';
+
+  if (s.phase === 'idle') {
+    body = `
+      <div class="sa-idle">
+        <div class="sa-logo"><span class="brand-mark" style="font-size:2.5rem">経</span><span class="sa-logo-name">経理丸ごとAI</span></div>
+        ${clientBar}
+        <label class="sa-upload-btn" for="saFileInput">
+          <span class="sa-upload-icon">📷</span>
+          <span>写真を撮る・選ぶ</span>
+        </label>
+        <input type="file" id="saFileInput" accept="image/*,application/pdf" capture="environment" hidden>
+        <p class="sa-hint">領収書・請求書の写真をとってください</p>
+        <button class="sa-exit-btn" id="saExitBtn">通常モードに戻る</button>
+      </div>`;
+
+  } else if (s.phase === 'uploading' || s.phase === 'processing') {
+    const msg = s.phase === 'uploading' ? 'アップロード中…' : 'AIが解析中…';
+    const sub = s.phase === 'processing' ? 'しばらくお待ちください' : '';
+    body = `
+      <div class="sa-processing">
+        <div class="sa-spinner-big"></div>
+        <p class="sa-status-text">${msg}</p>
+        ${sub ? `<p class="sa-status-sub">${sub}</p>` : ''}
+      </div>`;
+
+  } else if (s.phase === 'result' && s.draft) {
+    const d = s.draft;
+    const debitAmt = d.debit && d.debit.amount != null ? Number(d.debit.amount) : null;
+    const amount = debitAmt != null ? `¥${debitAmt.toLocaleString('ja-JP')}` : '—';
+    const date = d.transactionDate || (s.ocrJson && s.ocrJson.issue_date) || '—';
+    const desc = d.description || (s.ocrJson && s.ocrJson.vendor_name) || '—';
+    const debit = (d.debit && d.debit.account) || '—';
+    const credit = (d.credit && d.credit.account) || '—';
+    body = `
+      <div class="sa-result">
+        <p class="sa-result-title">こう仕訳します</p>
+        <div class="sa-result-card">
+          <div class="sa-row"><span class="sa-lbl">日付</span><span class="sa-val">${escapeHtml(String(date))}</span></div>
+          <div class="sa-row"><span class="sa-lbl">金額</span><span class="sa-val sa-amount">${amount}</span></div>
+          <div class="sa-row"><span class="sa-lbl">内容</span><span class="sa-val">${escapeHtml(String(desc))}</span></div>
+          <div class="sa-journal">
+            <div class="sa-j-side"><span class="sa-j-lbl">借方</span><span class="sa-j-acc">${escapeHtml(debit)}</span></div>
+            <span class="sa-j-arrow">→</span>
+            <div class="sa-j-side"><span class="sa-j-lbl">貸方</span><span class="sa-j-acc">${escapeHtml(credit)}</span></div>
+          </div>
+        </div>
+        <button class="sa-btn-ok" id="saOkBtn">✓　OK</button>
+        <button class="sa-btn-ng" id="saNgBtn">✗　やり直す</button>
+      </div>`;
+
+  } else if (s.phase === 'approved') {
+    body = `
+      <div class="sa-approved">
+        <div class="sa-check">✓</div>
+        <p class="sa-approved-text">登録しました！</p>
+        <button class="sa-btn-next" id="saNextBtn">次の写真を送る</button>
+        <button class="sa-exit-btn" id="saExitBtn">通常モードに戻る</button>
+      </div>`;
+
+  } else if (s.phase === 'error') {
+    body = `
+      <div class="sa-error-view">
+        <div class="sa-error-icon">⚠️</div>
+        <p class="sa-error-text">${escapeHtml(s.errorMsg || 'エラーが発生しました')}</p>
+        <button class="sa-btn-next" id="saNextBtn">もう一度やってみる</button>
+        <button class="sa-exit-btn" id="saExitBtn">通常モードに戻る</button>
+      </div>`;
+  }
+
+  return `<div class="sa-root">${body}</div>`;
+}
+
+function bindSimpleEvents() {
+  const fileInput = document.getElementById('saFileInput');
+  const clientSelect = document.getElementById('saClientSelect');
+  const okBtn = document.getElementById('saOkBtn');
+  const ngBtn = document.getElementById('saNgBtn');
+  const nextBtn = document.getElementById('saNextBtn');
+  const exitBtn = document.getElementById('saExitBtn');
+
+  if (clientSelect) {
+    clientSelect.addEventListener('change', () => {
+      simpleApp.clientId = clientSelect.value || null;
+    });
+  }
+  if (fileInput) {
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files && fileInput.files[0];
+      if (file) saUploadAndProcess(file);
+    });
+  }
+  if (okBtn) okBtn.addEventListener('click', saApprove);
+  if (ngBtn) ngBtn.addEventListener('click', saReset);
+  if (nextBtn) nextBtn.addEventListener('click', saReset);
+  if (exitBtn) exitBtn.addEventListener('click', () => setSimpleMode(false));
+}
+
+async function saUploadAndProcess(file) {
+  if (!simpleApp.clientId) {
+    showToast('顧問先を選んでください', 'error');
+    return;
+  }
+  simpleApp.phase = 'uploading';
+  simpleApp.errorMsg = null;
+  simpleApp.draft = null;
+  render();
+
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('clientId', simpleApp.clientId);
+    const upRes = await apiFetch('/api/vouchers', { method: 'POST', body: fd });
+    if (!upRes.ok) throw new Error('アップロードに失敗しました');
+    const v = await upRes.json();
+    simpleApp.voucherId = v.id;
+
+    simpleApp.phase = 'processing';
+    render();
+
+    // Trigger AI draft
+    apiFetch(`/api/vouchers/${v.id}/draft-journal`, { method: 'POST' }).catch(() => {});
+
+    // Poll for draft
+    await saPollDraft(v.id);
+  } catch (err) {
+    simpleApp.phase = 'error';
+    simpleApp.errorMsg = String(err);
+    render();
+  }
+}
+
+async function saPollDraft(voucherId) {
+  const MAX = 25;
+  for (let i = 0; i < MAX; i++) {
+    await new Promise((r) => setTimeout(r, 2500));
+    try {
+      const res = await apiFetch(`/api/vouchers?clientId=${encodeURIComponent(simpleApp.clientId)}`);
+      if (!res.ok) continue;
+      const list = await res.json();
+      const found = list.find((x) => x.id === voucherId);
+      if (found && found.journalStatus && found.journalStatus !== 'none' && found.draftJournalJson) {
+        simpleApp.draft = found.draftJournalJson;
+        simpleApp.ocrJson = found.ocrJson || null;
+        simpleApp.phase = 'result';
+        render();
+        return;
+      }
+    } catch (_) { /* keep polling */ }
+  }
+  simpleApp.phase = 'error';
+  simpleApp.errorMsg = '解析に時間がかかっています。OpenAI APIキーを確認してください。';
+  render();
+}
+
+async function saApprove() {
+  if (!simpleApp.voucherId) return;
+  try {
+    await apiFetch(`/api/vouchers/${simpleApp.voucherId}/journal`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ status: 'approved' }),
+    });
+    simpleApp.phase = 'approved';
+    render();
+  } catch (err) {
+    showToast('保存に失敗しました', 'error');
+  }
+}
+
+function saReset() {
+  simpleApp.phase = 'idle';
+  simpleApp.voucherId = null;
+  simpleApp.draft = null;
+  simpleApp.ocrJson = null;
+  simpleApp.errorMsg = null;
+  render();
+}
+
+function setSimpleMode(enabled) {
+  appState.simpleMode = enabled;
+  try { localStorage.setItem("bookmee.simpleMode", String(enabled)); } catch(e) {}
+  document.body.classList.toggle("simple-mode", enabled);
+  const btnSimple = document.getElementById("modeBtnSimple");
+  const btnNormal = document.getElementById("modeBtnNormal");
+  if (btnSimple) btnSimple.classList.toggle("active", enabled);
+  if (btnNormal) btnNormal.classList.toggle("active", !enabled);
+  render();
+}
+
+const modeBtnSimple = document.getElementById("modeBtnSimple");
+const modeBtnNormal = document.getElementById("modeBtnNormal");
+if (modeBtnSimple) modeBtnSimple.addEventListener("click", () => setSimpleMode(true));
+if (modeBtnNormal) modeBtnNormal.addEventListener("click", () => setSimpleMode(false));
+
+// Apply saved mode on load (body class + button active state)
+document.body.classList.toggle("simple-mode", appState.simpleMode);
+if (appState.simpleMode) {
+  const s = document.getElementById("modeBtnSimple");
+  const n = document.getElementById("modeBtnNormal");
+  if (s) s.classList.add("active");
+  if (n) n.classList.remove("active");
 }
 
 // Logout
@@ -6099,12 +6934,147 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
+function renderCrm() {
+  const query = (appState.crmSearch || "").trim().toLocaleLowerCase("ja-JP");
+  const statusFilter = appState.crmStatusFilter || "all";
+  const filteredClients = appState.clients.filter((client) => {
+    const nameMatches = !query || String(client.name || "").toLocaleLowerCase("ja-JP").includes(query);
+    const status = client.crmStatus || "active";
+    const statusMatches = statusFilter === "all" || status === statusFilter;
+    return nameMatches && statusMatches;
+  });
+  const filters = [
+    ["all", "全件"],
+    ["active", "対応中"],
+    ["pending", "確認待ち"],
+    ["inactive", "完了"],
+  ];
+
+  let html = '<section class="dashboard-section-card">';
+  html += '<div class="dashboard-section-head">';
+  html += '<div><p class="eyebrow">顧問先CRM</p><h2>顧問先一覧</h2></div>';
+  html += '<div style="display:flex;align-items:center;gap:.75rem">';
+  html += '<span class="status-chip">' + filteredClients.length + '件</span>';
+  html += '<button class="primary-action" data-action="crm-add-client">+ 新規顧問先</button>';
+  html += '</div>';
+  html += '</div>';
+  html += '<div class="crm-toolbar">';
+  html += '<input id="crmSearchInput" class="crm-search" type="search" value="' + escapeAttribute(appState.crmSearch || "") + '" placeholder="顧問先名で検索">';
+  html += '<div class="crm-filter-row">';
+  for (const [value, label] of filters) {
+    html += '<button class="segment' + (statusFilter === value ? " active" : "") + '" data-crm-status-filter="' + value + '">' + label + '</button>';
+  }
+  html += '</div></div>';
+
+  if (filteredClients.length === 0) {
+    html += '<div class="empty-state">条件に一致する顧問先はありません。</div>';
+  } else {
+    html += '<div class="crm-card-grid">';
+    for (const client of filteredClients) {
+      const status = ["active", "pending", "inactive"].includes(client.crmStatus)
+        ? client.crmStatus
+        : "active";
+      const badgeClass = status === "active" ? " complete" : status === "pending" ? " pending" : "";
+      const statusLabel = status === "active" ? "対応中" : status === "pending" ? "確認待ち" : "完了";
+      const lastContactDate = client.lastContactAt ? new Date(client.lastContactAt) : null;
+      const lastContact = lastContactDate && !Number.isNaN(lastContactDate.getTime())
+        ? lastContactDate.toLocaleDateString("ja-JP")
+        : "未連絡";
+      const tasksOpen = Number(client.tasksOpen) || 0;
+      const endpoints = client.contactEndpoints || {};
+      const hasContact = !!(endpoints.email || endpoints.chatwork || endpoints.line || endpoints.line_works || endpoints.slack);
+      const contactBadge = hasContact
+        ? '<span class="crm-contact-badge configured">連絡先設定済み</span>'
+        : '<span class="crm-contact-badge missing">連絡先未設定</span>';
+      const vendorText = client.vendor === 'mf' ? 'MF' : client.vendor === 'freee' ? 'freee' : client.vendor === 'yayoi' ? '弥生' : '未設定';
+      const vendorBadgeClass = client.vendor === 'mf' ? 'crm-vendor-badge mf' : client.vendor === 'freee' ? 'crm-vendor-badge freee' : client.vendor === 'yayoi' ? 'crm-vendor-badge yayoi' : 'crm-vendor-badge';
+      html += '<button class="crm-client-card" data-crm-client-id="' + escapeAttribute(client.id) + '">';
+      html += '<div class="dashboard-section-head">';
+      html += '<div><h3>' + escapeHtml(client.name || "名称未設定") + '</h3><p>' + escapeHtml(client.industry || "業種未設定") + '</p></div>';
+      html += '<div style="display:flex;gap:.4rem;align-items:center"><span class="' + vendorBadgeClass + '">' + vendorText + '</span><span class="status-chip' + badgeClass + '">' + statusLabel + '</span></div>';
+      html += '</div>';
+      html += '<div class="crm-card-meta"><span>最終連絡: ' + lastContact + '</span><span>未処理 ' + tasksOpen + '件</span>' + contactBadge + '</div>';
+      if (client.memo && client.memo.trim()) {
+        const memo = client.memo.trim();
+        const preview = memo.slice(0, 50) + (memo.length > 50 ? "…" : "");
+        html += '<p class="crm-card-memo">' + escapeHtml(preview) + '</p>';
+      }
+      if (client.tags && client.tags.length > 0) {
+        html += '<div class="crm-card-tags">';
+        for (const tag of client.tags.slice(0, 4)) {
+          html += '<span class="crm-tag">' + escapeHtml(tag) + '</span>';
+        }
+        html += '</div>';
+      }
+      html += '</button>';
+    }
+    html += '</div>';
+  }
+  html += '</section>';
+  return html;
+}
+
+// ── フィードバック FAB / モーダル ──
+(function () {
+  const trigger = document.getElementById('feedbackTrigger');
+  const modal = document.getElementById('feedbackModal');
+  const backdrop = document.getElementById('feedbackBackdrop');
+  const closeBtn = document.getElementById('feedbackClose');
+  const submitBtn = document.getElementById('feedbackSubmit');
+  const titleInput = document.getElementById('feedbackTitleInput');
+  const bodyInput = document.getElementById('feedbackBodyInput');
+  if (!trigger || !modal) return;
+
+  function openModal() { modal.hidden = false; titleInput.focus(); }
+  function closeModal() { modal.hidden = true; titleInput.value = ''; bodyInput.value = ''; }
+
+  trigger.addEventListener('click', openModal);
+  closeBtn.addEventListener('click', closeModal);
+  backdrop.addEventListener('click', closeModal);
+
+  submitBtn.addEventListener('click', async () => {
+    const title = titleInput.value.trim();
+    const message = bodyInput.value.trim();
+    if (!title || !message) { showToast('タイトルと詳細を入力してください', 'error'); return; }
+    submitBtn.disabled = true;
+    try {
+      const res = await apiFetch('/api/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, message }),
+      });
+      if (res.ok) {
+        showToast('送信しました。ありがとうございます！', 'success');
+        closeModal();
+      } else {
+        showToast('送信に失敗しました。しばらくしてから再試行してください。', 'error');
+      }
+    } catch (_e) {
+      showToast('送信に失敗しました。', 'error');
+    } finally {
+      submitBtn.disabled = false;
+    }
+  });
+})();
+
+function showBootBanner(message, detail) {
+  const banner = document.getElementById('bootBanner');
+  if (!banner) return;
+  banner.hidden = false;
+  banner.innerHTML =
+    '<strong>' + escapeHtml(message) + '</strong>' +
+    (detail ? '<p>' + escapeHtml(detail) + '</p>' : '');
+}
+
 // Startup: await auth session, fetch user info, then load clients.
 (async () => {
   const session = await (window.__sessionPromise || Promise.resolve(null));
-  if (!session) return; // index.html is redirecting to /login.html
+  if (!session) {
+    showBootBanner('ログインが必要です', 'ログインページへ移動しています…');
+    return;
+  }
 
-  // Fetch current user's firm/role info.
+  let bootError = null;
   try {
     const meRes = await apiFetch('/api/auth/me');
     if (meRes.ok) {
@@ -6115,14 +7085,52 @@ document.addEventListener('visibilitychange', () => {
           '<span class="nav-user-firm">' + escapeHtml(appState.user.firmName || '') + '</span>' +
           '<span class="nav-user-email">' + escapeHtml(appState.user.email || '') + '</span>';
       }
+    } else {
+      const body = await meRes.json().catch(() => ({}));
+      const code = body?.error?.code;
+      if (meRes.status === 503 && code === 'AUTH_NOT_CONFIGURED') {
+        bootError = {
+          message: 'サーバー認証が未設定です',
+          detail: 'Railway の Variables に SUPABASE_URL と SUPABASE_SERVICE_ROLE_KEY を設定して再デプロイしてください。',
+        };
+      } else if (meRes.status === 403 && code === 'NO_FIRM') {
+        bootError = {
+          message: '事務所が未登録です',
+          detail: 'ログアウトして、ログイン画面の「新規登録」から事務所を作成してください。',
+        };
+      } else if (meRes.status === 401) {
+        if (typeof window.__bookmeeSignOut === 'function') {
+          await window.__bookmeeSignOut();
+          return;
+        }
+        bootError = {
+          message: '認証に失敗しました',
+          detail: 'セッションをクリアして再ログインしてください。',
+        };
+      }
     }
   } catch (e) {
+    bootError = {
+      message: 'サーバーに接続できません',
+      detail: 'Railway のデプロイ状態と /api/health を確認してください。',
+    };
     console.warn('Failed to fetch /api/auth/me', e);
   }
 
-  loadClientsFromApi().finally(() => {
-    updateClientContextBar();
-    applyHashRoute(true);
-    refreshVoucherBadge();
-  });
+  const loadingMsg = document.getElementById('bootLoadingMsg');
+  if (loadingMsg) loadingMsg.textContent = '顧問先データを読み込んでいます…';
+  await loadClientsFromApi();
+  updateClientContextBar();
+  applyHashRoute(true);
+  refreshVoucherBadge();
+
+  // ページ初期化スピナーを非表示にする（白い画面フラッシュ防止のインラインオーバーレイ）
+  const pageInit = document.getElementById('__pageInit');
+  if (pageInit) {
+    pageInit.style.opacity = '0';
+    pageInit.style.transition = 'opacity .2s';
+    setTimeout(() => { pageInit.remove(); }, 200);
+  }
+
+  if (bootError) showBootBanner(bootError.message, bootError.detail);
 })();
