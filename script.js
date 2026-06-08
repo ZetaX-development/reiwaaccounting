@@ -6612,6 +6612,7 @@ if (roleSel) {
 // ══════════════════════════════════════════════════════════
 const simpleApp = {
   clientId: null,
+  drawerOpen: false,
   driveConnected: false,
   drivePanel: false,
   driveFiles: [],
@@ -6633,6 +6634,14 @@ function renderSimpleRoot() {
 
 function renderSimpleApp() {
   const s = simpleApp;
+
+  const headerBar = `
+  <div class="sa2-header-bar">
+    <button class="sa2-hamburger" id="sa2Hamburger" aria-label="メニュー">
+      <span></span><span></span><span></span>
+    </button>
+    <span class="sa2-header-title">かんたんモード</span>
+  </div>`;
 
   // 顧問先セレクト
   const clientOpts = (clients || []).map((c) =>
@@ -6711,13 +6720,30 @@ function renderSimpleApp() {
 
   // モーダル
   const modal = s.sourceModalVoucherId ? renderSaSourceModal(s.sourceModalVoucherId) : '';
+  const drawer = simpleApp.drawerOpen ? `
+  <div class="sa2-drawer-overlay" id="sa2DrawerOverlay">
+    <nav class="sa2-drawer">
+      <div class="sa2-drawer-header">
+        <span>メニュー</span>
+        <button class="sa2-drawer-close" id="sa2DrawerClose">✕</button>
+      </div>
+      <button class="sa2-drawer-item" data-view="dashboard">📋 ToDo</button>
+      <button class="sa2-drawer-item" data-view="company">🏢 顧問先</button>
+      <button class="sa2-drawer-item" data-view="jobs-journal">📒 仕訳</button>
+      <button class="sa2-drawer-item" data-view="vouchers-register">🧾 証憑登録</button>
+      <button class="sa2-drawer-item" data-view="settings">⚙️ 設定</button>
+      <hr style="border:none;border-top:1px solid var(--line);margin:.5rem 0">
+      <button class="sa2-drawer-item sa2-drawer-normal" id="sa2DrawerNormal">通常モードへ</button>
+    </nav>
+  </div>` : '';
 
   return `<div class="sa2-root">
+    ${headerBar}
     ${clientBar}
     ${todoBanner}
     ${uploadSection}
     ${voucherList}
-  </div>${modal}`;
+  </div>${modal}${drawer}`;
 }
 
 function renderSaDrivePanel() {
@@ -6829,6 +6855,32 @@ function renderSaSourceModal(voucherId) {
 }
 
 function bindSimpleEvents() {
+  // ハンバーガーメニュー
+  const hamburger = document.getElementById('sa2Hamburger');
+  if (hamburger) hamburger.addEventListener('click', () => {
+    simpleApp.drawerOpen = true;
+    renderSimpleRoot();
+  });
+  const drawerClose = document.getElementById('sa2DrawerClose');
+  if (drawerClose) drawerClose.addEventListener('click', () => {
+    simpleApp.drawerOpen = false;
+    renderSimpleRoot();
+  });
+  const drawerOverlay = document.getElementById('sa2DrawerOverlay');
+  if (drawerOverlay) drawerOverlay.addEventListener('click', (e) => {
+    if (e.target === drawerOverlay) { simpleApp.drawerOpen = false; renderSimpleRoot(); }
+  });
+  const drawerNormal = document.getElementById('sa2DrawerNormal');
+  if (drawerNormal) drawerNormal.addEventListener('click', () => setSimpleMode(false));
+  document.querySelectorAll('.sa2-drawer-item[data-view]').forEach((el) => {
+    el.addEventListener('click', () => {
+      const view = el.dataset.view;
+      simpleApp.drawerOpen = false;
+      setSimpleMode(false);
+      location.hash = '#/' + view;
+    });
+  });
+
   // 顧問先セレクト
   const clientSelect = document.getElementById('sa2ClientSelect');
   if (clientSelect) {
