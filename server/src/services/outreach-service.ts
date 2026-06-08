@@ -2,6 +2,77 @@ import { prisma } from '../lib/prisma.js';
 import { env } from '../env.js';
 import { getOutreachAdapter } from '../adapters/outreach-adapter.js';
 
+// 不明出金照会メッセージを生成して送信する
+// entries: 不明な出金のリスト [{ date, amount, description }]
+export async function inquireAboutUnknownWithdrawals(
+  clientId: string,
+  entries: Array<{ date: string; amount: number; description: string }>,
+): Promise<{ ok: boolean; message: string; body: string }> {
+  const client = await prisma.client.findUnique({
+    where: { id: clientId },
+    select: { name: true, contactEndpoints: true, firmId: true },
+  });
+  if (!client) return { ok: false, message: 'client not found', body: '' };
+
+  const contactEndpoints = client.contactEndpoints as Record<string, string | null | undefined> | null;
+  const channel = env.OUTREACH_CHANNEL;
+
+  // ChatWork room ID は contactEndpoints.chatwork に格納
+  let target = '';
+  if (channel === 'chatwork') {
+    target = contactEndpoints?.chatwork ?? '';
+  } else if (channel === 'email') {
+    target = contactEndpoints?.email ?? '';
+  } else if (channel === 'line') {
+    target = contactEndpoints?.line ?? contactEndpoints?.line_works ?? '';
+  } else {
+    target = contactEndpoints?.email ?? 'mock';
+  }
+
+  const entriesText = entries
+    .map((e, i) => `  ${i + 1}. ${e.date}  ¥${e.amount.toLocaleString('ja-JP')}  ${e.description || '（摘要なし）'}`)
+    .join('\n');
+
+  const subject = `[bookmee] 銀行出金の内容確認のお願い - ${client.name}`;
+  const body = `${client.name} 様
+
+いつもお世話になっております。
+経理処理に際し、以下の銀行口座からの出金について内容を確認させてください。
+
+確認が必要な出金:
+${entriesText}
+
+各出金について、以下をご教示いただけますでしょうか:
+- 何の支払いか（購入した物品・サービス名等）
+- 領収書・請求書があればご送付ください
+
+お忙しいところ恐れ入りますが、今月末までにご回答いただけますと助かります。
+ご不明な点がございましたらお気軽にお申し付けください。
+
+引き続きよろしくお願いいたします。`;
+
+  const adapter = getOutreachAdapter(channel as 'mock' | 'email' | 'line' | 'chatwork');
+  const result = await adapter.send(target, subject, body);
+
+  // Threadに記録
+  await prisma.thread.create({
+    data: {
+      firmId: client.firmId,
+      clientId,
+      channel,
+      direction: 'outbound',
+      subject,
+      body,
+      preview: `銀行出金 ${entries.length}件の内容確認`,
+      status: result.ok ? 'sent' : 'error',
+      errorMsg: result.error ?? null,
+      sentAt: result.ok ? new Date() : null,
+    },
+  });
+
+  return { ok: result.ok, message: result.ok ? '照会メッセージを送信しました' : (result.error ?? '送信失敗'), body };
+}
+
 interface DraftJournal {
   account?: string;
   taxClass?: string | null;
@@ -22,12 +93,13 @@ interface OcrJson {
 
 function resolveTarget(
   contactEndpoints: unknown,
-  channel: 'mock' | 'email' | 'line',
+  channel: 'mock' | 'email' | 'line' | 'chatwork',
 ): string {
   if (!contactEndpoints || typeof contactEndpoints !== 'object') return 'unknown';
   const map = contactEndpoints as Record<string, string | null | undefined>;
   if (channel === 'email') return map.email ?? 'unknown';
   if (channel === 'line') return map.line_works ?? map.line ?? 'unknown';
+  if (channel === 'chatwork') return map.chatwork ?? 'unknown';
   return map.email ?? 'unknown';
 }
 

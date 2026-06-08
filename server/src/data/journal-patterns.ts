@@ -14,7 +14,7 @@ export interface JournalPattern {
 // 機械的な文字列結合ではなく、税理士事務所スタッフが実際に入力する文言。
 // ---------------------------------------------------------------------------
 
-export const journalPatterns: JournalPattern[] = [
+const coreJournalPatterns: JournalPattern[] = [
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // 売上・収益
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2637,6 +2637,112 @@ export const journalPatterns: JournalPattern[] = [
     industry: null,
     tags: ['長期前払費用', '前払費用', '振替', '期末', '1年基準'],
   },
+];
+
+type SupplementalPatternSeed = Omit<JournalPattern, 'scenario' | 'memoExamples' | 'industry' | 'tags'> & {
+  category: string;
+  event: string;
+  counterpart: string;
+  tags: string[];
+  industries?: Array<string | null>;
+  variants?: string[];
+};
+
+const supplementalSeeds: SupplementalPatternSeed[] = [
+  { debit: '売掛金', credit: '売上高', category: '売上・収益', event: '月次請求売上', counterpart: '得意先', tags: ['売上', '請求書', '掛売'] },
+  { debit: '普通預金', credit: '売掛金', category: '売上・収益', event: '売掛金の入金消込', counterpart: '得意先', tags: ['入金', '売掛金', '消込'] },
+  { debit: '現金', credit: '売上高', category: '売上・収益', event: '店頭現金売上', counterpart: '店舗', tags: ['売上', '現金', 'レジ'] },
+  { debit: 'クレジット売掛金', credit: '売上高', category: '売上・収益', event: 'カード決済売上', counterpart: 'カード会社', tags: ['売上', 'カード', '決済'] },
+  { debit: '普通預金', credit: 'クレジット売掛金', category: '売上・収益', event: 'カード売上の入金', counterpart: 'カード会社', tags: ['入金', 'カード', '売掛金'] },
+  { debit: '支払手数料', credit: 'クレジット売掛金', category: '売上・収益', event: 'カード決済手数料の控除', counterpart: 'カード会社', tags: ['手数料', 'カード', '控除'] },
+  { debit: '売上値引', credit: '売掛金', category: '売上・収益', event: '請求後の値引処理', counterpart: '得意先', tags: ['値引', '売上調整'] },
+  { debit: '売上返品', credit: '売掛金', category: '売上・収益', event: '返品に伴う売上取消', counterpart: '得意先', tags: ['返品', '売上調整'] },
+  { debit: '前受金', credit: '売上高', category: '売上・収益', event: '前受案件の売上振替', counterpart: '得意先', tags: ['前受金', '売上振替'] },
+  { debit: '仕入高', credit: '買掛金', category: '仕入・原価', event: '月次掛仕入', counterpart: '仕入先', tags: ['仕入', '買掛金', '請求書'] },
+  { debit: '買掛金', credit: '普通預金', category: '仕入・原価', event: '買掛金の支払', counterpart: '仕入先', tags: ['支払', '買掛金', '振込'] },
+  { debit: '仕入高', credit: '現金', category: '仕入・原価', event: '現金仕入', counterpart: '仕入先', tags: ['仕入', '現金'] },
+  { debit: '商品', credit: '仕入高', category: '仕入・原価', event: '期末商品棚卸', counterpart: '棚卸', tags: ['棚卸', '商品', '決算'] },
+  { debit: '仕入高', credit: '商品', category: '仕入・原価', event: '期首商品棚卸戻入', counterpart: '棚卸', tags: ['棚卸', '期首', '商品'] },
+  { debit: '外注費', credit: '未払金', category: '仕入・原価', event: '外注作業費の未払計上', counterpart: '外注先', tags: ['外注費', '未払金'] },
+  { debit: '未払金', credit: '普通預金', category: '仕入・原価', event: '外注費の支払', counterpart: '外注先', tags: ['外注費', '支払'] },
+  { debit: '給料手当', credit: '普通預金', category: '人件費', event: '従業員給与の支給', counterpart: '従業員', tags: ['給与', '人件費', '振込'] },
+  { debit: '給料手当', credit: '未払費用', category: '人件費', event: '月末給与の未払計上', counterpart: '従業員', tags: ['給与', '未払費用'] },
+  { debit: '役員報酬', credit: '普通預金', category: '人件費', event: '役員報酬の支給', counterpart: '役員', tags: ['役員報酬', '人件費'] },
+  { debit: '法定福利費', credit: '普通預金', category: '人件費', event: '社会保険料会社負担分の支払', counterpart: '年金事務所', tags: ['社会保険', '法定福利費'] },
+  { debit: '預り金', credit: '普通預金', category: '人件費', event: '源泉所得税の納付', counterpart: '税務署', tags: ['源泉所得税', '預り金', '納付'] },
+  { debit: '福利厚生費', credit: '普通預金', category: '人件費', event: '従業員福利厚生費の支払', counterpart: '従業員', tags: ['福利厚生', '人件費'] },
+  { debit: '旅費交通費', credit: '普通預金', category: '販管費・経費', event: '交通費の精算支払', counterpart: '従業員', tags: ['交通費', '経費精算'] },
+  { debit: '旅費交通費', credit: '現金', category: '販管費・経費', event: '現金交通費の支払', counterpart: '従業員', tags: ['交通費', '現金'] },
+  { debit: '通信費', credit: '普通預金', category: '販管費・経費', event: '通信料金の口座引落', counterpart: '通信会社', tags: ['通信費', '口座引落'] },
+  { debit: '水道光熱費', credit: '普通預金', category: '販管費・経費', event: '水道光熱費の口座引落', counterpart: '電力会社', tags: ['水道光熱費', '口座引落'] },
+  { debit: '地代家賃', credit: '普通預金', category: '販管費・経費', event: '事務所家賃の支払', counterpart: '貸主', tags: ['家賃', '地代家賃'] },
+  { debit: '広告宣伝費', credit: '未払金', category: '販管費・経費', event: '広告出稿費の未払計上', counterpart: '広告会社', tags: ['広告宣伝費', '未払金'] },
+  { debit: '接待交際費', credit: '現金', category: '販管費・経費', event: '取引先接待費の現金支払', counterpart: '取引先', tags: ['接待交際費', '現金'] },
+  { debit: '会議費', credit: 'クレジット未払金', category: '販管費・経費', event: '会議飲食代のカード支払', counterpart: '店舗', tags: ['会議費', 'カード'] },
+  { debit: '消耗品費', credit: '現金', category: '販管費・経費', event: '事務用品の現金購入', counterpart: '販売店', tags: ['消耗品費', '事務用品'] },
+  { debit: '修繕費', credit: '普通預金', category: '販管費・経費', event: '設備修繕費の支払', counterpart: '修理業者', tags: ['修繕費', '設備'] },
+  { debit: '保険料', credit: '普通預金', category: '販管費・経費', event: '損害保険料の支払', counterpart: '保険会社', tags: ['保険料', '損害保険'] },
+  { debit: '支払手数料', credit: '普通預金', category: '販管費・経費', event: '銀行振込手数料の支払', counterpart: '銀行', tags: ['支払手数料', '銀行'] },
+  { debit: '租税公課', credit: '普通預金', category: '税金・社会保険', event: '事業税等の納付', counterpart: '自治体', tags: ['租税公課', '納税'] },
+  { debit: '未払法人税等', credit: '普通預金', category: '税金・社会保険', event: '法人税等の納付', counterpart: '税務署', tags: ['法人税', '納付'] },
+  { debit: '法人税等', credit: '未払法人税等', category: '税金・社会保険', event: '決算法人税等の未払計上', counterpart: '税務署', tags: ['法人税', '決算'] },
+  { debit: '仮払消費税', credit: '普通預金', category: '税金・社会保険', event: '税込経費の仮払消費税計上', counterpart: '取引先', tags: ['消費税', '仮払消費税'] },
+  { debit: '仮受消費税', credit: '売掛金', category: '税金・社会保険', event: '税込売上の仮受消費税計上', counterpart: '得意先', tags: ['消費税', '仮受消費税'] },
+  { debit: '建物', credit: '普通預金', category: '固定資産', event: '建物取得代金の支払', counterpart: '施工会社', tags: ['固定資産', '建物'] },
+  { debit: '工具器具備品', credit: '未払金', category: '固定資産', event: '備品購入の未払計上', counterpart: '販売店', tags: ['固定資産', '備品'] },
+  { debit: '減価償却費', credit: '建物', category: '固定資産', event: '建物の減価償却', counterpart: '決算整理', tags: ['減価償却', '建物'] },
+  { debit: '減価償却費', credit: '工具器具備品', category: '固定資産', event: '備品の減価償却', counterpart: '決算整理', tags: ['減価償却', '備品'] },
+  { debit: '普通預金', credit: '長期借入金', category: '金融・借入', event: '長期借入金の入金', counterpart: '金融機関', tags: ['借入', '長期借入金'] },
+  { debit: '長期借入金', credit: '普通預金', category: '金融・借入', event: '借入元本の返済', counterpart: '金融機関', tags: ['返済', '長期借入金'] },
+  { debit: '支払利息', credit: '普通預金', category: '金融・借入', event: '借入利息の支払', counterpart: '金融機関', tags: ['支払利息', '借入'] },
+  { debit: '普通預金', credit: '受取利息', category: '金融・借入', event: '預金利息の入金', counterpart: '銀行', tags: ['受取利息', '預金'] },
+  { debit: '前払費用', credit: '支払保険料', category: '決算整理', event: '翌期分保険料の前払計上', counterpart: '決算整理', tags: ['前払費用', '決算'] },
+  { debit: '未収収益', credit: '受取利息', category: '決算整理', event: '未収利息の計上', counterpart: '決算整理', tags: ['未収収益', '決算'] },
+  { debit: '未払費用', credit: '水道光熱費', category: '決算整理', event: '未払水道光熱費の計上', counterpart: '決算整理', tags: ['未払費用', '決算'] },
+  { debit: '仮払金', credit: '普通預金', category: '仮払・立替・その他', event: '従業員への仮払', counterpart: '従業員', tags: ['仮払金', '従業員'] },
+  { debit: '旅費交通費', credit: '仮払金', category: '仮払・立替・その他', event: '仮払金の経費精算', counterpart: '従業員', tags: ['仮払金', '精算'] },
+  { debit: '立替金', credit: '現金', category: '仮払・立替・その他', event: '取引先費用の立替払い', counterpart: '取引先', tags: ['立替金', '現金'] },
+  { debit: '普通預金', credit: '立替金', category: '仮払・立替・その他', event: '立替金の回収', counterpart: '取引先', tags: ['立替金', '回収'] },
+];
+
+const supplementalIndustries: Array<string | null> = [null, '小売業', '飲食業', '建設業', 'IT業', '医療'];
+const supplementalVariants = ['標準処理', '月次処理'];
+
+function buildSupplementalJournalPatterns(): JournalPattern[] {
+  const patterns: JournalPattern[] = [];
+
+  for (const seed of supplementalSeeds) {
+    const industries = seed.industries ?? supplementalIndustries;
+    const variants = seed.variants ?? supplementalVariants;
+
+    for (const industry of industries) {
+      for (const variant of variants) {
+        const industryLabel = industry ?? '汎用';
+        patterns.push({
+          debit: seed.debit,
+          credit: seed.credit,
+          scenario: `${seed.category}: ${industryLabel} ${seed.event}（${variant}）`,
+          memoExamples: [
+            `${seed.counterpart} ${seed.event}`,
+            `${industryLabel} ${seed.event} ${variant}`,
+            `${seed.event} ${seed.counterpart}分`,
+            `${variant} ${seed.debit}/${seed.credit}`,
+            `${seed.counterpart} ${seed.category} ${variant}`,
+          ],
+          industry,
+          tags: [...new Set([...seed.tags, seed.category, variant, industryLabel])],
+          amountHint: seed.amountHint,
+        });
+      }
+    }
+  }
+
+  return patterns;
+}
+
+export const journalPatterns: JournalPattern[] = [
+  ...coreJournalPatterns,
+  ...buildSupplementalJournalPatterns(),
 ];
 
 export const journalPatternCount = journalPatterns.length;

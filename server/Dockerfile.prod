@@ -5,7 +5,7 @@
 #   docker run -e DATABASE_URL=... -p 8080:3000 bookmee:prod
 
 # ---------- Stage 1: build ----------
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
 RUN apk add --no-cache openssl libc6-compat
 WORKDIR /app/server
@@ -30,7 +30,7 @@ RUN npm run build
 RUN npm prune --omit=dev
 
 # ---------- Stage 2: runtime ----------
-FROM node:20-alpine AS runtime
+FROM node:22-alpine AS runtime
 
 # OpenSSL for Prisma, Chromium for Playwright browser automation.
 RUN apk add --no-cache \
@@ -57,11 +57,8 @@ COPY --from=builder /app/server/prisma ./prisma
 COPY --from=builder /app/server/package.json ./package.json
 
 # Static frontend served by Fastify at the repo root (../..).
-COPY index.html /app/index.html
-COPY login.html /app/login.html
-COPY auth-shared.js /app/auth-shared.js
-COPY script.js /app/script.js
-COPY styles.css /app/styles.css
+COPY index.html login.html admin.html landing.html portal.html /app/
+COPY auth-shared.js admin.js script.js styles.css /app/
 COPY auth/ /app/auth/
 
 # Cloud Run injects PORT; fall back to 3000 for local docker run.

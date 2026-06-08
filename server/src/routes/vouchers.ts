@@ -312,6 +312,11 @@ export async function voucherRoutes(app: FastifyInstance) {
       clientIdField && 'value' in clientIdField
         ? (clientIdField.value as string)
         : null;
+    const voucherSourceField = data.fields.voucherSource;
+    const voucherSource =
+      voucherSourceField && 'value' in voucherSourceField
+        ? (voucherSourceField.value as string)
+        : 'manual';
     const uploadedBy =
       typeof req.headers['x-uploaded-by'] === 'string'
         ? req.headers['x-uploaded-by']
@@ -323,6 +328,7 @@ export async function voucherRoutes(app: FastifyInstance) {
       buffer,
       uploadedBy,
       firmId: req.user!.firmId,
+      source: voucherSource,
     });
     if (process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY.length > 0) {
       setImmediate(() => {

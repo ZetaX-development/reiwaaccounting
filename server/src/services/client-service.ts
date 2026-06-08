@@ -42,6 +42,10 @@ export interface UpdateClientInput {
   mode?: string;
   fiscalYearStart?: Date;
   fiscalYearEnd?: Date;
+  memo?: string | null;
+  tags?: string[];
+  crmStatus?: string;
+  lastContactAt?: Date | null;
 }
 
 export async function updateClient(id: string, firmId: string, data: UpdateClientInput): Promise<boolean> {
@@ -78,6 +82,11 @@ export async function listClients(firmId: string) {
       messageDraft: true,
       contactPrimary: true,
       contactEndpoints: true,
+      freeeExternalId: true,
+      memo: true,
+      tags: true,
+      crmStatus: true,
+      lastContactAt: true,
     },
   });
 }
@@ -177,11 +186,21 @@ export async function getClientById(id: string, firmId: string) {
   }
 
   // Strip secrets and add a derived boolean for the frontend.
-  const { mfAccessToken, mfRefreshToken, mfTokenExpiresAt, ...safe } = client;
+  const {
+    mfAccessToken,
+    mfRefreshToken,
+    mfTokenExpiresAt,
+    freeeAccessToken,
+    freeeRefreshToken,
+    freeeTokenExpiresAt,
+    ...safe
+  } = client;
   return {
     ...safe,
     mfConnected: !!mfAccessToken,
     mfTokenExpiresAt: mfTokenExpiresAt ?? null,
+    freeeConnected: !!freeeAccessToken,
+    freeeTokenExpiresAt: freeeTokenExpiresAt ?? null,
   };
 }
 

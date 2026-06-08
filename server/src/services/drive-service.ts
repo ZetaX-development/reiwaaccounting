@@ -117,6 +117,7 @@ export interface DriveChangeFile {
   name: string;
   mimeType: string;
   size: number;
+  thumbnailLink: string | null;
   parents: string[];
   trashed: boolean;
 }
@@ -155,6 +156,7 @@ export async function listChanges(
               name: c.file.name ?? '',
               mimeType: c.file.mimeType ?? '',
               size: c.file.size ? Number(c.file.size) : 0,
+              thumbnailLink: null,
               parents: c.file.parents ?? [],
               trashed: c.file.trashed ?? false,
             }
@@ -296,7 +298,7 @@ export async function listFilesInFolder(
   do {
     const res = await drive.files.list({
       q,
-      fields: 'nextPageToken, files(id, name, mimeType, size, parents)',
+      fields: 'nextPageToken, files(id, name, mimeType, size, thumbnailLink, parents)',
       pageSize: 100,
       pageToken,
     });
@@ -307,6 +309,7 @@ export async function listFilesInFolder(
         name: f.name ?? '',
         mimeType: f.mimeType ?? '',
         size: f.size ? Number(f.size) : 0,
+        thumbnailLink: f.thumbnailLink ?? null,
         parents: f.parents ?? [],
         trashed: false,
       });

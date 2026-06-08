@@ -373,6 +373,7 @@ export async function integrationsDriveRoutes(app: FastifyInstance) {
     const ALLOWED = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'application/pdf']);
     const results: Array<{
       fileId: string; filename: string; size: number; mimeType: string;
+      thumbnailLink: string | null;
       folderId: string; clientId: string;
       importStatus: 'imported' | 'skipped_size' | 'skipped_type' | 'pending';
       voucherId: string | null;
@@ -422,6 +423,7 @@ export async function integrationsDriveRoutes(app: FastifyInstance) {
           filename: file.name,
           size: file.size,
           mimeType: file.mimeType,
+          thumbnailLink: file.thumbnailLink ?? null,
           folderId: mapping.driveFolderId,
           clientId: mapping.clientId,
           importStatus,

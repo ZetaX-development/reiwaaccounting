@@ -5256,3 +5256,79 @@ body.simple-mode textarea {
 
 .boot-banner strong { display: block; font-size: 1rem; margin-bottom: .25rem; }
 .boot-banner p { margin: 0; font-size: .9rem; font-weight: 400; }
+
+/* topbar mode tabs */
+.topbar-mode-tabs { display:flex; gap:0; border-radius:8px; overflow:hidden; border:1px solid var(--line); }
+.topbar-mode-tab { padding:.45rem 1rem; font-size:.8rem; font-weight:600; background:var(--panel); color:var(--muted); border:none; cursor:pointer; transition:background .15s,color .15s; }
+.topbar-mode-tab:hover { background:var(--bg); }
+.topbar-mode-tab.active { background:var(--green); color:#fff; }
+
+/* かんたんモード v2 */
+.sa2-root { display:flex; flex-direction:column; gap:1rem; padding:1rem 1.5rem 2rem; max-width:800px; margin:0 auto; }
+.sa2-client-bar { display:flex; align-items:center; gap:.75rem; }
+.sa2-client-select { flex:1; padding:.5rem .75rem; border:1px solid var(--line); border-radius:8px; font-size:.95rem; background:var(--panel); color:var(--ink); }
+.sa2-todo-banner { background:#fffbeb; border:1.5px solid #f59e0b; border-radius:10px; padding:.75rem 1rem; }
+.sa2-todo-banner-title { font-weight:700; font-size:.9rem; color:#92400e; margin:0 0 .4rem; }
+.sa2-todo-tags { display:flex; flex-wrap:wrap; gap:.35rem; margin:0; }
+.sa2-todo-tag { background:#fef3c7; border:1px solid #f59e0b; border-radius:20px; padding:.2rem .6rem; font-size:.75rem; color:#78350f; font-weight:500; }
+.sa2-upload-section { display:flex; flex-direction:column; gap:.75rem; }
+.sa2-upload-row { display:flex; gap:.75rem; align-items:stretch; }
+.sa2-upload-zone { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:.5rem; padding:1.25rem; border:2px dashed var(--line); border-radius:12px; background:var(--panel-soft); cursor:pointer; transition:border-color .15s,background .15s; text-align:center; }
+.sa2-upload-zone:hover,.sa2-upload-zone.drag-over { border-color:var(--green); background:rgba(16,185,129,.05); }
+.sa2-upload-zone-icon { font-size:1.5rem; }
+.sa2-upload-zone-label { font-size:.85rem; font-weight:600; color:var(--ink); }
+.sa2-upload-zone-sub { font-size:.72rem; color:var(--muted); }
+.sa2-drive-btn { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:.4rem; padding:1rem 1.5rem; border:1.5px solid var(--line); border-radius:12px; background:var(--panel); cursor:pointer; font-size:.82rem; font-weight:600; color:var(--ink); transition:border-color .15s,background .15s; white-space:nowrap; }
+.sa2-drive-btn:hover { border-color:var(--green); background:rgba(16,185,129,.05); }
+.sa2-drive-panel { border:1px solid var(--line); border-radius:10px; overflow:hidden; background:var(--panel); }
+.sa2-drive-panel-header { display:flex; align-items:center; justify-content:space-between; padding:.6rem 1rem; background:var(--bg); border-bottom:1px solid var(--line); font-size:.82rem; font-weight:600; color:var(--muted); }
+.sa2-drive-import-all { padding:.3rem .75rem; font-size:.78rem; font-weight:600; background:var(--green); color:#fff; border:none; border-radius:6px; cursor:pointer; }
+.sa2-drive-import-all:disabled { opacity:.5; cursor:not-allowed; }
+.sa2-drive-thumbs { display:grid; grid-template-columns:repeat(4,1fr); gap:.5rem; padding:.75rem; }
+.sa2-drive-thumb { aspect-ratio:4/3; border-radius:6px; overflow:hidden; background:var(--bg); position:relative; cursor:pointer; border:2px solid transparent; transition:border-color .15s; }
+.sa2-drive-thumb:hover,.sa2-drive-thumb.selected { border-color:var(--green); }
+.sa2-drive-thumb img { width:100%; height:100%; object-fit:cover; }
+.sa2-drive-thumb-name { position:absolute; bottom:0; left:0; right:0; padding:.2rem .3rem; background:rgba(0,0,0,.55); color:#fff; font-size:.62rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.sa2-drive-empty { padding:1.5rem; text-align:center; color:var(--muted); font-size:.82rem; }
+.sa2-uploading-items { display:flex; flex-direction:column; gap:.4rem; }
+.sa2-uploading-item { display:flex; align-items:center; gap:.6rem; padding:.5rem .75rem; background:var(--panel); border:1px solid var(--line); border-radius:8px; font-size:.82rem; }
+.sa2-uploading-spinner { width:14px; height:14px; border:2px solid var(--line); border-top-color:var(--green); border-radius:50%; animation:sa2spin .7s linear infinite; flex-shrink:0; }
+.sa2-voucher-list { display:flex; flex-direction:column; gap:.75rem; }
+.sa2-voucher-list-title { font-size:.78rem; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; margin:0; }
+.sa2-voucher-card { display:flex; gap:.75rem; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:.75rem; align-items:flex-start; transition:box-shadow .15s; }
+.sa2-voucher-card:hover { box-shadow:0 2px 8px rgba(0,0,0,.08); }
+.sa2-voucher-card--needs-info { border-color:#f59e0b; background:#fffdf4; }
+.sa2-voucher-thumb { width:64px; height:64px; border-radius:8px; background:var(--bg); object-fit:cover; flex-shrink:0; border:1px solid var(--line); }
+.sa2-voucher-thumb-placeholder { width:64px; height:64px; border-radius:8px; background:var(--bg); flex-shrink:0; border:1px solid var(--line); display:flex; align-items:center; justify-content:center; font-size:1.4rem; color:var(--muted); }
+.sa2-voucher-body { flex:1; min-width:0; }
+.sa2-voucher-meta { font-size:.78rem; color:var(--muted); margin-bottom:.2rem; }
+.sa2-voucher-title { font-size:.92rem; font-weight:600; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.sa2-voucher-journal { font-size:.78rem; color:var(--muted); margin-top:.2rem; }
+.sa2-voucher-actions { display:flex; gap:.4rem; align-items:center; flex-shrink:0; flex-direction:column; }
+.sa2-card-source-btn { padding:.3rem .6rem; font-size:.75rem; font-weight:500; background:var(--bg); color:var(--ink); border:1px solid var(--line); border-radius:6px; cursor:pointer; white-space:nowrap; }
+.sa2-card-source-btn:hover { border-color:var(--green); }
+.sa2-card-approve-btn { padding:.3rem .6rem; font-size:.75rem; font-weight:600; background:var(--green); color:#fff; border:none; border-radius:6px; cursor:pointer; white-space:nowrap; }
+.sa2-card-approve-btn:disabled { opacity:.5; cursor:not-allowed; }
+.sa2-status-badge { display:inline-flex; align-items:center; gap:.2rem; padding:.15rem .45rem; border-radius:20px; font-size:.7rem; font-weight:600; }
+.sa2-status-badge--drafting { background:#eff6ff; color:#2563eb; }
+.sa2-status-badge--drafted { background:#f0fdf4; color:#15803d; }
+.sa2-status-badge--needs-info { background:#fffbeb; color:#92400e; }
+.sa2-status-badge--approved { background:#f0fdf4; color:#15803d; }
+.sa2-status-badge--none { background:var(--bg); color:var(--muted); }
+.sa2-modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:1000; display:flex; align-items:flex-end; justify-content:center; }
+.sa2-modal-sheet { background:var(--panel); border-radius:16px 16px 0 0; width:100%; max-width:680px; max-height:80vh; overflow-y:auto; padding:1.5rem 1.5rem 2rem; }
+.sa2-modal-handle { width:40px; height:4px; background:var(--line); border-radius:2px; margin:0 auto 1rem; }
+.sa2-modal-title { font-size:1rem; font-weight:700; margin:0 0 1rem; }
+.sa2-modal-section { margin-bottom:1rem; }
+.sa2-modal-section-label { font-size:.72rem; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; margin-bottom:.4rem; }
+.sa2-modal-reasoning { font-size:.85rem; color:var(--ink); line-height:1.6; background:var(--bg); border-radius:8px; padding:.75rem; }
+.sa2-modal-ocr-grid { display:grid; grid-template-columns:auto 1fr; gap:.25rem .75rem; font-size:.82rem; }
+.sa2-modal-ocr-key { color:var(--muted); }
+.sa2-modal-ocr-val { color:var(--ink); font-weight:500; }
+.sa2-modal-missing-list { display:flex; flex-wrap:wrap; gap:.35rem; padding:0; list-style:none; margin:0; }
+.sa2-modal-missing-item { background:#fef3c7; border:1px solid #f59e0b; color:#78350f; border-radius:20px; padding:.2rem .6rem; font-size:.75rem; }
+.sa2-modal-close { width:100%; margin-top:1rem; padding:.65rem; background:var(--bg); color:var(--ink); border:1px solid var(--line); border-radius:8px; font-size:.9rem; cursor:pointer; }
+.sa2-modal-close:hover { background:var(--line); }
+.sa2-empty { text-align:center; padding:2rem 1rem; color:var(--muted); font-size:.88rem; }
+.sa2-empty-icon { font-size:2rem; margin-bottom:.5rem; }
+@keyframes sa2spin { to { transform:rotate(360deg); } }

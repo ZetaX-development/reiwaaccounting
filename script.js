@@ -100,6 +100,10 @@ const labels = {
   "tax-suggestions": "コンサル / 節税提案",
   cashflow: "コンサル / CF予測",
   "client-portal": "コンサル / 顧問先ポータル",
+  "fixed-assets": "会計分析 / 固定資産台帳",
+  accruals: "会計分析 / 期間配分チェック",
+  "ar-matching": "会計分析 / 売上突合",
+  "bank-statement": "会計分析 / 銀行明細",
 
   status: { urgent: "要確認", open: "作業中", done: "終わった" },
   stage: {
@@ -144,6 +148,10 @@ const labels = {
     "tax-suggestions": "仕訳データをAIで分析して節税の提案を生成します。提案を「実施済み」「見送り」で管理できます。",
     cashflow: "過去6ヶ月の仕訳から翌3ヶ月のキャッシュフローを予測します。資金繰りの警戒ラインを早期に把握できます。",
     "client-portal": "顧問先が直接閲覧できる月次レポートURLを発行します。ログイン不要でアクセスできます。",
+    "fixed-assets": "MFの仕訳から固定資産を抽出し、法定耐用年数・年間償却額を表示します。30万円以上は契約書確認フラグ付き。",
+    accruals: "未払費用（地代家賃・リース等）と前払費用（年払保険・ソフト年額等）の計上漏れ候補を検出します。",
+    "ar-matching": "売掛金の発生と入金を突合して、未回収の売掛金を一覧表示します。回収遅延のエイジング分析付き。",
+    "bank-statement": "銀行明細CSVをインポートして、不明な出金を自動検出します。顧問先への確認依頼に活用できます。",
   },
 };
 
@@ -167,6 +175,10 @@ const viewDocumentTitles = {
   "tax-suggestions": "節税提案 | 経理丸ごとAI",
   cashflow: "CF予測 | 経理丸ごとAI",
   "client-portal": "顧問先ポータル | 経理丸ごとAI",
+  "fixed-assets": "固定資産台帳 | 経理丸ごとAI",
+  accruals: "期間配分チェック | 経理丸ごとAI",
+  "ar-matching": "売上突合 | 経理丸ごとAI",
+  "bank-statement": "銀行明細 | 経理丸ごとAI",
 };
 
 function friendlyError(err) {
@@ -5045,6 +5057,10 @@ function renderView() {
     "tax-suggestions": () => renderTaxSuggestions(), // コンサル > 節税提案
     cashflow: () => renderCashflow(),              // コンサル > CF予測
     "client-portal": () => renderClientPortal(),   // コンサル > 顧問先ポータル
+    "fixed-assets": () => renderFixedAssets(),     // 会計分析 > 固定資産台帳
+    accruals: () => renderAccruals(),              // 会計分析 > 期間配分チェック
+    "ar-matching": () => renderArMatching(),       // 会計分析 > 売上突合
+    "bank-statement": () => renderBankStatement(), // 会計分析 > 銀行明細
   };
   const renderer = views[appState.activeView] ?? views.dashboard;
   document.title = viewDocumentTitles[appState.activeView] || "経理丸ごとAI";
@@ -5194,6 +5210,21 @@ function renderView() {
   if (appState.activeView === "client-portal") {
     const c = currentClient();
     if (c?.id) loadAndRenderClientPortal(c.id);
+  }
+  if (appState.activeView === "fixed-assets") {
+    const c = currentClient();
+    if (c?.id) loadAndRenderFixedAssets(c.id);
+  }
+  if (appState.activeView === "accruals") {
+    const c = currentClient();
+    if (c?.id) loadAndRenderAccruals(c.id);
+  }
+  if (appState.activeView === "ar-matching") {
+    const c = currentClient();
+    if (c?.id) loadAndRenderArMatching(c.id);
+  }
+  if (appState.activeView === "bank-statement") {
+    initBankStatementUpload();
   }
   if (appState.activeView === "jobs-journal") {
     const c = currentClient();
@@ -6370,234 +6401,515 @@ if (roleSel) {
 
 // Simple mode toggle
 // ══════════════════════════════════════════════════════════
-//  かんたんモード — 完全独立UI
-//  写真 → OCR + AIドラフト → OK / NG の3画面だけ
+//  かんたんモード v2 — 蓄積型UI
+//  証憑リスト + Drive連携 + 参照元モーダル
 // ══════════════════════════════════════════════════════════
 const simpleApp = {
-  phase: 'idle',      // idle | uploading | processing | result | approved | error
-  voucherId: null,
   clientId: null,
-  draft: null,        // draftJournalJson
-  ocrJson: null,
-  errorMsg: null,
-  _pollTimer: null,
+  driveConnected: false,
+  drivePanel: false,
+  driveFiles: [],
+  driveLoading: false,
+  vouchers: [],
+  vouchersLoading: false,
+  vouchersLoadedFor: null,
+  uploadingFiles: [],
+  sourceModalVoucherId: null,
+  _pollTimers: {},
 };
+
+function renderSimpleRoot() {
+  const root = document.getElementById('simpleRoot');
+  if (!root) return;
+  root.innerHTML = renderSimpleApp();
+  bindSimpleEvents();
+}
 
 function renderSimpleApp() {
   const s = simpleApp;
+
+  // 顧問先セレクト
   const clientOpts = (clients || []).map((c) =>
     `<option value="${escapeAttribute(c.id)}"${c.id === s.clientId ? ' selected' : ''}>${escapeHtml(c.name)}</option>`
   ).join('');
   const clientBar = `
-    <div class="sa-client-bar">
-      <select id="saClientSelect" class="sa-client-select">
-        <option value="">顧問先を選ぶ▼</option>
+    <div class="sa2-client-bar">
+      <select id="sa2ClientSelect" class="sa2-client-select">
+        <option value="">顧問先を選ぶ</option>
         ${clientOpts}
       </select>
     </div>`;
 
-  let body = '';
+  // 黄色TODOバナー（needs_info件数）
+  const needsInfoVouchers = s.vouchers.filter((v) => v.journalStatus === 'needs_info');
+  const allMissingFields = [];
+  needsInfoVouchers.forEach((v) => {
+    const mf = (v.draftJournalJson && v.draftJournalJson.missingFields) || [];
+    mf.forEach((f) => { if (!allMissingFields.includes(f)) allMissingFields.push(f); });
+  });
+  const todoBanner = needsInfoVouchers.length > 0 ? `
+    <div class="sa2-todo-banner">
+      <p class="sa2-todo-banner-title">確認が必要な証憑が ${needsInfoVouchers.length} 件あります</p>
+      <div class="sa2-todo-tags">
+        ${allMissingFields.map((f) => `<span class="sa2-todo-tag">${escapeHtml(f)}</span>`).join('')}
+      </div>
+    </div>` : '';
 
-  if (s.phase === 'idle') {
-    body = `
-      <div class="sa-idle">
-        <div class="sa-logo"><span class="brand-mark" style="font-size:2.5rem">経</span><span class="sa-logo-name">経理丸ごとAI</span></div>
-        ${clientBar}
-        <label class="sa-upload-btn" for="saFileInput">
-          <span class="sa-upload-icon">📷</span>
-          <span>写真を撮る・選ぶ</span>
+  // アップロードゾーン + Driveボタン
+  const uploadSection = `
+    <div class="sa2-upload-section">
+      <div class="sa2-upload-row">
+        <label class="sa2-upload-zone" for="sa2FileInput" id="sa2UploadZone">
+          <span class="sa2-upload-zone-icon">📎</span>
+          <span class="sa2-upload-zone-label">領収書・請求書を追加</span>
+          <span class="sa2-upload-zone-sub">PDF / 画像をドロップまたはクリック</span>
         </label>
-        <input type="file" id="saFileInput" accept="image/*,application/pdf" capture="environment" hidden>
-        <p class="sa-hint">領収書・請求書の写真をとってください</p>
-        <button class="sa-exit-btn" id="saExitBtn">通常モードに戻る</button>
-      </div>`;
+        <input type="file" id="sa2FileInput" accept="image/*,application/pdf" hidden multiple>
+        ${s.driveConnected ? `
+        <button class="sa2-drive-btn" id="sa2DriveToggle">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 12c0 5.52-4.48 10-10 10S2 17.52 2 12 6.48 2 12 2s10 4.48 10 10z"/><path d="M8 12l2.5 2.5L16 9"/></svg>
+          Driveから選ぶ
+        </button>` : `
+        <button class="sa2-drive-btn" id="sa2DriveConnect">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 12c0 5.52-4.48 10-10 10S2 17.52 2 12 6.48 2 12 2s10 4.48 10 10z"/><path d="M12 8v8M8 12h8"/></svg>
+          Drive連携
+        </button>`}
+      </div>
+      ${s.drivePanel && s.driveConnected ? renderSaDrivePanel() : ''}
+      ${s.uploadingFiles.length > 0 ? `
+      <div class="sa2-uploading-items">
+        ${s.uploadingFiles.map((f) => `
+        <div class="sa2-uploading-item">
+          <div class="sa2-uploading-spinner"></div>
+          <span>${escapeHtml(f.name)}</span>
+          <span style="color:var(--muted);margin-left:auto;font-size:.75rem">処理中…</span>
+        </div>`).join('')}
+      </div>` : ''}
+    </div>`;
 
-  } else if (s.phase === 'uploading' || s.phase === 'processing') {
-    const msg = s.phase === 'uploading' ? 'アップロード中…' : 'AIが解析中…';
-    const sub = s.phase === 'processing' ? 'しばらくお待ちください' : '';
-    body = `
-      <div class="sa-processing">
-        <div class="sa-spinner-big"></div>
-        <p class="sa-status-text">${msg}</p>
-        ${sub ? `<p class="sa-status-sub">${sub}</p>` : ''}
-      </div>`;
-
-  } else if (s.phase === 'result' && s.draft) {
-    const d = s.draft;
-    const debitAmt = d.debit && d.debit.amount != null ? Number(d.debit.amount) : null;
-    const amount = debitAmt != null ? `¥${debitAmt.toLocaleString('ja-JP')}` : '—';
-    const date = d.transactionDate || (s.ocrJson && s.ocrJson.issue_date) || '—';
-    const desc = d.description || (s.ocrJson && s.ocrJson.vendor_name) || '—';
-    const debit = (d.debit && d.debit.account) || '—';
-    const credit = (d.credit && d.credit.account) || '—';
-    body = `
-      <div class="sa-result">
-        <p class="sa-result-title">こう仕訳します</p>
-        <div class="sa-result-card">
-          <div class="sa-row"><span class="sa-lbl">日付</span><span class="sa-val">${escapeHtml(String(date))}</span></div>
-          <div class="sa-row"><span class="sa-lbl">金額</span><span class="sa-val sa-amount">${amount}</span></div>
-          <div class="sa-row"><span class="sa-lbl">内容</span><span class="sa-val">${escapeHtml(String(desc))}</span></div>
-          <div class="sa-journal">
-            <div class="sa-j-side"><span class="sa-j-lbl">借方</span><span class="sa-j-acc">${escapeHtml(debit)}</span></div>
-            <span class="sa-j-arrow">→</span>
-            <div class="sa-j-side"><span class="sa-j-lbl">貸方</span><span class="sa-j-acc">${escapeHtml(credit)}</span></div>
-          </div>
-        </div>
-        <button class="sa-btn-ok" id="saOkBtn">✓　OK</button>
-        <button class="sa-btn-ng" id="saNgBtn">✗　やり直す</button>
-      </div>`;
-
-  } else if (s.phase === 'approved') {
-    body = `
-      <div class="sa-approved">
-        <div class="sa-check">✓</div>
-        <p class="sa-approved-text">登録しました！</p>
-        <button class="sa-btn-next" id="saNextBtn">次の写真を送る</button>
-        <button class="sa-exit-btn" id="saExitBtn">通常モードに戻る</button>
-      </div>`;
-
-  } else if (s.phase === 'error') {
-    body = `
-      <div class="sa-error-view">
-        <div class="sa-error-icon">⚠️</div>
-        <p class="sa-error-text">${escapeHtml(s.errorMsg || 'エラーが発生しました')}</p>
-        <button class="sa-btn-next" id="saNextBtn">もう一度やってみる</button>
-        <button class="sa-exit-btn" id="saExitBtn">通常モードに戻る</button>
+  // 証憑カードリスト
+  let voucherList = '';
+  if (!s.clientId) {
+    voucherList = `<div class="sa2-empty"><div class="sa2-empty-icon">📋</div><p>顧問先を選んでください</p></div>`;
+  } else if (s.vouchersLoading) {
+    voucherList = `<div class="sa2-empty"><div class="sa2-uploading-spinner" style="width:24px;height:24px;margin:0 auto 1rem"></div><p>読み込み中…</p></div>`;
+  } else if (s.vouchers.length === 0) {
+    voucherList = `<div class="sa2-empty"><div class="sa2-empty-icon">📂</div><p>証憑がまだありません<br>上からアップロードしてください</p></div>`;
+  } else {
+    voucherList = `
+      <div class="sa2-voucher-list">
+        <p class="sa2-voucher-list-title">証憑一覧（${s.vouchers.length}件）</p>
+        ${s.vouchers.map((v) => renderSaVoucherCard(v)).join('')}
       </div>`;
   }
 
-  return `<div class="sa-root">${body}</div>`;
+  // モーダル
+  const modal = s.sourceModalVoucherId ? renderSaSourceModal(s.sourceModalVoucherId) : '';
+
+  return `<div class="sa2-root">
+    ${clientBar}
+    ${todoBanner}
+    ${uploadSection}
+    ${voucherList}
+  </div>${modal}`;
+}
+
+function renderSaDrivePanel() {
+  const s = simpleApp;
+  if (s.driveLoading) {
+    return `<div class="sa2-drive-panel">
+      <div class="sa2-drive-panel-header"><span>Google Drive</span></div>
+      <div class="sa2-drive-empty">読み込み中…</div>
+    </div>`;
+  }
+  if (!s.driveFiles.length) {
+    return `<div class="sa2-drive-panel">
+      <div class="sa2-drive-panel-header"><span>Google Drive</span></div>
+      <div class="sa2-drive-empty">ファイルが見つかりません</div>
+    </div>`;
+  }
+  return `<div class="sa2-drive-panel">
+    <div class="sa2-drive-panel-header">
+      <span>Google Drive（${s.driveFiles.length}件）</span>
+      <button class="sa2-drive-import-all" id="sa2DriveImportAll">すべて取り込む</button>
+    </div>
+    <div class="sa2-drive-thumbs">
+      ${s.driveFiles.map((f) => `
+      <div class="sa2-drive-thumb" data-drive-file-id="${escapeAttribute(f.id)}">
+        ${f.thumbnailLink
+          ? `<img src="${escapeAttribute(f.thumbnailLink)}" alt="${escapeAttribute(f.name)}">`
+          : `<div style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:1.4rem">📄</div>`}
+        <div class="sa2-drive-thumb-name">${escapeHtml(f.name)}</div>
+      </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+function renderSaVoucherCard(v) {
+  const d = v.draftJournalJson || {};
+  const ocr = v.ocrJson || {};
+  const date = d.transactionDate || ocr.issue_date || '—';
+  const vendor = ocr.vendor_name || d.description || '不明';
+  const amount = d.debit && d.debit.amount != null
+    ? `¥${Number(d.debit.amount).toLocaleString('ja-JP')}`
+    : '—';
+  const debitAcc = (d.debit && d.debit.account) || '';
+  const creditAcc = (d.credit && d.credit.account) || '';
+  const journalText = debitAcc ? `${debitAcc} → ${creditAcc}` : '—';
+  const status = v.journalStatus || 'none';
+  const needsInfo = status === 'needs_info';
+  const isApproved = status === 'approved';
+  const isDrafting = status === 'drafting' || status === 'none';
+
+  const statusBadgeMap = {
+    drafting: ['sa2-status-badge--drafting', 'AI解析中'],
+    none: ['sa2-status-badge--drafting', 'AI解析中'],
+    drafted: ['sa2-status-badge--drafted', '仕訳あり'],
+    needs_info: ['sa2-status-badge--needs-info', '要確認'],
+    inquired: ['sa2-status-badge--needs-info', '問合せ中'],
+    approved: ['sa2-status-badge--approved', '承認済'],
+    skipped: ['sa2-status-badge--none', 'スキップ'],
+  };
+  const [badgeCls, badgeTxt] = statusBadgeMap[status] || ['sa2-status-badge--none', status];
+
+  return `<div class="sa2-voucher-card${needsInfo ? ' sa2-voucher-card--needs-info' : ''}" data-voucher-id="${escapeAttribute(v.id)}">
+    <div class="sa2-voucher-thumb-placeholder" id="thumb-${escapeAttribute(v.id)}">📄</div>
+    <div class="sa2-voucher-body">
+      <div class="sa2-voucher-meta">${escapeHtml(String(date))} <span class="sa2-status-badge ${badgeCls}">${badgeTxt}</span></div>
+      <div class="sa2-voucher-title">${escapeHtml(String(vendor))}</div>
+      <div class="sa2-voucher-journal">${escapeHtml(journalText)} <span style="margin-left:.4rem">${amount}</span></div>
+    </div>
+    <div class="sa2-voucher-actions">
+      <button class="sa2-card-source-btn" data-source-id="${escapeAttribute(v.id)}">参照元</button>
+      ${!isApproved ? `<button class="sa2-card-approve-btn" data-approve-id="${escapeAttribute(v.id)}"${isDrafting ? ' disabled' : ''}>承認</button>` : '<span style="font-size:.75rem;color:var(--green)">✓ 承認済</span>'}
+    </div>
+  </div>`;
+}
+
+function renderSaSourceModal(voucherId) {
+  const v = simpleApp.vouchers.find((x) => x.id === voucherId);
+  if (!v) return '';
+  const d = v.draftJournalJson || {};
+  const ocr = v.ocrJson || {};
+  const reasoning = d.reasoning || '（推論情報なし）';
+  const missingFields = d.missingFields || [];
+
+  const ocrRows = Object.entries(ocr)
+    .filter(([, val]) => val != null && val !== '')
+    .map(([key, val]) => `<span class="sa2-modal-ocr-key">${escapeHtml(key)}</span><span class="sa2-modal-ocr-val">${escapeHtml(String(val))}</span>`)
+    .join('');
+
+  return `<div class="sa2-modal-overlay" id="sa2ModalOverlay">
+    <div class="sa2-modal-sheet">
+      <div class="sa2-modal-handle"></div>
+      <h3 class="sa2-modal-title">仕訳の参照元</h3>
+      <div class="sa2-modal-section">
+        <div class="sa2-modal-section-label">AIの判断理由</div>
+        <div class="sa2-modal-reasoning">${escapeHtml(reasoning)}</div>
+      </div>
+      ${ocrRows ? `<div class="sa2-modal-section">
+        <div class="sa2-modal-section-label">OCR読み取り結果</div>
+        <div class="sa2-modal-ocr-grid">${ocrRows}</div>
+      </div>` : ''}
+      ${missingFields.length ? `<div class="sa2-modal-section">
+        <div class="sa2-modal-section-label">不足情報</div>
+        <ul class="sa2-modal-missing-list">
+          ${missingFields.map((f) => `<li class="sa2-modal-missing-item">${escapeHtml(f)}</li>`).join('')}
+        </ul>
+      </div>` : ''}
+      <button class="sa2-modal-close" id="sa2ModalClose">閉じる</button>
+    </div>
+  </div>`;
 }
 
 function bindSimpleEvents() {
-  const fileInput = document.getElementById('saFileInput');
-  const clientSelect = document.getElementById('saClientSelect');
-  const okBtn = document.getElementById('saOkBtn');
-  const ngBtn = document.getElementById('saNgBtn');
-  const nextBtn = document.getElementById('saNextBtn');
-  const exitBtn = document.getElementById('saExitBtn');
-
+  // 顧問先セレクト
+  const clientSelect = document.getElementById('sa2ClientSelect');
   if (clientSelect) {
     clientSelect.addEventListener('change', () => {
       simpleApp.clientId = clientSelect.value || null;
+      saLoadVouchers();
     });
   }
+
+  // ファイルアップロード
+  const fileInput = document.getElementById('sa2FileInput');
   if (fileInput) {
     fileInput.addEventListener('change', () => {
-      const file = fileInput.files && fileInput.files[0];
-      if (file) saUploadAndProcess(file);
+      const files = Array.from(fileInput.files || []);
+      files.forEach((f) => saUploadFile(f));
+      fileInput.value = '';
     });
   }
-  if (okBtn) okBtn.addEventListener('click', saApprove);
-  if (ngBtn) ngBtn.addEventListener('click', saReset);
-  if (nextBtn) nextBtn.addEventListener('click', saReset);
-  if (exitBtn) exitBtn.addEventListener('click', () => setSimpleMode(false));
+
+  // ドラッグ&ドロップ
+  const uploadZone = document.getElementById('sa2UploadZone');
+  if (uploadZone) {
+    uploadZone.addEventListener('dragover', (e) => { e.preventDefault(); uploadZone.classList.add('drag-over'); });
+    uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag-over'));
+    uploadZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadZone.classList.remove('drag-over');
+      Array.from(e.dataTransfer.files || []).forEach((f) => saUploadFile(f));
+    });
+  }
+
+  // Drive連携 / 開閉
+  const driveToggle = document.getElementById('sa2DriveToggle');
+  if (driveToggle) driveToggle.addEventListener('click', saToggleDrivePanel);
+  const driveConnect = document.getElementById('sa2DriveConnect');
+  if (driveConnect) driveConnect.addEventListener('click', () => {
+    window.location.href = '#/integrations-drive';
+    setSimpleMode(false);
+  });
+
+  // Drive一括取り込み
+  const importAll = document.getElementById('sa2DriveImportAll');
+  if (importAll) importAll.addEventListener('click', saDriveImportAll);
+
+  // Drive サムネイルクリック
+  document.querySelectorAll('.sa2-drive-thumb').forEach((el) => {
+    el.addEventListener('click', () => {
+      const fileId = el.dataset.driveFileId;
+      if (!fileId || !simpleApp.clientId) return;
+      saDriveImportFile(fileId);
+    });
+  });
+
+  // 承認ボタン
+  document.querySelectorAll('[data-approve-id]').forEach((el) => {
+    el.addEventListener('click', () => saApproveVoucher(el.dataset.approveId));
+  });
+
+  // 参照元ボタン
+  document.querySelectorAll('[data-source-id]').forEach((el) => {
+    el.addEventListener('click', () => saOpenSourceModal(el.dataset.sourceId));
+  });
+
+  // モーダル閉じる
+  const modalClose = document.getElementById('sa2ModalClose');
+  if (modalClose) modalClose.addEventListener('click', saCloseSourceModal);
+  const modalOverlay = document.getElementById('sa2ModalOverlay');
+  if (modalOverlay) modalOverlay.addEventListener('click', (e) => {
+    if (e.target === modalOverlay) saCloseSourceModal();
+  });
 }
 
-async function saUploadAndProcess(file) {
+async function saLoadVouchers() {
   if (!simpleApp.clientId) {
-    showToast('顧問先を選んでください', 'error');
+    simpleApp.vouchers = [];
+    simpleApp.vouchersLoadedFor = null;
+    renderSimpleRoot();
     return;
   }
-  simpleApp.phase = 'uploading';
-  simpleApp.errorMsg = null;
-  simpleApp.draft = null;
-  render();
+  simpleApp.vouchersLoading = true;
+  simpleApp.vouchersLoadedFor = simpleApp.clientId;
+  renderSimpleRoot();
+  try {
+    const res = await apiFetch(`/api/vouchers?clientId=${encodeURIComponent(simpleApp.clientId)}`);
+    if (res.ok) {
+      const list = await res.json();
+      simpleApp.vouchers = (Array.isArray(list) ? list : []).sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+      saLoadThumbnails();
+      saStartPollForPending();
+    }
+  } catch (_) {}
+  simpleApp.vouchersLoading = false;
+  renderSimpleRoot();
+}
 
+async function saLoadThumbnails() {
+  const vouchers = simpleApp.vouchers.filter((v) => v.id);
+  const BATCH = 5;
+  for (let i = 0; i < vouchers.length; i += BATCH) {
+    const batch = vouchers.slice(i, i + BATCH);
+    await Promise.all(batch.map(async (v) => {
+      try {
+        const res = await apiFetch(`/api/vouchers/${v.id}/image`);
+        if (!res.ok) return;
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const el = document.getElementById(`thumb-${v.id}`);
+        if (el) el.outerHTML = `<img class="sa2-voucher-thumb" src="${url}" alt="証憑" id="thumb-${v.id}">`;
+      } catch (_) {}
+    }));
+  }
+}
+
+async function saUploadFile(file) {
+  if (!simpleApp.clientId) { showToast('顧問先を選んでください', 'error'); return; }
+  simpleApp.uploadingFiles.push(file);
+  renderSimpleRoot();
   try {
     const fd = new FormData();
     fd.append('file', file);
     fd.append('clientId', simpleApp.clientId);
     const upRes = await apiFetch('/api/vouchers', { method: 'POST', body: fd });
-    if (!upRes.ok) throw new Error('アップロードに失敗しました');
+    if (!upRes.ok) throw new Error('アップロード失敗');
     const v = await upRes.json();
-    simpleApp.voucherId = v.id;
-
-    simpleApp.phase = 'processing';
-    render();
-
-    // Trigger AI draft
     apiFetch(`/api/vouchers/${v.id}/draft-journal`, { method: 'POST' }).catch(() => {});
-
-    // Poll for draft
-    await saPollDraft(v.id);
+    simpleApp.uploadingFiles = simpleApp.uploadingFiles.filter((f) => f !== file);
+    await saLoadVouchers();
   } catch (err) {
-    simpleApp.phase = 'error';
-    simpleApp.errorMsg = String(err);
-    render();
+    simpleApp.uploadingFiles = simpleApp.uploadingFiles.filter((f) => f !== file);
+    showToast('アップロードに失敗しました', 'error');
+    renderSimpleRoot();
   }
 }
 
-async function saPollDraft(voucherId) {
-  const MAX = 25;
-  for (let i = 0; i < MAX; i++) {
-    await new Promise((r) => setTimeout(r, 2500));
+function saStartPollForPending() {
+  const clientId = simpleApp.clientId;
+  if (!clientId) return;
+  if (simpleApp._pollTimers[clientId]) return;
+  const pending = simpleApp.vouchers.filter((v) => v.journalStatus === 'drafting' || v.journalStatus === 'none');
+  if (!pending.length) return;
+  let count = 0;
+  const MAX = 20;
+  const timer = setInterval(async () => {
+    count++;
+    if (count > MAX || simpleApp.clientId !== clientId) {
+      clearInterval(timer);
+      delete simpleApp._pollTimers[clientId];
+      return;
+    }
     try {
-      const res = await apiFetch(`/api/vouchers?clientId=${encodeURIComponent(simpleApp.clientId)}`);
-      if (!res.ok) continue;
+      const res = await apiFetch(`/api/vouchers?clientId=${encodeURIComponent(clientId)}`);
+      if (!res.ok) return;
       const list = await res.json();
-      const found = list.find((x) => x.id === voucherId);
-      if (found && found.journalStatus && found.journalStatus !== 'none' && found.draftJournalJson) {
-        simpleApp.draft = found.draftJournalJson;
-        simpleApp.ocrJson = found.ocrJson || null;
-        simpleApp.phase = 'result';
-        render();
-        return;
+      if (simpleApp.clientId !== clientId) return;
+      simpleApp.vouchers = (Array.isArray(list) ? list : []).sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+      const stillPending = simpleApp.vouchers.filter((v) => v.journalStatus === 'drafting' || v.journalStatus === 'none');
+      renderSimpleRoot();
+      saLoadThumbnails();
+      if (!stillPending.length) {
+        clearInterval(timer);
+        delete simpleApp._pollTimers[clientId];
       }
-    } catch (_) { /* keep polling */ }
-  }
-  simpleApp.phase = 'error';
-  simpleApp.errorMsg = '解析に時間がかかっています。OpenAI APIキーを確認してください。';
-  render();
+    } catch (_) {}
+  }, 3000);
+  simpleApp._pollTimers[clientId] = timer;
 }
 
-async function saApprove() {
-  if (!simpleApp.voucherId) return;
+async function saApproveVoucher(voucherId) {
   try {
-    await apiFetch(`/api/vouchers/${simpleApp.voucherId}/journal`, {
+    await apiFetch(`/api/vouchers/${voucherId}/journal`, {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ status: 'approved' }),
     });
-    simpleApp.phase = 'approved';
-    render();
-  } catch (err) {
-    showToast('保存に失敗しました', 'error');
-  }
+    const v = simpleApp.vouchers.find((x) => x.id === voucherId);
+    if (v) v.journalStatus = 'approved';
+    renderSimpleRoot();
+    saLoadThumbnails();
+  } catch (_) { showToast('保存に失敗しました', 'error'); }
 }
 
-function saReset() {
-  simpleApp.phase = 'idle';
-  simpleApp.voucherId = null;
-  simpleApp.draft = null;
-  simpleApp.ocrJson = null;
-  simpleApp.errorMsg = null;
-  render();
+async function saCheckDriveStatus() {
+  try {
+    const res = await apiFetch('/api/integrations/drive');
+    if (res.ok) {
+      const data = await res.json();
+      simpleApp.driveConnected = !!(data && data.connected);
+    }
+  } catch (_) {}
+}
+
+async function saToggleDrivePanel() {
+  simpleApp.drivePanel = !simpleApp.drivePanel;
+  if (simpleApp.drivePanel) {
+    simpleApp.driveLoading = true;
+    renderSimpleRoot();
+    try {
+      const res = await apiFetch('/api/integrations/drive/files');
+      if (res.ok) {
+        const data = await res.json();
+        simpleApp.driveFiles = Array.isArray(data) ? data : (data.files || []);
+      }
+    } catch (_) {}
+    simpleApp.driveLoading = false;
+  }
+  renderSimpleRoot();
+}
+
+async function saDriveImportFile(fileId) {
+  if (!simpleApp.clientId) { showToast('顧問先を選んでください', 'error'); return; }
+  try {
+    await apiFetch('/api/integrations/drive/backfill', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ clientId: simpleApp.clientId, fileIds: [fileId] }),
+    });
+    showToast('取り込みを開始しました', 'success');
+    await saLoadVouchers();
+  } catch (_) { showToast('取り込みに失敗しました', 'error'); }
+}
+
+async function saDriveImportAll() {
+  if (!simpleApp.clientId) { showToast('顧問先を選んでください', 'error'); return; }
+  const importBtn = document.getElementById('sa2DriveImportAll');
+  if (importBtn) { importBtn.disabled = true; importBtn.textContent = '取り込み中…'; }
+  try {
+    await apiFetch('/api/integrations/drive/backfill', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ clientId: simpleApp.clientId }),
+    });
+    showToast('一括取り込みを開始しました', 'success');
+    simpleApp.drivePanel = false;
+    await saLoadVouchers();
+  } catch (_) { showToast('取り込みに失敗しました', 'error'); }
+  if (importBtn) { importBtn.disabled = false; importBtn.textContent = 'すべて取り込む'; }
+}
+
+function saOpenSourceModal(voucherId) {
+  simpleApp.sourceModalVoucherId = voucherId;
+  renderSimpleRoot();
+}
+
+function saCloseSourceModal() {
+  simpleApp.sourceModalVoucherId = null;
+  renderSimpleRoot();
 }
 
 function setSimpleMode(enabled) {
   appState.simpleMode = enabled;
-  try { localStorage.setItem("bookmee.simpleMode", String(enabled)); } catch(e) {}
-  document.body.classList.toggle("simple-mode", enabled);
-  const btnSimple = document.getElementById("modeBtnSimple");
-  const btnNormal = document.getElementById("modeBtnNormal");
-  if (btnSimple) btnSimple.classList.toggle("active", enabled);
-  if (btnNormal) btnNormal.classList.toggle("active", !enabled);
-  render();
+  try { localStorage.setItem('bookmee.simpleMode', String(enabled)); } catch (e) {}
+  document.body.classList.toggle('simple-mode', enabled);
+  const btnSimple = document.getElementById('modeBtnSimple');
+  const btnNormal = document.getElementById('modeBtnNormal');
+  if (btnSimple) btnSimple.classList.toggle('active', enabled);
+  if (btnNormal) btnNormal.classList.toggle('active', !enabled);
+
+  if (enabled) {
+    // simpleRootを表示
+    const root = document.getElementById('simpleRoot');
+    if (root) root.removeAttribute('hidden');
+    simpleApp.clientId = currentClient() ? currentClient().id : null;
+    saCheckDriveStatus().then(() => {
+      if (simpleApp.clientId) saLoadVouchers();
+      else renderSimpleRoot();
+    });
+  } else {
+    // polling全停止
+    Object.values(simpleApp._pollTimers).forEach((t) => clearInterval(t));
+    simpleApp._pollTimers = {};
+    const root = document.getElementById('simpleRoot');
+    if (root) root.setAttribute('hidden', '');
+  }
 }
 
-const modeBtnSimple = document.getElementById("modeBtnSimple");
-const modeBtnNormal = document.getElementById("modeBtnNormal");
+const modeBtnSimple = document.getElementById('modeBtnSimple');
+const modeBtnNormal = document.getElementById('modeBtnNormal');
 if (modeBtnSimple) modeBtnSimple.addEventListener("click", () => setSimpleMode(true));
 if (modeBtnNormal) modeBtnNormal.addEventListener("click", () => setSimpleMode(false));
 
-// Apply saved mode on load (body class + button active state)
-document.body.classList.toggle("simple-mode", appState.simpleMode);
+// Apply saved mode on load
+document.body.classList.toggle('simple-mode', appState.simpleMode);
 if (appState.simpleMode) {
-  const s = document.getElementById("modeBtnSimple");
-  const n = document.getElementById("modeBtnNormal");
-  if (s) s.classList.add("active");
-  if (n) n.classList.remove("active");
+  const s = document.getElementById('modeBtnSimple');
+  const n = document.getElementById('modeBtnNormal');
+  if (s) s.classList.add('active');
+  if (n) n.classList.remove('active');
 }
 
 // Logout
@@ -6899,6 +7211,294 @@ async function loadAndRenderClientPortal(clientId) {
       }
     });
   }
+}
+
+// ---- 固定資産台帳 -------------------------------------------------------
+function renderFixedAssets() {
+  const client = currentClient();
+  if (!client) return '<div class="view-placeholder">顧問先を選択してください</div>';
+  return `
+    <div class="view-header">
+      <h2>固定資産台帳</h2>
+      <p class="view-desc">${labels.helper['fixed-assets']}</p>
+    </div>
+    <div id="fixedAssetsList"><div class="loading-text">読み込み中…</div></div>
+  `;
+}
+
+async function loadAndRenderFixedAssets(clientId) {
+  const el = document.getElementById('fixedAssetsList');
+  if (!el) return;
+  try {
+    const res = await apiFetch(`/api/clients/${clientId}/fixed-assets`);
+    if (!res.ok) throw new Error('fetch failed');
+    const data = await res.json();
+    const items = data.items || [];
+    if (!items.length) {
+      el.innerHTML = '<div class="empty-state">固定資産の仕訳が見つかりませんでした。</div>';
+      return;
+    }
+    el.innerHTML = `
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead>
+          <tr style="background:#f1f5f9;text-align:left">
+            <th style="padding:8px 12px">日付</th>
+            <th style="padding:8px 12px">摘要</th>
+            <th style="padding:8px 12px">勘定科目</th>
+            <th style="padding:8px 12px;text-align:right">取得価額</th>
+            <th style="padding:8px 12px;text-align:center">耐用年数</th>
+            <th style="padding:8px 12px;text-align:right">年間償却額</th>
+            <th style="padding:8px 12px;text-align:center">確認事項</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${items.map(item => `
+            <tr style="border-top:1px solid #e5e7eb">
+              <td style="padding:8px 12px">${escapeHtml(item.date)}</td>
+              <td style="padding:8px 12px">${escapeHtml(item.description)}</td>
+              <td style="padding:8px 12px">${escapeHtml(item.account)}</td>
+              <td style="padding:8px 12px;text-align:right">¥${item.amount.toLocaleString('ja-JP')}</td>
+              <td style="padding:8px 12px;text-align:center">${item.usefulLifeYears ? item.usefulLifeYears + '年' : '—'}</td>
+              <td style="padding:8px 12px;text-align:right">${item.depreciationPerYear ? '¥' + item.depreciationPerYear.toLocaleString('ja-JP') : '—'}</td>
+              <td style="padding:8px 12px;text-align:center">${item.requiresContract ? '<span style="color:#dc2626;font-weight:600">📄 契約書要確認</span>' : '—'}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  } catch (e) {
+    el.innerHTML = '<div class="error-text">取得に失敗しました</div>';
+  }
+}
+
+// ---- 期間配分チェック ---------------------------------------------------
+function renderAccruals() {
+  const client = currentClient();
+  if (!client) return '<div class="view-placeholder">顧問先を選択してください</div>';
+  return `
+    <div class="view-header">
+      <h2>期間配分チェック</h2>
+      <p class="view-desc">${labels.helper['accruals']}</p>
+    </div>
+    <div id="accrualsList"><div class="loading-text">読み込み中…</div></div>
+  `;
+}
+
+async function loadAndRenderAccruals(clientId) {
+  const el = document.getElementById('accrualsList');
+  if (!el) return;
+  try {
+    const res = await apiFetch(`/api/clients/${clientId}/accruals`);
+    if (!res.ok) throw new Error('fetch failed');
+    const data = await res.json();
+    const candidates = data.candidates || [];
+    if (!candidates.length) {
+      el.innerHTML = '<div class="empty-state">計上漏れ候補はありません。</div>';
+      return;
+    }
+    const typeLabel = { unpaid: '未払費用', prepaid: '前払費用' };
+    const typeColor = { unpaid: '#dc2626', prepaid: '#2563eb' };
+    el.innerHTML = `
+      <div style="margin-bottom:12px;font-size:13px;color:#6b7280">${candidates.length}件の計上漏れ候補が見つかりました</div>
+      ${candidates.map(c => `
+        <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:16px;margin-bottom:10px;border-left:4px solid ${typeColor[c.type] || '#6b7280'}">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+            <span style="font-size:11px;font-weight:600;color:${typeColor[c.type] || '#6b7280'}">${typeLabel[c.type] || c.type}</span>
+            <span style="font-size:13px;font-weight:600">¥${c.amount.toLocaleString('ja-JP')}</span>
+          </div>
+          <div style="font-weight:500;margin-bottom:4px">${escapeHtml(c.description)}</div>
+          <div style="font-size:12px;color:#6b7280;margin-bottom:4px">元の取引日: ${escapeHtml(c.originalDate)} → 提案勘定科目: ${escapeHtml(c.suggestedAccount)}</div>
+          <div style="font-size:12px;color:#374151">${escapeHtml(c.reason)}</div>
+        </div>
+      `).join('')}
+    `;
+  } catch (e) {
+    el.innerHTML = '<div class="error-text">取得に失敗しました</div>';
+  }
+}
+
+// ---- 売上突合 -----------------------------------------------------------
+function renderArMatching() {
+  const client = currentClient();
+  if (!client) return '<div class="view-placeholder">顧問先を選択してください</div>';
+  return `
+    <div class="view-header">
+      <h2>売上突合（売掛金管理）</h2>
+      <p class="view-desc">${labels.helper['ar-matching']}</p>
+    </div>
+    <div id="arMatchingContent"><div class="loading-text">読み込み中…</div></div>
+  `;
+}
+
+async function loadAndRenderArMatching(clientId) {
+  const el = document.getElementById('arMatchingContent');
+  if (!el) return;
+  try {
+    const res = await apiFetch(`/api/clients/${clientId}/ar-matching`);
+    if (!res.ok) throw new Error('fetch failed');
+    const data = await res.json();
+    const { unmatched = [], matched = [], summary = {} } = data;
+    const agingColor = { current: '#16a34a', '30days': '#d97706', '60days': '#ea580c', '90days+': '#dc2626' };
+    const agingLabel = { current: '30日以内', '30days': '31〜60日', '60days': '61〜90日', '90days+': '91日以上' };
+    el.innerHTML = `
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">
+        <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:16px;text-align:center">
+          <div style="font-size:24px;font-weight:700;color:#dc2626">¥${(summary.totalUnmatchedAmount || 0).toLocaleString('ja-JP')}</div>
+          <div style="font-size:12px;color:#6b7280;margin-top:4px">未回収合計</div>
+        </div>
+        <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:16px;text-align:center">
+          <div style="font-size:24px;font-weight:700;color:#dc2626">${summary.unmatchedCount || 0}件</div>
+          <div style="font-size:12px;color:#6b7280;margin-top:4px">未回収件数</div>
+        </div>
+        <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:16px;text-align:center">
+          <div style="font-size:24px;font-weight:700;color:#16a34a">¥${(summary.totalMatchedAmount || 0).toLocaleString('ja-JP')}</div>
+          <div style="font-size:12px;color:#6b7280;margin-top:4px">回収済合計</div>
+        </div>
+      </div>
+      ${unmatched.length ? `
+        <h3 style="font-size:14px;font-weight:600;margin-bottom:10px">未回収売掛金 (${unmatched.length}件)</h3>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px">
+          <thead>
+            <tr style="background:#fef2f2;text-align:left">
+              <th style="padding:8px 12px">発生日</th>
+              <th style="padding:8px 12px">取引先</th>
+              <th style="padding:8px 12px">摘要</th>
+              <th style="padding:8px 12px;text-align:right">金額</th>
+              <th style="padding:8px 12px;text-align:center">経過日数</th>
+              <th style="padding:8px 12px;text-align:center">エイジング</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${unmatched.map(u => `
+              <tr style="border-top:1px solid #e5e7eb">
+                <td style="padding:8px 12px">${escapeHtml(u.date)}</td>
+                <td style="padding:8px 12px">${escapeHtml(u.partner || '—')}</td>
+                <td style="padding:8px 12px">${escapeHtml(u.description)}</td>
+                <td style="padding:8px 12px;text-align:right">¥${u.amount.toLocaleString('ja-JP')}</td>
+                <td style="padding:8px 12px;text-align:center">${u.agingDays}日</td>
+                <td style="padding:8px 12px;text-align:center"><span style="color:${agingColor[u.agingCategory] || '#6b7280'};font-weight:600">${agingLabel[u.agingCategory] || u.agingCategory}</span></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      ` : '<div class="empty-state" style="margin-bottom:20px">未回収売掛金はありません</div>'}
+    `;
+  } catch (e) {
+    el.innerHTML = '<div class="error-text">取得に失敗しました</div>';
+  }
+}
+
+// ---- 銀行明細 -----------------------------------------------------------
+function renderBankStatement() {
+  const client = currentClient();
+  if (!client) return '<div class="view-placeholder">顧問先を選択してください</div>';
+  return `
+    <div class="view-header">
+      <h2>銀行明細インポート</h2>
+      <p class="view-desc">${labels.helper['bank-statement']}</p>
+    </div>
+    <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:20px;max-width:560px;margin-bottom:20px">
+      <div style="margin-bottom:12px;font-size:13px;color:#374151">ネットバンキングからダウンロードした明細CSVをアップロードしてください（UTF-8 または Shift-JIS）</div>
+      <input type="file" id="bankCsvInput" accept=".csv,text/csv" style="font-size:13px;margin-bottom:12px;display:block">
+      <button id="bankImportBtn" class="btn btn-primary">インポート</button>
+      <span id="bankImportStatus" style="font-size:13px;color:#6b7280;margin-left:12px"></span>
+    </div>
+    <div id="bankStatementResult"></div>
+  `;
+}
+
+function initBankStatementUpload() {
+  const client = currentClient();
+  if (!client) return;
+  const btn = document.getElementById('bankImportBtn');
+  const input = document.getElementById('bankCsvInput');
+  const statusEl = document.getElementById('bankImportStatus');
+  const resultEl = document.getElementById('bankStatementResult');
+  if (!btn || !input || !resultEl) return;
+
+  btn.addEventListener('click', async () => {
+    const file = input.files?.[0];
+    if (!file) { if (statusEl) statusEl.textContent = 'ファイルを選択してください'; return; }
+    btn.disabled = true;
+    if (statusEl) statusEl.textContent = 'インポート中…';
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await apiFetch(`/api/clients/${client.id}/bank-statement-import`, { method: 'POST', body: form });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error?.message || 'インポートに失敗しました');
+      }
+      const data = await res.json();
+      const { rows = [], unknowns = [], summary = {} } = data;
+      if (statusEl) statusEl.textContent = `${summary.totalRows || rows.length}件を取り込みました`;
+      resultEl.innerHTML = `
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px">
+          <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:16px;text-align:center">
+            <div style="font-size:22px;font-weight:700">¥${(summary.totalWithdrawal || 0).toLocaleString('ja-JP')}</div>
+            <div style="font-size:12px;color:#6b7280;margin-top:4px">出金合計</div>
+          </div>
+          <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:16px;text-align:center">
+            <div style="font-size:22px;font-weight:700">¥${(summary.totalDeposit || 0).toLocaleString('ja-JP')}</div>
+            <div style="font-size:12px;color:#6b7280;margin-top:4px">入金合計</div>
+          </div>
+          <div style="background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:16px;text-align:center">
+            <div style="font-size:22px;font-weight:700;color:${summary.unknownCount > 0 ? '#dc2626' : '#16a34a'}">${summary.unknownCount || 0}件</div>
+            <div style="font-size:12px;color:#6b7280;margin-top:4px">不明出金</div>
+          </div>
+        </div>
+        ${unknowns.length ? `
+          <h3 style="font-size:14px;font-weight:600;margin-bottom:10px;color:#dc2626">不明出金 (${unknowns.length}件) — 要確認</h3>
+          <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px">
+            <thead>
+              <tr style="background:#fef2f2;text-align:left">
+                <th style="padding:8px 12px">日付</th>
+                <th style="padding:8px 12px">摘要</th>
+                <th style="padding:8px 12px;text-align:right">出金額</th>
+                <th style="padding:8px 12px">判定理由</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${unknowns.map(u => `
+                <tr style="border-top:1px solid #e5e7eb">
+                  <td style="padding:8px 12px">${escapeHtml(u.date)}</td>
+                  <td style="padding:8px 12px">${escapeHtml(u.description || '（空白）')}</td>
+                  <td style="padding:8px 12px;text-align:right;color:#dc2626;font-weight:600">¥${u.amount.toLocaleString('ja-JP')}</td>
+                  <td style="padding:8px 12px;font-size:12px;color:#6b7280">${escapeHtml(u.reason)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        ` : '<div style="color:#16a34a;font-weight:600;margin-bottom:16px">不明な出金はありませんでした</div>'}
+        <h3 style="font-size:14px;font-weight:600;margin-bottom:10px">全明細 (${rows.length}件)</h3>
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead>
+            <tr style="background:#f1f5f9;text-align:left">
+              <th style="padding:6px 10px">日付</th>
+              <th style="padding:6px 10px">摘要</th>
+              <th style="padding:6px 10px;text-align:right">出金</th>
+              <th style="padding:6px 10px;text-align:right">入金</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(r => `
+              <tr style="border-top:1px solid #f3f4f6">
+                <td style="padding:6px 10px">${escapeHtml(r.date)}</td>
+                <td style="padding:6px 10px">${escapeHtml(r.description)}</td>
+                <td style="padding:6px 10px;text-align:right;color:${r.withdrawal > 0 ? '#dc2626' : '#9ca3af'}">${r.withdrawal > 0 ? '¥' + r.withdrawal.toLocaleString('ja-JP') : '—'}</td>
+                <td style="padding:6px 10px;text-align:right;color:${r.deposit > 0 ? '#16a34a' : '#9ca3af'}">${r.deposit > 0 ? '¥' + r.deposit.toLocaleString('ja-JP') : '—'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    } catch (err) {
+      if (statusEl) statusEl.textContent = err.message || 'エラーが発生しました';
+      resultEl.innerHTML = '';
+    } finally {
+      btn.disabled = false;
+    }
+  });
 }
 
 // ---- 赤バッジ: LINE新着証憑カウント ----------------------------------------

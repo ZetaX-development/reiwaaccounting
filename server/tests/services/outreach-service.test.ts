@@ -84,6 +84,6 @@ describe('inquireAboutVoucher', () => {
     expect(inquiries).toHaveLength(1);
     expect(inquiries[0].channel).toBe('email');
     expect(inquiries[0].status).toBe('failed');
-    expect(inquiries[0].errorMessage).toBe('SENDGRID_API_KEY is not set');
+    expect(inquiries[0].errorMessage).toBe('GMAIL_USER/GMAIL_APP_PASSWORD or SENDGRID_API_KEY is not set');
   });
 });

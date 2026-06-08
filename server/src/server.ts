@@ -35,6 +35,10 @@ import { cashflowRoutes } from './routes/cashflow.js';
 import { portalReportRoutes } from './routes/portal-report.js';
 import { trainingRoutes } from './routes/training.js';
 import { feedbackRoutes } from './routes/feedback.js';
+import { fixedAssetRoutes } from './routes/fixed-assets.js';
+import { accrualRoutes } from './routes/accruals.js';
+import { arMatchingRoutes } from './routes/ar-matching.js';
+import { bankStatementRoutes } from './routes/bank-statement.js';
 import multipart from '@fastify/multipart';
 
 const AUTH_BYPASS = new Set([
@@ -127,6 +131,10 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(portalReportRoutes);
   await app.register(trainingRoutes);
   await app.register(feedbackRoutes);
+  await app.register(fixedAssetRoutes);
+  await app.register(accrualRoutes);
+  await app.register(arMatchingRoutes);
+  await app.register(bankStatementRoutes);
 
   app.setErrorHandler((err, _req, reply) => {
     logger.error({ err }, 'unhandled');

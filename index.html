@@ -106,11 +106,6 @@
           </span>
         </a>
 
-        <div class="mode-switch" id="modeSwitchBar">
-          <button class="mode-switch-btn" id="modeBtnSimple">かんたん</button>
-          <button class="mode-switch-btn active" id="modeBtnNormal">通常</button>
-        </div>
-
         <div id="clientContextBar" style="display:none;padding:.5rem 1rem .5rem;border-bottom:1px solid #e3e7ee;margin-bottom:.5rem">
           <p style="font-size:.7rem;color:#8899aa;margin:0 0 2px">選択中の顧問先</p>
           <div style="display:flex;align-items:center;gap:.4rem">
@@ -144,6 +139,12 @@
           <button class="nav-item simple-mode-hidden" data-view="cashflow" title="過去の仕訳から翌3ヶ月のキャッシュフローを予測します">CF予測</button>
           <button class="nav-item simple-mode-hidden" data-view="client-portal" title="顧問先向けの月次レポートURLを発行します">顧問先ポータル</button>
 
+          <p class="nav-group-label simple-mode-hidden">会計分析</p>
+          <button class="nav-item simple-mode-hidden" data-view="fixed-assets" title="固定資産の耐用年数・償却額を確認します">固定資産台帳</button>
+          <button class="nav-item simple-mode-hidden" data-view="accruals" title="未払費用・前払費用の計上漏れをチェックします">期間配分チェック</button>
+          <button class="nav-item simple-mode-hidden" data-view="ar-matching" title="売掛金の回収状況と未回収リストを確認します">売上突合</button>
+          <button class="nav-item simple-mode-hidden" data-view="bank-statement" title="銀行明細CSVをインポートして不明出金を検出します">銀行明細</button>
+
           <p class="nav-group-label simple-mode-hidden">連携</p>
           <button class="nav-item simple-mode-hidden" data-view="integrations-drive">Google Drive</button>
           <button class="nav-item simple-mode-hidden" data-view="integrations-line" title="LINE Botの設定。顧問先がLINEで領収書を送れるようになります">LINE</button>
@@ -173,6 +174,10 @@
             </h1>
           </div>
           <div class="topbar-actions">
+            <div class="topbar-mode-tabs" id="topbarModeTabs">
+              <button class="topbar-mode-tab active" id="modeBtnNormal">通常モード</button>
+              <button class="topbar-mode-tab" id="modeBtnSimple">かんたんモード</button>
+            </div>
             <label class="search-box">
               <span>検索</span>
               <input id="searchInput" type="search" placeholder="顧問先・担当者・確認事項を検索" />

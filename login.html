@@ -3,50 +3,122 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ログイン — 経理丸ごとAI</title>
+  <title>ログイン — 経理丸投げAI</title>
   <link rel="stylesheet" href="/styles.css" />
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
   <style>
     body { display: flex; justify-content: center; align-items: center; min-height: 100vh; background: #f5f5f5; }
     .login-box { background: #fff; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,.1); padding: 2rem; width: 360px; }
     .login-box h1 { font-size: 1.4rem; margin-bottom: 1.5rem; text-align: center; }
+    .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: .25rem; background: #f1f5f9; border-radius: 6px; padding: .25rem; margin-bottom: 1rem; }
+    .tab-btn { border: none; background: transparent; border-radius: 5px; padding: .55rem; font-size: .9rem; cursor: pointer; color: #475569; }
+    .tab-btn.active { background: #fff; color: #1e293b; box-shadow: 0 1px 3px rgba(15,23,42,.12); }
+    .auth-form { display: none; }
+    .auth-form.active { display: block; }
     .login-box label { display: block; font-size: .85rem; margin-bottom: .25rem; color: #555; }
     .login-box input { width: 100%; padding: .6rem .75rem; border: 1px solid #ccc; border-radius: 6px; font-size: 1rem; box-sizing: border-box; margin-bottom: 1rem; }
+    .login-box input:focus { outline: 2px solid rgba(37,99,235,.18); border-color: #2563eb; }
     .btn-primary { width: 100%; padding: .75rem; background: #2563eb; color: #fff; border: none; border-radius: 6px; font-size: 1rem; cursor: pointer; }
     .btn-primary:hover { background: #1d4ed8; }
+    .btn-primary:disabled { background: #94a3b8; cursor: not-allowed; }
     .btn-google { width: 100%; padding: .65rem; background: #fff; color: #333; border: 1px solid #ccc; border-radius: 6px; font-size: .95rem; cursor: pointer; margin-top: .75rem; display: flex; align-items: center; justify-content: center; gap: .5rem; }
     .btn-google:hover { background: #f9f9f9; }
     .divider { text-align: center; margin: 1rem 0; color: #aaa; font-size: .85rem; }
     .error-msg { color: #dc2626; font-size: .85rem; margin-bottom: .75rem; display: none; }
     .forgot-link { display: block; text-align: right; font-size: .8rem; color: #2563eb; text-decoration: none; margin-top: -.5rem; margin-bottom: 1rem; }
     .forgot-link:hover { text-decoration: underline; }
+    .demo-hint {
+      margin-top: 1.25rem;
+      padding: .85rem 1rem;
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 8px;
+      font-size: .82rem;
+      color: #1e40af;
+      line-height: 1.55;
+    }
+    .demo-hint strong { display: block; margin-bottom: .35rem; }
+    .demo-hint code { font-size: .8rem; background: #dbeafe; padding: .1rem .35rem; border-radius: 4px; }
   </style>
 </head>
 <body>
   <div class="login-box">
-    <h1>経理丸ごとAI</h1>
+    <h1>経理丸投げAI</h1>
     <div id="error" class="error-msg"></div>
-    <label for="email">メールアドレス</label>
-    <input id="email" type="email" placeholder="you@example.com" autocomplete="email" />
-    <label for="password">パスワード</label>
-    <input id="password" type="password" placeholder="••••••••" autocomplete="current-password" />
-    <a href="/auth/forgot-password.html" class="forgot-link">パスワードをお忘れですか？</a>
-    <button id="btn-login" class="btn-primary">ログイン</button>
-    <div class="divider">または</div>
-    <button id="btn-google" class="btn-google">
-      <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 33.1 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 8 3l5.7-5.7C34.3 6.5 29.4 4 24 4 12.95 4 4 12.95 4 24s8.95 20 20 20 20-8.95 20-20c0-1.3-.15-2.65-.4-3.9z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.1 8 3l5.7-5.7C34.3 6.5 29.4 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 10-2 13.5-5.2l-6.2-5.3C29.3 35.3 26.8 36 24 36c-5.3 0-9.7-3.1-11.3-7.5l-6.5 5C9.6 39.6 16.3 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.3 4.1-4.2 5.5l6.2 5.3C43 35.6 44 30 44 24c0-1.3-.15-2.65-.4-3.9z"/></svg>
-      Google でログイン
-    </button>
+    <div class="tabs" role="tablist" aria-label="認証方法">
+      <button id="tab-login" class="tab-btn active" type="button" role="tab" aria-selected="true" aria-controls="login-form">ログイン</button>
+      <button id="tab-register" class="tab-btn" type="button" role="tab" aria-selected="false" aria-controls="register-form">新規登録</button>
+    </div>
+
+    <div id="login-form" class="auth-form active" role="tabpanel" aria-labelledby="tab-login">
+      <label for="email">メールアドレス</label>
+      <input id="email" type="email" placeholder="you@example.com" autocomplete="email" />
+      <label for="password">パスワード</label>
+      <input id="password" type="password" placeholder="••••••••" autocomplete="current-password" />
+      <a href="/auth/forgot-password.html" class="forgot-link">パスワードをお忘れですか？</a>
+      <button id="btn-login" class="btn-primary">ログイン</button>
+      <div class="divider">または</div>
+      <button id="btn-google" class="btn-google">
+        <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 33.1 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 8 3l5.7-5.7C34.3 6.5 29.4 4 24 4 12.95 4 4 12.95 4 24s8.95 20 20 20 20-8.95 20-20c0-1.3-.15-2.65-.4-3.9z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.1 8 3l5.7-5.7C34.3 6.5 29.4 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 10-2 13.5-5.2l-6.2-5.3C29.3 35.3 26.8 36 24 36c-5.3 0-9.7-3.1-11.3-7.5l-6.5 5C9.6 39.6 16.3 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.3 4.1-4.2 5.5l6.2 5.3C43 35.6 44 30 44 24c0-1.3-.15-2.65-.4-3.9z"/></svg>
+        Google でログイン
+      </button>
+    </div>
+
+    <div id="register-form" class="auth-form" role="tabpanel" aria-labelledby="tab-register">
+      <label for="register-firm-name">事務所名</label>
+      <input id="register-firm-name" type="text" placeholder="山田会計事務所" autocomplete="organization" />
+      <label for="register-email">メールアドレス</label>
+      <input id="register-email" type="email" placeholder="you@example.com" autocomplete="email" />
+      <label for="register-password">パスワード</label>
+      <input id="register-password" type="password" placeholder="8文字以上" autocomplete="new-password" />
+      <label for="register-password-confirm">パスワード確認</label>
+      <input id="register-password-confirm" type="password" placeholder="もう一度入力" autocomplete="new-password" />
+      <button id="btn-register" class="btn-primary">登録する</button>
+    </div>
+
+    <div class="demo-hint" id="demoHint">
+      <strong>デモ用アカウント（納品確認用）</strong>
+      メール: <code>demo@keiri-marunage.jp</code><br />
+      パスワード: <code>BookmeeDemo2026!</code>
+    </div>
   </div>
 
   <script type="module">
-    import { supabase, signInWithEmail, signInWithGoogle } from '/auth-shared.js';
+    const SUPABASE_URL = 'https://kmgjmlcijhgaqddtjdou.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImttZ2ptbGNpamhnYXFkZHRqZG91Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MDI0MDEsImV4cCI6MjA5NTI3ODQwMX0.oX5bfJ-FRb6LWFmzR479IqPtx3sU_ZWaDtX_S41-EtU';
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    async function signInWithEmail(email, password) {
+      return supabase.auth.signInWithPassword({ email, password });
+    }
+    async function signInWithGoogle() {
+      return supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: `${location.origin}/auth/callback.html` },
+      });
+    }
 
-    // If already logged in, redirect to app.
+    // 有効なセッションだけアプリへ。localStorage の古いトークンは破棄してログイン画面を出す。
     const { data: { session } } = await supabase.auth.getSession();
     if (session) {
       const params = new URLSearchParams(location.search);
-      window.location.href = params.get('redirect') || '/';
+      const redirectTo = params.get('redirect') || '/';
+      const expired = session.expires_at && session.expires_at * 1000 < Date.now();
+      let serverOk = false;
+      if (!expired) {
+        try {
+          const meRes = await fetch('/api/auth/me', {
+            headers: { Authorization: 'Bearer ' + session.access_token },
+          });
+          serverOk = meRes.ok;
+        } catch (_) {
+          serverOk = false;
+        }
+      }
+      if (serverOk) {
+        window.location.href = redirectTo;
+      } else {
+        await supabase.auth.signOut();
+      }
     }
 
     const errorEl = document.getElementById('error');
@@ -54,9 +126,47 @@
       errorEl.textContent = msg;
       errorEl.style.display = 'block';
     }
+    function clearError() {
+      errorEl.textContent = '';
+      errorEl.style.display = 'none';
+    }
+    function redirectToApp() {
+      const params = new URLSearchParams(location.search);
+      window.location.href = params.get('redirect') || '/';
+    }
+    function activateTab(tab) {
+      const isLogin = tab === 'login';
+      document.getElementById('tab-login').classList.toggle('active', isLogin);
+      document.getElementById('tab-register').classList.toggle('active', !isLogin);
+      document.getElementById('tab-login').setAttribute('aria-selected', String(isLogin));
+      document.getElementById('tab-register').setAttribute('aria-selected', String(!isLogin));
+      document.getElementById('login-form').classList.toggle('active', isLogin);
+      document.getElementById('register-form').classList.toggle('active', !isLogin);
+      clearError();
+    }
+
+    document.getElementById('tab-login').addEventListener('click', () => activateTab('login'));
+    document.getElementById('tab-register').addEventListener('click', () => activateTab('register'));
+
+    // デモアカウントをワンクリック入力
+    const demoHint = document.getElementById('demoHint');
+    if (demoHint) {
+      demoHint.style.cursor = 'pointer';
+      demoHint.title = 'クリックで入力欄に反映';
+      demoHint.addEventListener('click', () => {
+        activateTab('login');
+        document.getElementById('email').value = 'demo@keiri-marunage.jp';
+        document.getElementById('password').value = 'BookmeeDemo2026!';
+      });
+    }
+
+    const params = new URLSearchParams(location.search);
+    if (params.get('error') === 'session_expired') {
+      showError('セッションの有効期限が切れました。再度ログインしてください。');
+    }
 
     document.getElementById('btn-login').addEventListener('click', async () => {
-      errorEl.style.display = 'none';
+      clearError();
       const email = document.getElementById('email').value.trim();
       const password = document.getElementById('password').value;
       if (!email || !password) return showError('メールアドレスとパスワードを入力してください');
@@ -64,18 +174,53 @@
       const { error } = await signInWithEmail(email, password);
       if (error) return showError(error.message);
 
-      const params = new URLSearchParams(location.search);
-      window.location.href = params.get('redirect') || '/';
+      redirectToApp();
+    });
+
+    document.getElementById('btn-register').addEventListener('click', async () => {
+      clearError();
+      const button = document.getElementById('btn-register');
+      const firmName = document.getElementById('register-firm-name').value.trim();
+      const email = document.getElementById('register-email').value.trim();
+      const password = document.getElementById('register-password').value;
+      const passwordConfirm = document.getElementById('register-password-confirm').value;
+      if (!firmName || !email || !password || !passwordConfirm) {
+        return showError('事務所名、メールアドレス、パスワードを入力してください');
+      }
+      if (password.length < 8) return showError('パスワードは8文字以上で入力してください');
+      if (password !== passwordConfirm) return showError('パスワード確認が一致しません');
+
+      button.disabled = true;
+      try {
+        const res = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password, firmName }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          return showError(body.error?.message || '登録に失敗しました');
+        }
+
+        const { error } = await signInWithEmail(email, password);
+        if (error) return showError(error.message);
+        redirectToApp();
+      } finally {
+        button.disabled = false;
+      }
     });
 
     document.getElementById('btn-google').addEventListener('click', async () => {
-      errorEl.style.display = 'none';
+      clearError();
       const { error } = await signInWithGoogle();
       if (error) showError(error.message);
     });
 
     document.getElementById('password').addEventListener('keydown', (e) => {
       if (e.key === 'Enter') document.getElementById('btn-login').click();
+    });
+    document.getElementById('register-password-confirm').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') document.getElementById('btn-register').click();
     });
   </script>
 </body>

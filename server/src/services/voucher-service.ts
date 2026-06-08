@@ -68,6 +68,7 @@ export async function createVoucher(input: {
   buffer: Buffer;
   uploadedBy: string | null;
   firmId?: string;
+  source?: string;
 }): Promise<VoucherMeta> {
   const row = await prisma.voucher.create({
     data: {
@@ -78,6 +79,7 @@ export async function createVoucher(input: {
       size: input.buffer.byteLength,
       imageData: input.buffer,
       uploadedBy: input.uploadedBy,
+      source: input.source ?? 'manual',
     },
   });
   return toMeta(row);

@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>管理画面 — 経理丸投げAI</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script>
+    (function () {
+      var SUPABASE_URL = 'https://kmgjmlcijhgaqddtjdou.supabase.co';
+      var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImttZ2ptbGNpamhnYXFkZHRqZG91Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MDI0MDEsImV4cCI6MjA5NTI3ODQwMX0.oX5bfJ-FRb6LWFmzR479IqPtx3sU_ZWaDtX_S41-EtU';
+      var isLocalDev = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+      if (isLocalDev) {
+        var devSession = { user: { id: 'dev-user', email: 'dev@localhost' }, access_token: 'dev-token' };
+        window.__bookmeeSession = devSession;
+        window.__sessionPromise = Promise.resolve(devSession);
+      } else {
+        var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        window.__sessionPromise = sb.auth.getSession().then(function (result) {
+          var session = result.data && result.data.session;
+          if (!session) { window.location.href = '/login.html?redirect=/admin.html'; return null; }
+          window.__bookmeeSession = session;
+          sb.auth.onAuthStateChange(function (event, s) {
+            if (!s) { window.location.href = '/login.html'; }
+            else { window.__bookmeeSession = s; }
+          });
+          return session;
+        });
+      }
+      window.__bookmeeSignOut = function () {
+        if (typeof sb === 'undefined') { window.location.href = '/login.html'; return Promise.resolve(); }
+        return sb.auth.signOut().then(function () { window.location.href = '/login.html'; });
+      };
+    })();
+  </script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', sans-serif;
+      color: #1e293b;
+      background: #f1f5f9;
+      min-height: 100vh;
+    }
+
+    /* ── Admin header ── */
+    .admin-header {
+      background: #fff;
+      border-bottom: 1px solid #e2e8f0;
+      padding: .9rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .admin-brand {
+      display: flex; align-items: center; gap: .6rem;
+      text-decoration: none; color: #1e293b;
+    }
+    .admin-brand-mark {
+      width: 32px; height: 32px;
+      background: #1e40af; color: #fff;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1rem; font-weight: 900;
+    }
+    .admin-brand-text strong { font-size: .9rem; font-weight: 800; }
+    .admin-brand-text small { display: block; font-size: .7rem; color: #64748b; }
+    .admin-header-right { display: flex; align-items: center; gap: .75rem; }
+    .admin-user-info { font-size: .82rem; color: #64748b; }
+    .btn-ghost {
+      background: none; border: 1px solid #d1d5db;
+      border-radius: 8px; padding: .45rem 1rem;
+      font-size: .82rem; font-weight: 600; cursor: pointer;
+      color: #374151;
+      transition: background .12s;
+    }
+    .btn-ghost:hover { background: #f3f4f6; }
+    .btn-back {
+      display: flex; align-items: center; gap: .3rem;
+      text-decoration: none; font-size: .82rem; font-weight: 600;
+      color: #1e40af;
+    }
+    .btn-back:hover { text-decoration: underline; }
+
+    /* ── Layout ── */
+    .admin-body {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 2rem 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 2rem;
+    }
+
+    /* ── Section card ── */
+    .admin-card {
+      background: #fff;
+      border-radius: 16px;
+      border: 1px solid #e2e8f0;
+      overflow: hidden;
+    }
+    .admin-card-head {
+      padding: 1.25rem 1.5rem;
+      border-bottom: 1px solid #f1f5f9;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .admin-card-head h2 { font-size: 1rem; font-weight: 700; }
+    .admin-card-body { padding: 1.25rem 1.5rem; }
+
+    /* ── Members table ── */
+    .member-table { width: 100%; border-collapse: collapse; }
+    .member-table th {
+      text-align: left; font-size: .75rem; font-weight: 600;
+      color: #64748b; border-bottom: 1px solid #f1f5f9;
+      padding: .5rem .75rem;
+    }
+    .member-table td {
+      padding: .75rem .75rem;
+      border-bottom: 1px solid #f8fafc;
+      font-size: .88rem;
+      vertical-align: middle;
+    }
+    .member-table tr:last-child td { border-bottom: none; }
+    .role-badge {
+      display: inline-block;
+      border-radius: 6px;
+      padding: .2rem .6rem;
+      font-size: .72rem;
+      font-weight: 700;
+    }
+    .role-badge.owner { background: #dbeafe; color: #1e40af; }
+    .role-badge.member { background: #f0fdf4; color: #166534; }
+
+    /* ── Invite form ── */
+    .invite-form { display: flex; gap: .75rem; margin-top: 1rem; }
+    .invite-input {
+      flex: 1;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      padding: .55rem .75rem;
+      font-size: .88rem;
+    }
+    .invite-input:focus { outline: 2px solid #1e40af; border-color: transparent; }
+
+    /* ── Primary button ── */
+    .btn-primary {
+      background: #1e40af; color: #fff;
+      border: none; border-radius: 8px;
+      padding: .55rem 1.25rem;
+      font-size: .88rem; font-weight: 700; cursor: pointer;
+      transition: background .12s;
+      white-space: nowrap;
+    }
+    .btn-primary:hover { background: #1d4ed8; }
+    .btn-primary:disabled { background: #93c5fd; cursor: not-allowed; }
+
+    /* ── Danger button ── */
+    .btn-danger {
+      background: none; border: 1px solid #fca5a5;
+      color: #dc2626; border-radius: 6px;
+      padding: .3rem .7rem; font-size: .78rem; cursor: pointer;
+      transition: background .12s;
+    }
+    .btn-danger:hover { background: #fef2f2; }
+
+    /* ── Settings form ── */
+    .settings-row { display: flex; flex-direction: column; gap: .4rem; margin-bottom: 1rem; }
+    .settings-row label { font-size: .8rem; font-weight: 600; color: #374151; }
+    .settings-input {
+      border: 1px solid #d1d5db; border-radius: 8px;
+      padding: .55rem .75rem; font-size: .88rem;
+      max-width: 400px;
+    }
+    .settings-input:focus { outline: 2px solid #1e40af; border-color: transparent; }
+
+    /* ── Activity log ── */
+    .activity-list { display: flex; flex-direction: column; gap: .75rem; }
+    .activity-item {
+      display: flex; gap: .75rem; align-items: flex-start;
+      font-size: .85rem;
+    }
+    .activity-dot {
+      width: 8px; height: 8px; background: #1e40af;
+      border-radius: 50%; margin-top: 6px; flex-shrink: 0;
+    }
+    .activity-main { flex: 1; }
+    .activity-subject { font-weight: 600; color: #1e293b; }
+    .activity-meta { font-size: .78rem; color: #64748b; margin-top: 2px; }
+    .channel-badge {
+      display: inline-block;
+      border-radius: 4px;
+      padding: .1rem .45rem;
+      font-size: .7rem;
+      font-weight: 700;
+      background: #f1f5f9;
+      color: #475569;
+      margin-right: .35rem;
+    }
+
+    /* ── Profile section ── */
+    .profile-row { display: flex; align-items: center; gap: .75rem; }
+
+    /* ── Toast ── */
+    .admin-toast {
+      position: fixed;
+      bottom: 1.5rem; right: 1.5rem;
+      background: #1e293b; color: #fff;
+      border-radius: 10px; padding: .75rem 1.25rem;
+      font-size: .85rem; font-weight: 600;
+      z-index: 9999;
+      opacity: 0; transition: opacity .2s;
+      pointer-events: none;
+    }
+    .admin-toast.show { opacity: 1; }
+    .admin-toast.success { background: #166534; }
+    .admin-toast.error { background: #991b1b; }
+
+    /* ── Empty state ── */
+    .empty-msg { color: #94a3b8; font-size: .85rem; text-align: center; padding: 1.5rem 0; }
+
+    @media (max-width: 600px) {
+      .admin-body { padding: 1.25rem 1rem; }
+      .admin-card-body { padding: 1rem; }
+      .invite-form { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Header -->
+  <header class="admin-header">
+    <a class="admin-brand" href="/">
+      <div class="admin-brand-mark">経</div>
+      <div class="admin-brand-text">
+        <strong>経理丸投げAI</strong>
+        <small>管理画面</small>
+      </div>
+    </a>
+    <div class="admin-header-right">
+      <span class="admin-user-info" id="adminUserInfo"></span>
+      <a href="/" class="btn-back">← アプリに戻る</a>
+      <button class="btn-ghost" id="adminLogout">ログアウト</button>
+    </div>
+  </header>
+
+  <!-- Body -->
+  <div class="admin-body">
+
+    <!-- A: メンバー管理 -->
+    <div class="admin-card" id="sectionMembers">
+      <div class="admin-card-head">
+        <h2>メンバー管理</h2>
+        <span id="memberCount" style="font-size:.8rem;color:#64748b"></span>
+      </div>
+      <div class="admin-card-body">
+        <div id="memberTableWrap">
+          <p class="empty-msg">読み込み中...</p>
+        </div>
+        <div class="invite-form">
+          <input id="inviteEmail" class="invite-input" type="email" placeholder="招待するメールアドレス" />
+          <button class="btn-primary" id="inviteBtn">招待する</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- B: メール送信設定 -->
+    <div class="admin-card" id="sectionSettings">
+      <div class="admin-card-head">
+        <h2>メール送信設定</h2>
+      </div>
+      <div class="admin-card-body">
+        <div class="settings-row">
+          <label for="emailFromInput">送信元メールアドレス（顧問先への連絡に使われます）</label>
+          <input id="emailFromInput" class="settings-input" type="email" placeholder="例: office@example.com" />
+        </div>
+        <button class="btn-primary" id="saveSettingsBtn">保存する</button>
+      </div>
+    </div>
+
+    <!-- C: 自分のプロフィール -->
+    <div class="admin-card" id="sectionProfile">
+      <div class="admin-card-head">
+        <h2>プロフィール</h2>
+      </div>
+      <div class="admin-card-body">
+        <div class="settings-row">
+          <label for="displayNameInput">表示名</label>
+          <div class="profile-row">
+            <input id="displayNameInput" class="settings-input" type="text" placeholder="例: 山田 太郎" />
+            <button class="btn-primary" id="saveProfileBtn">保存</button>
+          </div>
+        </div>
+        <p style="font-size:.8rem;color:#64748b;margin-top:.25rem" id="profileEmail"></p>
+      </div>
+    </div>
+
+    <!-- D: アクティビティログ -->
+    <div class="admin-card" id="sectionActivity">
+      <div class="admin-card-head">
+        <h2>アクティビティログ</h2>
+        <span style="font-size:.8rem;color:#64748b">直近50件の顧問先連絡</span>
+      </div>
+      <div class="admin-card-body">
+        <div id="activityList">
+          <p class="empty-msg">読み込み中...</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="admin-toast" id="adminToast"></div>
+  <script src="./admin.js"></script>
+</body>
+</html>

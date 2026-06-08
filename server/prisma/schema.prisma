@@ -15,6 +15,7 @@ model Firm {
   name      String
   slug      String   @unique
   isDemo    Boolean  @default(false)
+  settings  Json     @default("{}")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -81,6 +82,18 @@ model Client {
   mfRefreshToken   String?
   mfTokenExpiresAt DateTime?
   mfExternalId     String?
+
+  // freee OAuth tokens
+  freeeAccessToken    String?
+  freeeRefreshToken   String?
+  freeeTokenExpiresAt DateTime?
+  freeeExternalId     String?  // freee company_id
+
+  // CRM fields
+  memo          String?
+  tags          String[]
+  crmStatus     String   @default("active") // active | pending | inactive
+  lastContactAt DateTime?
 
   // Snapshot fields used by dashboard (recomputed on writes)
   progress   Int @default(0)

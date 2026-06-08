@@ -12,7 +12,9 @@
 <body>
   <p>認証中…</p>
   <script type="module">
-    import { supabase } from '/auth-shared.js';
+    const SUPABASE_URL = 'https://kmgjmlcijhgaqddtjdou.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImttZ2ptbGNpamhnYXFkZHRqZG91Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3MDI0MDEsImV4cCI6MjA5NTI3ODQwMX0.oX5bfJ-FRb6LWFmzR479IqPtx3sU_ZWaDtX_S41-EtU';
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     // Supabase v2 automatically processes the URL fragment (#access_token=...) on getSession().
     const { data: { session } } = await supabase.auth.getSession();

@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>経理丸投げAI — 税理士事務所向け AI 月次レビュー</title>
+  <meta name="description" content="記帳の次は、AIにぜんぶ丸投げ。仕訳レビュー・証憑回収・顧問先連絡をまとめて自動化。税理士事務所向けSaaS。" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Inter', sans-serif;
+      color: #1e293b;
+      background: #f8fafc;
+      line-height: 1.6;
+    }
+
+    /* ── Header ── */
+    .lp-header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(255,255,255,.92);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid #e2e8f0;
+      padding: .9rem 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .lp-logo {
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+      text-decoration: none;
+      color: #1e293b;
+    }
+    .lp-logo-mark {
+      width: 36px;
+      height: 36px;
+      background: #1e40af;
+      color: #fff;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.1rem;
+      font-weight: 900;
+      flex-shrink: 0;
+    }
+    .lp-logo-text strong { display: block; font-size: .95rem; font-weight: 800; }
+    .lp-logo-text small { font-size: .72rem; color: #64748b; }
+    .lp-header-actions { display: flex; gap: .75rem; align-items: center; }
+    .lp-btn-ghost {
+      background: none;
+      border: 1.5px solid #1e40af;
+      color: #1e40af;
+      border-radius: 8px;
+      padding: .5rem 1.2rem;
+      font-size: .85rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background .15s, color .15s;
+    }
+    .lp-btn-ghost:hover { background: #1e40af; color: #fff; }
+
+    /* ── Hero ── */
+    .lp-hero {
+      background: linear-gradient(135deg, #1e3a5f 0%, #1e40af 60%, #3b82f6 100%);
+      color: #fff;
+      text-align: center;
+      padding: 5rem 1.5rem 6rem;
+    }
+    .lp-hero-eyebrow {
+      display: inline-block;
+      background: rgba(255,255,255,.15);
+      border: 1px solid rgba(255,255,255,.25);
+      border-radius: 9999px;
+      padding: .3rem 1rem;
+      font-size: .78rem;
+      font-weight: 600;
+      letter-spacing: .04em;
+      margin-bottom: 1.5rem;
+    }
+    .lp-hero h1 {
+      font-size: clamp(2rem, 6vw, 3.5rem);
+      font-weight: 900;
+      line-height: 1.15;
+      margin-bottom: 1.25rem;
+    }
+    .lp-hero-sub {
+      font-size: clamp(.95rem, 2.5vw, 1.15rem);
+      color: rgba(255,255,255,.85);
+      max-width: 560px;
+      margin: 0 auto 2.5rem;
+    }
+    .lp-btn-cta {
+      display: inline-block;
+      background: #fff;
+      color: #1e40af;
+      border: none;
+      border-radius: 12px;
+      padding: .85rem 2.5rem;
+      font-size: 1.05rem;
+      font-weight: 800;
+      cursor: pointer;
+      text-decoration: none;
+      box-shadow: 0 8px 32px rgba(0,0,0,.2);
+      transition: transform .12s, box-shadow .12s;
+    }
+    .lp-btn-cta:hover { transform: translateY(-3px); box-shadow: 0 12px 40px rgba(0,0,0,.25); }
+
+    /* ── Steps ── */
+    .lp-steps {
+      background: #fff;
+      padding: 4rem 1.5rem;
+    }
+    .lp-section-title {
+      text-align: center;
+      font-size: 1.5rem;
+      font-weight: 800;
+      color: #1e293b;
+      margin-bottom: .5rem;
+    }
+    .lp-section-sub {
+      text-align: center;
+      font-size: .9rem;
+      color: #64748b;
+      margin-bottom: 2.5rem;
+    }
+    .lp-steps-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 1.5rem;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    .lp-step-card {
+      background: #f1f5f9;
+      border-radius: 16px;
+      padding: 2rem 1.5rem;
+      text-align: center;
+    }
+    .lp-step-num {
+      width: 48px;
+      height: 48px;
+      background: #1e40af;
+      color: #fff;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.2rem;
+      font-weight: 800;
+      margin: 0 auto 1rem;
+    }
+    .lp-step-card h3 { font-size: 1rem; font-weight: 700; margin-bottom: .5rem; }
+    .lp-step-card p { font-size: .85rem; color: #475569; }
+
+    /* ── Features ── */
+    .lp-features {
+      padding: 4rem 1.5rem;
+      background: #f8fafc;
+    }
+    .lp-feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1.5rem;
+      max-width: 960px;
+      margin: 0 auto;
+    }
+    .lp-feature-card {
+      background: #fff;
+      border-radius: 16px;
+      padding: 1.75rem 1.5rem;
+      border: 1px solid #e2e8f0;
+      box-shadow: 0 2px 8px rgba(0,0,0,.05);
+      transition: transform .15s, box-shadow .15s;
+    }
+    .lp-feature-card:hover { transform: translateY(-4px); box-shadow: 0 8px 24px rgba(0,0,0,.1); }
+    .lp-feature-icon {
+      font-size: 2rem;
+      margin-bottom: .75rem;
+    }
+    .lp-feature-card h3 { font-size: 1rem; font-weight: 700; margin-bottom: .5rem; }
+    .lp-feature-card p { font-size: .85rem; color: #475569; line-height: 1.65; }
+
+    /* ── CTA Section ── */
+    .lp-cta-section {
+      background: linear-gradient(135deg, #1e3a5f 0%, #1e40af 100%);
+      color: #fff;
+      text-align: center;
+      padding: 4rem 1.5rem;
+    }
+    .lp-cta-section h2 { font-size: clamp(1.5rem, 4vw, 2rem); font-weight: 800; margin-bottom: 1rem; }
+    .lp-cta-section p { font-size: .95rem; color: rgba(255,255,255,.85); margin-bottom: 2rem; }
+
+    /* ── Footer ── */
+    .lp-footer {
+      background: #0f172a;
+      color: #94a3b8;
+      text-align: center;
+      padding: 1.5rem;
+      font-size: .8rem;
+    }
+
+    @media (max-width: 600px) {
+      .lp-hero { padding: 3.5rem 1rem 4rem; }
+      .lp-steps, .lp-features, .lp-cta-section { padding: 3rem 1rem; }
+    }
+  </style>
+</head>
+<body>
+  <!-- Header -->
+  <header class="lp-header">
+    <a class="lp-logo" href="/landing.html">
+      <div class="lp-logo-mark">経</div>
+      <div class="lp-logo-text">
+        <strong>経理丸投げAI</strong>
+        <small>for 税理士事務所</small>
+      </div>
+    </a>
+    <div class="lp-header-actions">
+      <a href="/login.html" class="lp-btn-ghost">ログイン</a>
+    </div>
+  </header>
+
+  <!-- Hero -->
+  <section class="lp-hero">
+    <span class="lp-hero-eyebrow">税理士事務所向け AI レビュー SaaS</span>
+    <h1>記帳の次は、<br>AIにぜんぶ丸投げ。</h1>
+    <p class="lp-hero-sub">
+      仕訳レビュー・証憑回収・顧問先連絡——月次の繰り返し作業を AIが自動化。
+      スタッフはチェックするだけ。
+    </p>
+    <a href="/login.html" class="lp-btn-cta">今すぐログインして試す →</a>
+  </section>
+
+  <!-- 3ステップ -->
+  <section class="lp-steps">
+    <h2 class="lp-section-title">かんたん 3 ステップで使える</h2>
+    <p class="lp-section-sub">難しい設定不要。顧問先を登録したらすぐ始められます。</p>
+    <div class="lp-steps-grid">
+      <div class="lp-step-card">
+        <div class="lp-step-num">1</div>
+        <h3>顧問先を登録</h3>
+        <p>MF クラウド会計と OAuth 連携するだけ。仕訳データが自動で取り込まれます。</p>
+      </div>
+      <div class="lp-step-card">
+        <div class="lp-step-num">2</div>
+        <h3>AI が仕訳を確認</h3>
+        <p>空摘要の補完・証憑不足の検出・異常仕訳の洗い出しを自動実行。</p>
+      </div>
+      <div class="lp-step-card">
+        <div class="lp-step-num">3</div>
+        <h3>承認して完了</h3>
+        <p>担当者が一覧をチェックして承認。差戻しや顧問先への連絡も画面から即送信。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Features -->
+  <section class="lp-features">
+    <h2 class="lp-section-title">主な機能</h2>
+    <p class="lp-section-sub">事務所の月次業務をまるごとカバー</p>
+    <div class="lp-feature-grid">
+      <div class="lp-feature-card">
+        <div class="lp-feature-icon">🤖</div>
+        <h3>AI 仕訳ドラフト</h3>
+        <p>領収書をアップロードすると AI が即座に仕訳を提案。借方・貸方・摘要をまるごと生成し、承認するだけでOK。</p>
+      </div>
+      <div class="lp-feature-card">
+        <div class="lp-feature-icon">🔍</div>
+        <h3>不明出金を自動照会</h3>
+        <p>証憑が紐づかない出金を検出し、ChatWork / LINE / メールで顧問先に自動確認。回答が来たら自動で突合。</p>
+      </div>
+      <div class="lp-feature-card">
+        <div class="lp-feature-icon">📊</div>
+        <h3>弥生・MF 対応 CSV</h3>
+        <p>既存の会計ソフトにそのままインポートできる CSV を出力。システム乗り換え不要で即日利用可能。</p>
+      </div>
+      <div class="lp-feature-card">
+        <div class="lp-feature-icon">📋</div>
+        <h3>月次 ToDo ダッシュボード</h3>
+        <p>AI レビュー待ち・証憑不足・手動タスクを 1 画面に集約。「今日やること」が一目で分かる。</p>
+      </div>
+      <div class="lp-feature-card">
+        <div class="lp-feature-icon">💡</div>
+        <h3>節税提案・CF 予測</h3>
+        <p>仕訳データから AI が節税機会を検出。翌 3 ヶ月のキャッシュフロー予測も自動生成。</p>
+      </div>
+      <div class="lp-feature-card">
+        <div class="lp-feature-icon">🔐</div>
+        <h3>マルチテナント対応</h3>
+        <p>事務所ごとに完全分離。スタッフごとの権限設定・顧問先ポータルの URL 発行もワンクリック。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Bottom CTA -->
+  <section class="lp-cta-section">
+    <h2>今すぐ経理業務を丸投げしよう</h2>
+    <p>税理士事務所専用設計。セットアップ 5 分で月次レビューを自動化。</p>
+    <a href="/login.html" class="lp-btn-cta">ログインして始める →</a>
+  </section>
+
+  <!-- Footer -->
+  <footer class="lp-footer">
+    <p>© 2026 経理丸投げAI — 税理士事務所向け AI 月次レビュー SaaS</p>
+  </footer>
+</body>
+</html>

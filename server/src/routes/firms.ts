@@ -83,4 +83,46 @@ export async function firmRoutes(app: FastifyInstance): Promise<void> {
       return reply.code(204).send();
     },
   );
+
+  // PATCH /api/firms/current — update firm settings (owner only)
+  app.patch(
+    '/api/firms/current',
+    { preHandler: requireOwner },
+    async (req, reply) => {
+      const { firmId } = req.user!;
+      const body = (req.body as { settings?: Record<string, unknown> }) ?? {};
+      if (!body.settings || typeof body.settings !== 'object') {
+        return reply.code(400).send({ error: { code: 'INVALID_BODY', message: 'settings object required' } });
+      }
+      const firm = await prisma.firm.findUnique({ where: { id: firmId }, select: { settings: true } });
+      const current = (firm?.settings as Record<string, unknown>) ?? {};
+      const merged: Record<string, unknown> = { ...current, ...body.settings };
+      const updated = await prisma.firm.update({ where: { id: firmId }, data: { settings: merged as never } });
+      return reply.send(updated);
+    },
+  );
+
+  // GET /api/firms/current/activity — recent outreach threads (owner only)
+  app.get(
+    '/api/firms/current/activity',
+    { preHandler: requireOwner },
+    async (req, reply) => {
+      const threads = await prisma.thread.findMany({
+        where: { firmId: req.user!.firmId },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+        select: {
+          id: true,
+          clientId: true,
+          channel: true,
+          subject: true,
+          preview: true,
+          status: true,
+          sentAt: true,
+          createdAt: true,
+        },
+      });
+      return reply.send(threads);
+    },
+  );
 }
