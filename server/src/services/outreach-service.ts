@@ -103,6 +103,11 @@ function resolveTarget(
   return map.email ?? 'unknown';
 }
 
+// spec 28: 当面ハードコードのデモ宛先。
+// TODO: 顧問先ごとの連絡先メール（会社情報→連絡先タブ＝Client.contactEndpoints.email、
+//       PATCH /api/clients/:id/contact で保存）を宛先に使うよう差し替える。
+const DEMO_INQUIRY_EMAIL = 'kkouta2017@gmail.com';
+
 function composeBody(args: {
   clientName: string;
   ocr: OcrJson | null;
@@ -145,12 +150,20 @@ export async function inquireAboutVoucher(voucherId: string): Promise<void> {
     select: {
       id: true,
       clientId: true,
+      source: true,
       ocrJson: true,
       draftJournalJson: true,
       journalStatus: true,
+      imageData: true,
+      filename: true,
+      mimeType: true,
     },
   });
   if (!voucher) return;
+
+  // spec 28: LINE 由来の証憑は sendLinePushForVoucherStatus（spec 16）が送信者本人に
+  // 質問を返すので、ここではメールを送らない（二重送信の防止）。web/drive のみ対象。
+  if (voucher.source === 'line') return;
 
   let clientName = '(顧問先不明)';
   let contactEndpoints: unknown = null;
@@ -166,7 +179,13 @@ export async function inquireAboutVoucher(voucherId: string): Promise<void> {
   }
 
   const channel = env.OUTREACH_CHANNEL;
-  const target = resolveTarget(contactEndpoints, channel);
+  const resolvedTarget = resolveTarget(contactEndpoints, channel);
+  const target =
+    channel === 'mock'
+      ? DEMO_INQUIRY_EMAIL
+      : channel === 'email' && resolvedTarget === 'unknown'
+      ? DEMO_INQUIRY_EMAIL
+      : resolvedTarget;
   const { subject, body } = composeBody({
     clientName,
     ocr: voucher.ocrJson as OcrJson | null,
@@ -174,8 +193,20 @@ export async function inquireAboutVoucher(voucherId: string): Promise<void> {
     voucherId: voucher.id,
   });
 
+  // spec 29: レシート写真を添付（顧客が何の証憑か分かるように）
+  const attachments =
+    voucher.imageData && voucher.imageData.length > 0
+      ? [
+          {
+            filename: voucher.filename || `receipt-${voucher.id}.jpg`,
+            content: Buffer.from(voucher.imageData).toString('base64'),
+            contentType: voucher.mimeType || 'image/jpeg',
+          },
+        ]
+      : undefined;
+
   const adapter = getOutreachAdapter(channel);
-  const result = await adapter.send(target, subject, body);
+  const result = await adapter.send(target, subject, body, attachments);
 
   await prisma.voucherInquiry.create({
     data: {

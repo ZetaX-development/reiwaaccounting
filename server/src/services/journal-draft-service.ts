@@ -201,7 +201,14 @@ interface OcrJson {
 export async function generateDraftJournal(voucherId: string): Promise<void> {
   const voucher = await prisma.voucher.findUnique({
     where: { id: voucherId },
-    select: { id: true, clientId: true, ocrJson: true, lineAnswers: true, source: true },
+    select: {
+      id: true,
+      clientId: true,
+      ocrJson: true,
+      lineAnswers: true,
+      source: true,
+      matchStatus: true,
+    },
   });
   if (!voucher) return;
 
@@ -265,12 +272,21 @@ export async function generateDraftJournal(voucherId: string): Promise<void> {
     const text = completion.choices[0]?.message?.content;
     if (!text) throw new Error('OpenAI returned empty content');
     const parsed = DraftJournalSchema.parse(JSON.parse(text));
-    const nextStatus =
-      parsed.missingFields.length > 0 ? 'needs_info' : 'drafted';
+    const hasMissing = parsed.missingFields.length > 0;
+    // spec 30: 不足情報が全て解消され、かつ MF 未一致なら、人手承認なしで自動確定する。
+    const autoClassify = !hasMissing && voucher.matchStatus !== 'matched';
+    const nextStatus = hasMissing
+      ? 'needs_info'
+      : autoClassify
+        ? 'approved'
+        : 'drafted';
+    const draftToSave = autoClassify
+      ? { ...parsed, autoClassified: true }
+      : parsed;
     await prisma.voucher.update({
       where: { id: voucherId },
       data: {
-        draftJournalJson: parsed as unknown as object,
+        draftJournalJson: draftToSave as unknown as object,
         journalStatus: nextStatus,
       },
     });

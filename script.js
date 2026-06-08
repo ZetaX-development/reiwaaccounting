@@ -37,6 +37,8 @@ const appState = {
   lineUsers: [],
   lineVerifyResult: null,
   lineLoadedAt: null,
+  inboundPollTimer: null,
+  notifications: [],
   user: null, // { authUserId, firmId, role, email, firmName } — set on startup
 };
 
@@ -59,6 +61,22 @@ async function loadVoucherImageBlob(voucherId) {
   } catch (_) {
     return null;
   }
+}
+
+// 証憑画像/PDF を新しいタブで開く。/api/vouchers/:id/image は JWT 必須なので
+// 素の <a href>/window.open では Authorization ヘッダが付かず UNAUTHORIZED になる。
+// apiFetch で取得して blob URL を開く。クリックのジェスチャ内でタブを先に開き、
+// 取得後に遷移させてポップアップブロックを回避する。
+async function openVoucherImage(voucherId) {
+  const w = window.open('', '_blank');
+  const url = await loadVoucherImageBlob(voucherId);
+  if (!url) {
+    if (w) w.close();
+    showToast('画像の取得に失敗しました');
+    return;
+  }
+  if (w) w.location.href = url;
+  else window.open(url, '_blank');
 }
 
 function hydrateVoucherImages() {
@@ -528,6 +546,50 @@ async function inquireVoucherClient(id) {
       loadMatchingData();
     }, 800);
   } catch (err) {
+    showToast(friendlyError(err));
+  }
+}
+
+// spec 29: 顧客のメール返信本文を取り込んで仕訳ドラフトを作り直す（疑似受信）
+// 再ドラフト(OpenAI)はサーバ側でバックグラウンド実行され即応答する。完了まで数十秒
+// かかるので、ボタンを無効化（連打防止）し、matching を数回ポーリング更新して反映する。
+async function submitVoucherReply(id, btn) {
+  const ta = document.querySelector(`[data-voucher-reply-text="${id}"]`);
+  const text = ta && ta.value ? ta.value.trim() : '';
+  if (!text) {
+    showToast('返信内容を入力してください');
+    return;
+  }
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '取り込み中…';
+  }
+  try {
+    const res = await apiFetch(`/api/vouchers/${id}/email-reply`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) throw new Error('reply failed');
+    showToast('返信を取り込みました。仕訳を作り直しています…');
+    appState.matchingLoadedTab = null;
+    loadMatchingData();
+    // 再ドラフト完了（drafting → drafted/needs_info）まで最大 ~96 秒ポーリング更新
+    let tries = 0;
+    const timer = setInterval(() => {
+      tries += 1;
+      if (appState.activeView !== 'matching-results' || tries > 12) {
+        clearInterval(timer);
+        return;
+      }
+      appState.matchingLoadedTab = null;
+      loadMatchingData();
+    }, 8000);
+  } catch (err) {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '返信を取り込む';
+    }
     showToast(friendlyError(err));
   }
 }
@@ -1310,7 +1372,7 @@ function inferToastType(message) {
   return "info";
 }
 
-function showToast(message, type) {
+function showToast(message, type, durationMs) {
   if (!toast) return;
   const resolvedType = type || inferToastType(message);
   toast.textContent = message;
@@ -1318,7 +1380,150 @@ function showToast(message, type) {
   toast.classList.add("toast-" + resolvedType);
   toast.classList.add("show");
   clearTimeout(showToast.timer);
-  showToast.timer = setTimeout(() => toast.classList.remove("show"), 2400);
+  showToast.timer = setTimeout(() => toast.classList.remove("show"), durationMs || 2400);
+}
+
+// spec 27: LINE/Drive からの証憑投入を検知してトースト表示する。
+function buildInboundMessage(counts) {
+  const parts = [];
+  if (counts.line > 0) parts.push("LINEから" + counts.line + "件");
+  if (counts.drive > 0) parts.push("Google Driveから" + counts.drive + "件");
+  if (parts.length === 0) return "";
+  return parts.join("、") + "の証憑が追加されました";
+}
+
+async function checkInboundVouchers() {
+  if (typeof document !== "undefined" && document.hidden) return;
+  const since = localStorage.getItem("bookmee.lastInboundSeenAt");
+  try {
+    const url = since
+      ? "/api/vouchers/inbound-since?since=" + encodeURIComponent(since)
+      : "/api/vouchers/inbound-since";
+    const res = await apiFetch(url);
+    if (!res.ok) return;
+    const data = await res.json();
+    if (since && data.total > 0) {
+      const msg = buildInboundMessage(data.counts);
+      if (msg) showToast(msg, "info", 5400);
+    }
+    if (data.now) localStorage.setItem("bookmee.lastInboundSeenAt", data.now);
+  } catch (err) {
+    console.warn("inbound voucher check failed", err);
+  }
+}
+
+// spec 31: 通知センター。最近の LINE/Drive 証憑を取得して未読バッジを更新する。
+async function refreshNotifications() {
+  try {
+    const res = await apiFetch('/api/vouchers/inbound-recent?limit=20');
+    if (!res.ok) return;
+    appState.notifications = await res.json();
+    if (!localStorage.getItem('bookmee.notifSeenAt')) {
+      localStorage.setItem('bookmee.notifSeenAt', new Date().toISOString());
+    }
+    renderNotifBadge();
+  } catch (err) {
+    console.warn('refreshNotifications failed', err);
+  }
+}
+
+function notifUnreadCount() {
+  const seen = localStorage.getItem('bookmee.notifSeenAt') || '';
+  return (appState.notifications || []).filter((n) => n.uploadedAt > seen).length;
+}
+
+function renderNotifBadge() {
+  const badge = document.getElementById('notifBadge');
+  if (!badge) return;
+  const n = notifUnreadCount();
+  if (n > 0) { badge.textContent = String(n); badge.hidden = false; }
+  else { badge.hidden = true; }
+}
+
+function notifSourceLabel(s) { return s === 'line' ? 'LINE' : s === 'drive' ? 'Drive' : s; }
+
+function notifRelTime(iso) {
+  const m = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (m < 1) return 'たった今';
+  if (m < 60) return m + '分前';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + '時間前';
+  return Math.floor(h / 24) + '日前';
+}
+
+function renderNotifPanel() {
+  const panel = document.getElementById('notifPanel');
+  if (!panel) return;
+  const seen = localStorage.getItem('bookmee.notifSeenAt') || '';
+  const items = appState.notifications || [];
+  const rows = items.length
+    ? items.map((n) => {
+        const unread = n.uploadedAt > seen;
+        const amt = n.amount != null ? '¥' + Number(n.amount).toLocaleString('ja-JP') : '';
+        const acct = n.account || '（未分類）';
+        const cli = n.clientName || '未割当';
+        return `<button class="notif-item${unread ? ' notif-unread' : ''}" data-notif-voucher="${n.id}" data-notif-client="${n.clientId || ''}">
+          <span class="notif-source">${notifSourceLabel(n.source)}</span>
+          <span class="notif-main">${escapeHtml(acct)} ${amt}</span>
+          <span class="notif-sub">${escapeHtml(cli)} ・ ${notifRelTime(n.uploadedAt)}</span>
+        </button>`;
+      }).join('')
+    : '<div class="notif-empty">通知はありません</div>';
+  panel.innerHTML = `<div class="notif-head"><span>通知</span><button id="notifClear" type="button">クリア</button></div>${rows}`;
+}
+
+function highlightVoucherAfterRender(voucherId, tries) {
+  tries = tries || 0;
+  const el = document.getElementById('voucher-card-' + voucherId);
+  if (el) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('voucher-highlight');
+    setTimeout(() => el.classList.remove('voucher-highlight'), 2000);
+    return;
+  }
+  if (tries < 20) setTimeout(() => highlightVoucherAfterRender(voucherId, tries + 1), 150);
+}
+
+function setupNotifications() {
+  const bell = document.getElementById('notifBell');
+  const panel = document.getElementById('notifPanel');
+  if (!bell || !panel) return;
+  bell.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (panel.hidden) { renderNotifPanel(); panel.hidden = false; }
+    else { panel.hidden = true; }
+  });
+  panel.addEventListener('click', (e) => {
+    const clr = e.target.closest('#notifClear');
+    if (clr) {
+      localStorage.setItem('bookmee.notifSeenAt', new Date().toISOString());
+      renderNotifBadge();
+      renderNotifPanel();
+      return;
+    }
+    const item = e.target.closest('[data-notif-voucher]');
+    if (item) {
+      appState.matchingTab = item.dataset.notifClient || 'unassigned';
+      panel.hidden = true;
+      location.hash = '#/matching-results';
+      highlightVoucherAfterRender(item.dataset.notifVoucher);
+    }
+  });
+  document.addEventListener('click', (e) => {
+    if (!panel.hidden && !panel.contains(e.target) && e.target.id !== 'notifBell') {
+      panel.hidden = true;
+    }
+  });
+}
+
+function startInboundPolling() {
+  checkInboundVouchers();
+  refreshNotifications();
+  if (appState.inboundPollTimer) return;
+  appState.inboundPollTimer = setInterval(() => {
+    checkInboundVouchers();
+    refreshNotifications();
+  }, 15000);
 }
 
 function setButtonPending(button, pending, pendingText) {
@@ -3611,15 +3816,18 @@ async function loadApprovedDraftsIntoSlot(clientId) {
       html += '<td class="num">' + yen(credit.amount) + '</td>';
       html += '<td>' + cell(d.description) + '</td>';
       html +=
-        '<td><a href="/api/vouchers/' + v.id + '/image" target="_blank">画像</a></td>';
+        '<td><button class="vendor-link" data-voucher-open="' + v.id + '">画像</button></td>';
       html += '</tr>';
       no += 1;
     }
     html += '</tbody></table></div>';
     html +=
-      '<small class="sync-fresh">bookmee で生成・承認されたドラフト。MF にはまだ転記されていません（手動入力してください）。</small>';
+      '<small class="sync-fresh">bookmee で生成・承認されたドラフト。MF にはまだ転記されていません（CSVをエクスポートして、MFに入れてください）。</small>';
     html += '</section>';
     slot.innerHTML = html;
+    slot.querySelectorAll('[data-voucher-open]').forEach((btn) => {
+      btn.addEventListener('click', () => openVoucherImage(btn.dataset.voucherOpen));
+    });
   } catch (_err) {
     // best-effort
   }
@@ -3804,7 +4012,7 @@ async function fetchLineVouchers(clientId) {
 function openVoucherPreview(voucherId, mimeType) {
   const normalized = String(mimeType || '').toLowerCase();
   if (normalized.includes('pdf') || normalized.includes('csv')) {
-    window.open(`/api/vouchers/${voucherId}/image`, '_blank');
+    openVoucherImage(voucherId);
     return;
   }
   const modal = document.querySelector('#voucherModal');
@@ -4289,7 +4497,9 @@ function renderMatchingResults() {
         const cell = (s) => s ? escapeHtml(String(s)) : '—';
         const statusBadge =
           js === 'approved'
-            ? '<span class="matching-draft-badge badge-approved">承認済</span>'
+            ? (dj.autoClassified
+                ? '<span class="matching-draft-badge badge-approved">自動仕訳済</span>'
+                : '<span class="matching-draft-badge badge-approved">承認済</span>')
             : js === 'inquired'
               ? `<span class="matching-draft-badge badge-inquired">問合せ済 ${v.inquiryAt ? new Date(v.inquiryAt).toLocaleDateString('ja-JP') : ''}</span>`
               : js === 'needs_info'
@@ -4302,6 +4512,10 @@ function renderMatchingResults() {
                 <button class="matching-inquire-btn" data-matching-inquire="${v.id}" ${js === 'inquired' ? 'disabled' : ''}>
                   ${js === 'inquired' ? '問い合わせ送信済み' : '情報を依頼'}
                 </button>
+                <div class="voucher-reply-box" style="margin-top:8px">
+                  <textarea data-voucher-reply-text="${v.id}" rows="2" placeholder="顧客からのメール返信を貼り付け" style="width:100%;box-sizing:border-box"></textarea>
+                  <button class="matching-inquire-btn" data-voucher-reply="${v.id}" style="margin-top:4px">返信を取り込む</button>
+                </div>
               </div>`
           : '';
         const mfStatus = v.mfWriteStatus;
@@ -4366,7 +4580,7 @@ function renderMatchingResults() {
       }
 
       return `
-      <div class="matching-card-pending">
+      <div class="matching-card-pending" id="voucher-card-${v.id}">
         <img data-voucher-img="${v.id}" alt="${escapeHtml(v.filename)}" style="background:#f3f4f6;" />
         <div class="matching-side">
           <div class="matching-label matching-status-${status}">${statusLabel}</div>
@@ -5596,20 +5810,7 @@ function renderView() {
           e.target.closest('summary')
         ) return;
         const id = card.dataset.voucherId;
-        const mimeType = String(card.dataset.mimeType || '').toLowerCase();
-        if (mimeType.includes('pdf') || mimeType.includes('csv')) {
-          window.open(`/api/vouchers/${id}/image`, '_blank');
-          return;
-        }
-        const modal = document.querySelector('#voucherModal');
-        const img = document.querySelector('#voucherModalImg');
-        if (modal && img) {
-          img.src = '';
-          loadVoucherImageBlob(id).then((url) => {
-            if (url) img.src = url;
-          });
-          modal.hidden = false;
-        }
+        openVoucherPreview(id, card.dataset.mimeType);
       });
     });
     const closeBtn = document.querySelector('#voucherModalClose');
@@ -5675,6 +5876,11 @@ function renderView() {
     viewContent.querySelectorAll('[data-matching-inquire]').forEach((btn) => {
       btn.addEventListener('click', () => {
         inquireVoucherClient(btn.dataset.matchingInquire);
+      });
+    });
+    viewContent.querySelectorAll('[data-voucher-reply]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        submitVoucherReply(btn.dataset.voucherReply, btn);
       });
     });
     viewContent.querySelectorAll('[data-matching-approve]').forEach((btn) => {
@@ -7723,6 +7929,8 @@ function showBootBanner(message, detail) {
   updateClientContextBar();
   applyHashRoute(true);
   refreshVoucherBadge();
+  setupNotifications();
+  startInboundPolling();
 
   // ページ初期化スピナーを非表示にする（白い画面フラッシュ防止のインラインオーバーレイ）
   const pageInit = document.getElementById('__pageInit');

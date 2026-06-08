@@ -263,3 +263,90 @@ export async function assignAndMatchVoucher(id: string): Promise<void> {
     }
   }
 }
+
+/**
+ * spec 27: since より後・now 以下に投入された LINE/Drive 証憑を source 別に数える。
+ * since が null の場合は now だけ返し total=0（初回アクセスで過去分を通知しないため）。
+ * 区間を (since, now] にすることで、呼び出し側が次回 since=now を使えば二重計上しない。
+ */
+export async function countInboundSince(
+  firmId: string,
+  since: Date | null,
+): Promise<{ now: Date; total: number; counts: { line: number; drive: number } }> {
+  const now = new Date();
+  if (!since) {
+    return { now, total: 0, counts: { line: 0, drive: 0 } };
+  }
+  const grouped = await prisma.voucher.groupBy({
+    by: ['source'],
+    where: {
+      firmId,
+      source: { in: ['line', 'drive'] },
+      uploadedAt: { gt: since, lte: now },
+    },
+    _count: { _all: true },
+  });
+  const counts = { line: 0, drive: 0 };
+  for (const g of grouped) {
+    if (g.source === 'line') counts.line = g._count._all;
+    else if (g.source === 'drive') counts.drive = g._count._all;
+  }
+  return { now, total: counts.line + counts.drive, counts };
+}
+
+/**
+ * spec 31: 通知センター用。firm 内の最近の LINE/Drive 証憑を新しい順で返す。
+ */
+export async function listInboundRecent(
+  firmId: string,
+  limit: number,
+): Promise<Array<{
+  id: string;
+  source: string;
+  uploadedAt: Date;
+  vendor: string | null;
+  amount: number | null;
+  account: string | null;
+  clientId: string | null;
+  clientName: string | null;
+  journalStatus: string;
+}>> {
+  const capped = Math.min(Math.max(Math.trunc(limit) || 20, 1), 50);
+  const rows = await prisma.voucher.findMany({
+    where: { firmId, source: { in: ['line', 'drive'] } },
+    orderBy: { uploadedAt: 'desc' },
+    take: capped,
+    select: {
+      id: true,
+      source: true,
+      uploadedAt: true,
+      journalStatus: true,
+      clientId: true,
+      ocrJson: true,
+      draftJournalJson: true,
+      client: { select: { name: true } },
+    },
+  });
+  return rows.map((r) => {
+    const ocr = (r.ocrJson ?? {}) as { vendor_name?: unknown; amount?: unknown };
+    const draft = (r.draftJournalJson ?? {}) as { debit?: { account?: unknown; amount?: unknown } };
+    const debit = draft.debit ?? {};
+    const amount =
+      typeof ocr.amount === 'number'
+        ? ocr.amount
+        : typeof debit.amount === 'number'
+          ? debit.amount
+          : null;
+    return {
+      id: r.id,
+      source: r.source,
+      uploadedAt: r.uploadedAt,
+      vendor: typeof ocr.vendor_name === 'string' ? ocr.vendor_name : null,
+      amount,
+      account: typeof debit.account === 'string' ? debit.account : null,
+      clientId: r.clientId,
+      clientName: r.client?.name ?? null,
+      journalStatus: r.journalStatus,
+    };
+  });
+}

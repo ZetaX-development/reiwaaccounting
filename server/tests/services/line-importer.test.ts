@@ -544,3 +544,43 @@ describe('handleWebhookEvents — text after pending TTL expires falls back to c
     expect(newVoucher?.caption).toBe('期限切れ回答');
   });
 });
+
+describe('sendLinePushForVoucherStatus — auto-classified', () => {
+  it('pushes a confirmation (no quick reply) when approved & autoClassified', async () => {
+    process.env.LINE_CHANNEL_ACCESS_TOKEN = 'tok';
+    __resetEnvCache();
+
+    const v = await prisma.voucher.create({
+      data: {
+        firmId: 'demo-firm',
+        clientId: null,
+        filename: 'a.jpg',
+        mimeType: 'image/jpeg',
+        size: 3,
+        imageData: Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
+        source: 'line',
+        lineUserId: 'Uauto',
+        journalStatus: 'approved',
+        draftJournalJson: {
+          transactionDate: '2026-05-25',
+          debit: { account: '消耗品費', subAccount: null, partner: null, taxClass: '課税仕入10%', invoiceNumber: null, amount: 1200 },
+          credit: { account: '現金', subAccount: null, partner: null, taxClass: '対象外', invoiceNumber: null, amount: 1200 },
+          description: 'x',
+          missingFields: [],
+          autoClassified: true,
+        } as never,
+      },
+    });
+
+    const pushSpy = vi.spyOn(lineService, 'pushMessage').mockResolvedValue(undefined);
+    const qrSpy = vi.spyOn(lineService, 'pushQuickReply').mockResolvedValue(undefined);
+
+    await sendLinePushForVoucherStatus(v.id);
+
+    expect(pushSpy).toHaveBeenCalledOnce();
+    const [userId, messages] = pushSpy.mock.calls[0];
+    expect(userId).toBe('Uauto');
+    expect((messages[0] as { type: string; text: string }).text).toContain('仕訳に登録しました');
+    expect(qrSpy).not.toHaveBeenCalled();
+  });
+});

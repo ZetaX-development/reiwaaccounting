@@ -505,6 +505,27 @@ export async function sendLinePushForVoucherStatus(
     return;
   }
 
+  // spec 30: 自動確定された証憑は LINE に「登録しました」通知のみ（ボタンなし）。
+  if (v.journalStatus === 'approved') {
+    const draft = (v.draftJournalJson ?? {}) as Record<string, unknown>;
+    if (draft.autoClassified === true) {
+      const debit = (typeof draft.debit === 'object' && draft.debit !== null ? draft.debit : {}) as Record<string, unknown>;
+      const account =
+        typeof debit.account === 'string' ? debit.account :
+        typeof draft.account === 'string' ? draft.account :
+        '（勘定科目）';
+      const amount =
+        typeof debit.amount === 'number'
+          ? `¥${debit.amount.toLocaleString('ja-JP')}`
+          : typeof draft.amount === 'number'
+            ? `¥${draft.amount.toLocaleString('ja-JP')}`
+            : '';
+      const text = `✓ ${account} ${amount} で仕訳に登録しました。`.trim();
+      await lineService.pushMessage(v.lineUserId, [{ type: 'text', text }]);
+    }
+    return;
+  }
+
   if (v.journalStatus === 'drafted') {
     const draft = parseDraftJournal(v.draftJournalJson);
     const debit = (typeof draft.debit === 'object' && draft.debit !== null ? draft.debit : {}) as Record<string, unknown>;

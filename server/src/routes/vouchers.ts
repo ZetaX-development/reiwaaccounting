@@ -6,10 +6,13 @@ import {
   getVoucherImage,
   deleteVoucher,
   runOcrForVoucher,
+  countInboundSince,
+  listInboundRecent,
 } from '../services/voucher-service.js';
 import { findMatchForVoucher } from '../services/matching-service.js';
 import { generateDraftJournal } from '../services/journal-draft-service.js';
 import { inquireAboutVoucher } from '../services/outreach-service.js';
+import { applyVoucherReply } from '../services/voucher-reply-service.js';
 import { writeJournalToMf } from '../services/mf-browser-service.js';
 import { prisma } from '../lib/prisma.js';
 
@@ -265,6 +268,30 @@ const ALLOWED_MIMES = new Set([
 ]);
 
 export async function voucherRoutes(app: FastifyInstance) {
+  // spec 27: LINE/Drive からの証憑投入を検知するための集計エンドポイント。
+  app.get('/api/vouchers/inbound-since', async (req) => {
+    const { since } = req.query as { since?: string };
+    let sinceDate: Date | null = null;
+    if (since) {
+      const d = new Date(since);
+      if (!Number.isNaN(d.getTime())) sinceDate = d;
+    }
+    const result = await countInboundSince(req.user!.firmId, sinceDate);
+    return {
+      now: result.now.toISOString(),
+      total: result.total,
+      counts: result.counts,
+    };
+  });
+
+  // spec 31: 通知センター用。最近の LINE/Drive 証憑を一覧で返す。
+  app.get('/api/vouchers/inbound-recent', async (req) => {
+    const { limit } = req.query as { limit?: string };
+    const n = limit ? Number(limit) : 20;
+    const result = await listInboundRecent(req.user!.firmId, Number.isFinite(n) ? n : 20);
+    return result.map((r) => ({ ...r, uploadedAt: r.uploadedAt.toISOString() }));
+  });
+
   app.post('/api/vouchers', async (req, reply) => {
     let data;
     try {
@@ -484,6 +511,28 @@ export async function voucherRoutes(app: FastifyInstance) {
         inquireAboutVoucher(req.params.id).catch(() => {});
       });
       reply.code(202);
+      return { ok: true };
+    },
+  );
+
+  // spec 29: 顧客のメール返信を取り込んで仕訳ドラフトを作り直す（疑似受信。本文を直接渡す）
+  app.post<{ Params: { id: string }; Body: { text?: string } }>(
+    '/api/vouchers/:id/email-reply',
+    async (req, reply) => {
+      const text = (req.body?.text ?? '').trim();
+      if (!text) {
+        reply.code(400);
+        return { error: { code: 'BAD_REQUEST', message: 'text is required' } };
+      }
+      const row = await prisma.voucher.findFirst({
+        where: { id: req.params.id, firmId: req.user!.firmId },
+        select: { id: true },
+      });
+      if (!row) {
+        reply.code(404);
+        return { error: { code: 'NOT_FOUND', message: 'voucher not found' } };
+      }
+      await applyVoucherReply(req.params.id, text);
       return { ok: true };
     },
   );

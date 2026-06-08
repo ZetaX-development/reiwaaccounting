@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 import { env } from '../env.js';
 import { logger } from '../lib/logger.js';
 import { findSimilarPatterns } from './journal-pattern-service.js';
+import { findSimilarKnowledge } from './knowledge-service.js';
 
 export interface ClientHistoryExample {
   debit: string;
@@ -29,6 +30,8 @@ export interface RagResult {
   canJudge: boolean;
   routing: 'auto_applied' | 'pending' | 'difficult';
   patternsUsed: string[];
+  /** 参考にした会計事典チャンクの id（任意） */
+  knowledgeUsed?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -87,6 +90,7 @@ function buildSystemPrompt(industry?: string): string {
     '- 取引の実態が伝わる具体的な記述（得意先名・月次・工事名 等）',
     '- 類似パターンと顧問先履歴を参考にするが実態に合わせて調整する',
     '- 判断に必要な情報が不足している場合は canJudge: false を返す',
+    '- 参考解説（会計事典）が提示された場合は、勘定科目の選択・消費税区分・個人/法人の違いの判断根拠として活用してよい',
     '',
     '## 固定資産 vs 消耗品費 — 金額閾値ルール（税法ベース）',
     '借方が工具器具備品・機械装置・車両運搬具等の固定資産科目、または消耗品費の場合は金額で以下を判断してください。',
@@ -125,6 +129,7 @@ function buildUserPrompt(
   input: RagInput,
   patternSection: string,
   historySection: string,
+  knowledgeSection: string,
 ): string {
   const month = input.date ? new Date(input.date).getMonth() + 1 : null;
   const seasonalHint =
@@ -146,6 +151,7 @@ function buildUserPrompt(
       ? `【この顧問先の承認済み摘要履歴（最優先参照）】\n${historySection}\n`
       : '',
     `【参考パターン（類似仕訳の実例）】\n${patternSection || '該当なし'}\n`,
+    knowledgeSection ? `【参考解説（会計事典）】\n${knowledgeSection}\n` : '',
     '【今回の仕訳】',
     `借方: ${input.debit}`,
     `貸方: ${input.credit}`,
@@ -227,8 +233,16 @@ export async function generateMemoWithRag(input: RagInput): Promise<RagResult> {
       canJudge: false,
       routing: 'difficult',
       patternsUsed,
+      knowledgeUsed: [],
     };
   }
+
+  // 会計事典ナレッジ検索（未投入・embedding 無しなら空配列でフォールバック）
+  const knowledge = await findSimilarKnowledge(queryText, 3);
+  const knowledgeUsed = knowledge.map((k) => k.id);
+  const knowledgeSection = knowledge
+    .map((k, i) => `${i + 1}. ${k.title}\n${k.content}`)
+    .join('\n\n');
 
   // プロンプト構築
   const patternSection = patterns
@@ -259,7 +273,7 @@ export async function generateMemoWithRag(input: RagInput): Promise<RagResult> {
       model: 'gpt-4o',
       messages: [
         { role: 'system', content: buildSystemPrompt(input.clientIndustry) },
-        { role: 'user', content: buildUserPrompt(input, patternSection, historySection) },
+        { role: 'user', content: buildUserPrompt(input, patternSection, historySection, knowledgeSection) },
       ],
       response_format: { type: 'json_object' },
       max_tokens: 300,
@@ -287,6 +301,7 @@ export async function generateMemoWithRag(input: RagInput): Promise<RagResult> {
       canJudge: parsed.canJudge,
       routing,
       patternsUsed,
+      knowledgeUsed,
     };
   } catch (err) {
     logger.warn({ err }, 'generateMemoWithRag failed');
@@ -297,6 +312,7 @@ export async function generateMemoWithRag(input: RagInput): Promise<RagResult> {
       canJudge: false,
       routing: 'difficult',
       patternsUsed,
+      knowledgeUsed,
     };
   }
 }

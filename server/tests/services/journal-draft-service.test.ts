@@ -24,7 +24,10 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-async function createVoucherFixture(ocrJson: unknown): Promise<string> {
+async function createVoucherFixture(
+  ocrJson: unknown,
+  matchStatus = 'unmatched',
+): Promise<string> {
   const v = await prisma.voucher.create({
     data: {
       firmId: 'demo-firm',
@@ -35,14 +38,14 @@ async function createVoucherFixture(ocrJson: unknown): Promise<string> {
       imageData: Buffer.from([0x00, 0x01, 0x02, 0x03]),
       ocrStatus: 'done',
       ocrJson: ocrJson as never,
-      matchStatus: 'unmatched',
+      matchStatus,
     },
   });
   return v.id;
 }
 
 describe('generateDraftJournal', () => {
-  it('persists a drafted journal when OpenAI returns no missing fields', async () => {
+  it('auto-classifies (approved) when unmatched and no missing fields', async () => {
     const id = await createVoucherFixture({
       issue_date: '2026-05-15',
       vendor_name: 'ハラペコステーキ',
@@ -88,18 +91,74 @@ describe('generateDraftJournal', () => {
     await generateDraftJournal(id);
 
     const row = await prisma.voucher.findUnique({ where: { id } });
-    expect(row?.journalStatus).toBe('drafted');
+    expect(row?.journalStatus).toBe('approved');
     expect(row?.draftJournalJson).toMatchObject({
       transactionDate: '2026-05-15',
       debit: { account: '接待交際費', amount: 12000 },
       credit: { account: '現金', amount: 12000 },
       description: 'ハラペコステーキ — 取引先との会食',
       missingFields: [],
+      autoClassified: true,
     });
 
     expect(create).toHaveBeenCalledOnce();
     const callArg = create.mock.calls[0][0];
     expect(callArg.model).toBe('gpt-5');
+  });
+
+  it('keeps drafted (no auto-classify) when matchStatus is matched', async () => {
+    const id = await createVoucherFixture(
+      {
+        issue_date: '2026-05-15',
+        vendor_name: 'ハラペコステーキ',
+        addressee: '青山デザイン株式会社',
+        amount: 12000,
+        invoice_number: 'T1234567890123',
+      },
+      'matched',
+    );
+
+    const create = vi.fn().mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              transactionDate: '2026-05-15',
+              debit: {
+                account: '接待交際費',
+                subAccount: null,
+                partner: 'ハラペコステーキ',
+                taxClass: '課税仕入10%',
+                invoiceNumber: null,
+                amount: 12000,
+              },
+              credit: {
+                account: '現金',
+                subAccount: null,
+                partner: null,
+                taxClass: '対象外',
+                invoiceNumber: null,
+                amount: 12000,
+              },
+              description: '会食',
+              missingFields: [],
+              reasoning: 'x',
+            }),
+          },
+        },
+      ],
+    });
+    MockedOpenAI.mockImplementation(() => ({
+      chat: { completions: { create } },
+    }));
+
+    await generateDraftJournal(id);
+
+    const row = await prisma.voucher.findUnique({ where: { id } });
+    expect(row?.journalStatus).toBe('drafted');
+    expect(
+      (row?.draftJournalJson as { autoClassified?: boolean })?.autoClassified,
+    ).toBeUndefined();
   });
 
   it('marks journalStatus needs_info when missingFields are returned', async () => {
