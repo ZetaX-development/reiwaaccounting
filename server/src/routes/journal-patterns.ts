@@ -9,6 +9,61 @@ export async function journalPatternRoutes(app: FastifyInstance) {
     return { ok: true, ...result };
   });
 
+  app.post('/api/journals/patterns/create', async (req, reply) => {
+    const body = req.body as {
+      debit: string;
+      credit: string;
+      scenario: string;
+      memoExamples: string[];
+      tags?: string[];
+      industry?: string;
+    };
+
+    const pattern = await prisma.journalPattern.create({
+      data: {
+        debit: body.debit,
+        credit: body.credit,
+        scenario: body.scenario,
+        memoExamples: body.memoExamples,
+        tags: body.tags ?? [],
+        industry: body.industry ?? null,
+      },
+    });
+
+    await loadPatternsCache();
+    reply.status(201).send({ pattern });
+  });
+
+  app.delete('/api/journals/patterns/:id', async (req) => {
+    const { id } = req.params as { id: string };
+    await prisma.journalPattern.delete({ where: { id } });
+    await loadPatternsCache();
+    return { ok: true };
+  });
+
+  app.patch('/api/journals/patterns/:id', async (req) => {
+    const { id } = req.params as { id: string };
+    const body = req.body as {
+      scenario?: string;
+      memoExamples?: string[];
+      tags?: string[];
+      industry?: string;
+    };
+
+    const pattern = await prisma.journalPattern.update({
+      where: { id },
+      data: {
+        ...(body.scenario !== undefined ? { scenario: body.scenario } : {}),
+        ...(body.memoExamples !== undefined ? { memoExamples: body.memoExamples } : {}),
+        ...(body.tags !== undefined ? { tags: body.tags } : {}),
+        ...(body.industry !== undefined ? { industry: body.industry || null } : {}),
+      },
+    });
+
+    await loadPatternsCache();
+    return { pattern };
+  });
+
   app.get<{
     Querystring: {
       debit?: string;
@@ -27,9 +82,10 @@ export async function journalPatternRoutes(app: FastifyInstance) {
       return { patterns };
     }
 
+    const take = Number.parseInt(req.query.topK ?? '50', 10);
     const rows = await prisma.journalPattern.findMany({
       orderBy: { createdAt: 'desc' },
-      take: 50,
+      take: Number.isNaN(take) ? 50 : Math.min(Math.max(take, 1), 500),
       select: {
         id: true,
         debit: true,

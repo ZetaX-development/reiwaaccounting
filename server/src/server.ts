@@ -31,6 +31,7 @@ import { integrationsDriveRoutes } from './routes/integrations-drive.js';
 import { integrationsLineRoutes } from './routes/integrations-line.js';
 import { journalReviewRoutes } from './routes/journal-reviews.js';
 import { journalPatternRoutes } from './routes/journal-patterns.js';
+import { knowledgeRoutes } from './routes/knowledge.js';
 import { todoRoutes } from './routes/todos.js';
 import { taxSuggestionRoutes } from './routes/tax-suggestions.js';
 import { cashflowRoutes } from './routes/cashflow.js';
@@ -176,6 +177,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(integrationsLineRoutes);
   await app.register(journalReviewRoutes);
   await app.register(journalPatternRoutes);
+  await app.register(knowledgeRoutes);
   await app.register(todoRoutes);
   await app.register(taxSuggestionRoutes);
   await app.register(cashflowRoutes);

@@ -112,6 +112,7 @@ const labels = {
   "integrations-line": "連携 / LINE",
   "mf-review": "月次業務 / 摘要レビュー",
   rules: "学習",
+  "rag-db": "RAG知識DB",
   training: "新人研修",
   settings: "設定",
   guide: "使い方",
@@ -160,6 +161,7 @@ const labels = {
     "integrations-line": "公式 LINE アカウントに送られた画像を自動取り込みします。スタッフが LINE で画像を送るだけで Voucher になります。",
     "mf-review": "摘要が空のMF仕訳をAIで自動補完します。信頼度が高いものは自動適用、低いものだけ確認が必要です。",
     rules: "この顧問先で過去にミスしやすかった点を、企業ごとのチェック項目として保存します。",
+    "rag-db": "AIが参照する仕訳パターン辞書と会計事典を管理します",
     training: "事務所のルールとAI補正履歴から、新人向け研修カードを自動生成します。",
     settings: "事務所全体の運用設定。",
     guide: "経理丸ごとAIの基本的な使い方を確認できます。",
@@ -187,6 +189,7 @@ const viewDocumentTitles = {
   "integrations-line": "LINE連携 | 経理丸ごとAI",
   "mf-review": "摘要レビュー | 経理丸ごとAI",
   rules: "学習 | 経理丸ごとAI",
+  "rag-db": "RAG知識DB | 経理丸ごとAI",
   training: "新人研修 | 経理丸ごとAI",
   settings: "設定 | 経理丸ごとAI",
   guide: "使い方 | 経理丸ごとAI",
@@ -5265,6 +5268,7 @@ function renderView() {
     "integrations-line": () => renderIntegrationsLine(),
     "mf-review": () => renderMfReview(),           // 業務 > 月次業務 > 摘要レビュー
     rules: () => renderRules(),                    // 学習・設定 > 学習
+    "rag-db": () => '<div class="boot-loading"><div class="spinner"></div><p>読み込み中…</p></div>',
     training: () => renderTraining(),              // 学習・設定 > 新人研修
     settings: () => renderSettings(),              // 学習・設定 > 設定
     guide: () => renderGuide(),                    // サポート > 使い方
@@ -5368,6 +5372,9 @@ function renderView() {
   }
   if (appState.activeView === "rules") {
     loadAndRenderRules();
+  }
+  if (appState.activeView === "rag-db") {
+    loadAndRenderRagDb();
   }
   if (appState.activeView === "training") {
     // Load stats if not yet loaded
@@ -7168,6 +7175,238 @@ if (appState.simpleMode) {
   const n = document.getElementById('modeBtnNormal');
   if (s) s.classList.add('active');
   if (n) n.classList.remove('active');
+}
+
+// ══════════════════════════════════════════════════════════
+//  RAG知識DB管理ビュー
+// ══════════════════════════════════════════════════════════
+let ragDbState = {
+  tab: 'patterns', // 'patterns' | 'knowledge'
+  patterns: [],
+  knowledge: [],
+  patternSearch: '',
+  loading: false,
+};
+
+async function loadAndRenderRagDb() {
+  const el = document.getElementById('viewContent');
+  if (!el) return;
+  ragDbState.loading = true;
+  el.innerHTML = '<div class="boot-loading"><div class="spinner"></div><p>読み込み中…</p></div>';
+
+  try {
+    const [pRes, kRes] = await Promise.all([
+      apiFetch('/api/journals/patterns?topK=500'),
+      apiFetch('/api/knowledge'),
+    ]);
+    if (pRes.ok) {
+      const d = await pRes.json();
+      ragDbState.patterns = d.patterns || d || [];
+    }
+    if (kRes.ok) {
+      ragDbState.knowledge = await kRes.json();
+    }
+  } catch (_) {}
+
+  ragDbState.loading = false;
+  renderRagDb();
+}
+
+function renderRagDb() {
+  const el = document.getElementById('viewContent');
+  if (!el) return;
+
+  const { tab, patterns, knowledge, patternSearch } = ragDbState;
+  const filtered = patterns.filter((p) =>
+    !patternSearch ||
+    p.debit?.includes(patternSearch) ||
+    p.credit?.includes(patternSearch) ||
+    p.scenario?.includes(patternSearch) ||
+    (p.tags || []).some((t) => t.includes(patternSearch))
+  );
+
+  el.innerHTML = `
+    <div style="display:flex;gap:.5rem;margin-bottom:1rem">
+      <button class="segment${tab === 'patterns' ? ' active' : ''}" id="ragTabPatterns">仕訳パターン辞書（${patterns.length}）</button>
+      <button class="segment${tab === 'knowledge' ? ' active' : ''}" id="ragTabKnowledge">会計事典（${knowledge.length}）</button>
+    </div>
+
+    ${tab === 'patterns' ? `
+      <div style="display:flex;gap:.75rem;margin-bottom:1rem;align-items:center">
+        <input type="text" id="ragPatternSearch" class="search-box" placeholder="勘定科目・キーワードで検索" value="${escapeAttribute(patternSearch)}" style="flex:1;padding:.45rem .75rem;border:1px solid var(--line);border-radius:8px">
+        <button class="primary-action" id="ragAddPatternBtn" style="white-space:nowrap">+ 追加</button>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:.5rem" id="ragPatternList">
+        ${filtered.length === 0 ? '<p style="color:var(--muted);text-align:center;padding:2rem">該当なし</p>' :
+          filtered.map((p) => `
+          <div style="background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:.75rem 1rem;display:flex;gap:.75rem;align-items:flex-start">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:.78rem;color:var(--muted);margin-bottom:.2rem">${escapeHtml(p.debit || '')} → ${escapeHtml(p.credit || '')} ${(p.tags || []).map((t) => `<span style="background:var(--bg);border:1px solid var(--line);border-radius:20px;padding:.1rem .4rem;font-size:.7rem">${escapeHtml(t)}</span>`).join('')}</div>
+              <div style="font-size:.88rem;font-weight:600">${escapeHtml(p.scenario || '')}</div>
+              <div style="font-size:.75rem;color:var(--muted);margin-top:.3rem">${(p.memoExamples || []).slice(0, 3).map((m) => `「${escapeHtml(m)}」`).join('　')}</div>
+            </div>
+            <button class="ghost-btn" data-delete-pattern="${escapeAttribute(p.id)}" style="font-size:.75rem;color:var(--red);flex-shrink:0">削除</button>
+          </div>`).join('')}
+      </div>
+    ` : `
+      <div style="display:flex;justify-content:flex-end;margin-bottom:1rem">
+        <button class="primary-action" id="ragAddKnowledgeBtn">+ 追加</button>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:.5rem">
+        ${knowledge.length === 0 ? '<p style="color:var(--muted);text-align:center;padding:2rem">エントリなし</p>' :
+          knowledge.map((k) => `
+          <div style="background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:.75rem 1rem;display:flex;gap:.75rem;align-items:flex-start">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:.75rem;color:var(--muted);margin-bottom:.2rem">${escapeHtml(k.source || '')} / ${escapeHtml(k.page || '')}</div>
+              <div style="font-size:.88rem;font-weight:600">${escapeHtml(k.title || '')}</div>
+              <div style="font-size:.75rem;color:var(--muted);margin-top:.3rem;white-space:pre-wrap;max-height:60px;overflow:hidden">${escapeHtml((k.content || '').slice(0, 120))}${(k.content || '').length > 120 ? '…' : ''}</div>
+            </div>
+            <button class="ghost-btn" data-delete-knowledge="${escapeAttribute(k.id)}" style="font-size:.75rem;color:var(--red);flex-shrink:0">削除</button>
+          </div>`).join('')}
+      </div>
+    `}
+  `;
+
+  const tabP = document.getElementById('ragTabPatterns');
+  const tabK = document.getElementById('ragTabKnowledge');
+  if (tabP) tabP.addEventListener('click', () => { ragDbState.tab = 'patterns'; renderRagDb(); });
+  if (tabK) tabK.addEventListener('click', () => { ragDbState.tab = 'knowledge'; renderRagDb(); });
+
+  const searchInput = document.getElementById('ragPatternSearch');
+  if (searchInput) searchInput.addEventListener('input', () => {
+    ragDbState.patternSearch = searchInput.value;
+    renderRagDb();
+  });
+
+  const addPatternBtn = document.getElementById('ragAddPatternBtn');
+  if (addPatternBtn) addPatternBtn.addEventListener('click', () => showAddPatternModal());
+
+  const addKnowledgeBtn = document.getElementById('ragAddKnowledgeBtn');
+  if (addKnowledgeBtn) addKnowledgeBtn.addEventListener('click', () => showAddKnowledgeModal());
+
+  document.querySelectorAll('[data-delete-pattern]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('このパターンを削除しますか？')) return;
+      const id = btn.dataset.deletePattern;
+      try {
+        await apiFetch(`/api/journals/patterns/${id}`, { method: 'DELETE' });
+        ragDbState.patterns = ragDbState.patterns.filter((p) => p.id !== id);
+        renderRagDb();
+        showToast('削除しました', 'success');
+      } catch (_) { showToast('削除に失敗しました', 'error'); }
+    });
+  });
+
+  document.querySelectorAll('[data-delete-knowledge]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('このエントリを削除しますか？')) return;
+      const id = btn.dataset.deleteKnowledge;
+      try {
+        await apiFetch(`/api/knowledge/${id}`, { method: 'DELETE' });
+        ragDbState.knowledge = ragDbState.knowledge.filter((k) => k.id !== id);
+        renderRagDb();
+        showToast('削除しました', 'success');
+      } catch (_) { showToast('削除に失敗しました', 'error'); }
+    });
+  });
+}
+
+function showAddPatternModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'feedback-modal';
+  overlay.style.display = '';
+  overlay.innerHTML = `
+    <div class="feedback-backdrop"></div>
+    <div class="feedback-content" style="max-width:520px">
+      <h3 class="feedback-title">仕訳パターンを追加</h3>
+      <label class="feedback-label">借方勘定科目</label>
+      <input id="ragAddDebit" class="feedback-input" placeholder="例: 消耗品費">
+      <label class="feedback-label">貸方勘定科目</label>
+      <input id="ragAddCredit" class="feedback-input" placeholder="例: 現金">
+      <label class="feedback-label">シナリオ（説明）</label>
+      <input id="ragAddScenario" class="feedback-input" placeholder="例: 事務用品を現金購入">
+      <label class="feedback-label">摘要例（1行1件）</label>
+      <textarea id="ragAddMemos" class="feedback-textarea" rows="4" placeholder="コピー用紙 A4 500枚&#10;ボールペン 10本&#10;クリアファイル 購入"></textarea>
+      <label class="feedback-label">タグ（カンマ区切り）</label>
+      <input id="ragAddTags" class="feedback-input" placeholder="例: 消耗品,事務用品">
+      <div class="feedback-actions">
+        <button class="ghost-btn" id="ragAddPatternCancel">キャンセル</button>
+        <button class="primary-action" id="ragAddPatternSubmit">追加する</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector('.feedback-backdrop').addEventListener('click', () => overlay.remove());
+  overlay.querySelector('#ragAddPatternCancel').addEventListener('click', () => overlay.remove());
+  overlay.querySelector('#ragAddPatternSubmit').addEventListener('click', async () => {
+    const debit = overlay.querySelector('#ragAddDebit').value.trim();
+    const credit = overlay.querySelector('#ragAddCredit').value.trim();
+    const scenario = overlay.querySelector('#ragAddScenario').value.trim();
+    const memos = overlay.querySelector('#ragAddMemos').value.split('\n').map((s) => s.trim()).filter(Boolean);
+    const tags = overlay.querySelector('#ragAddTags').value.split(',').map((s) => s.trim()).filter(Boolean);
+    if (!debit || !credit || !scenario || !memos.length) { showToast('必須項目を入力してください', 'error'); return; }
+    try {
+      const res = await apiFetch('/api/journals/patterns/create', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ debit, credit, scenario, memoExamples: memos, tags }),
+      });
+      if (!res.ok) throw new Error();
+      const d = await res.json();
+      ragDbState.patterns.unshift(d.pattern);
+      overlay.remove();
+      renderRagDb();
+      showToast('追加しました', 'success');
+    } catch (_) { showToast('追加に失敗しました', 'error'); }
+  });
+}
+
+function showAddKnowledgeModal() {
+  const overlay = document.createElement('div');
+  overlay.className = 'feedback-modal';
+  overlay.style.display = '';
+  overlay.innerHTML = `
+    <div class="feedback-backdrop"></div>
+    <div class="feedback-content" style="max-width:520px">
+      <h3 class="feedback-title">会計事典エントリを追加</h3>
+      <label class="feedback-label">出典（source）</label>
+      <input id="ragKSource" class="feedback-input" placeholder="例: 法人税法, 会計基準">
+      <label class="feedback-label">タイトル</label>
+      <input id="ragKTitle" class="feedback-input" placeholder="例: 少額減価償却資産の特例">
+      <label class="feedback-label">内容</label>
+      <textarea id="ragKContent" class="feedback-textarea" rows="5" placeholder="会計基準・仕訳ルールなどを記載"></textarea>
+      <label class="feedback-label">関連勘定科目（カンマ区切り）</label>
+      <input id="ragKAccounts" class="feedback-input" placeholder="例: 工具器具備品,消耗品費">
+      <label class="feedback-label">タグ（カンマ区切り）</label>
+      <input id="ragKTags" class="feedback-input" placeholder="例: 固定資産,減価償却">
+      <div class="feedback-actions">
+        <button class="ghost-btn" id="ragAddKnowledgeCancel">キャンセル</button>
+        <button class="primary-action" id="ragAddKnowledgeSubmit">追加する</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector('.feedback-backdrop').addEventListener('click', () => overlay.remove());
+  overlay.querySelector('#ragAddKnowledgeCancel').addEventListener('click', () => overlay.remove());
+  overlay.querySelector('#ragAddKnowledgeSubmit').addEventListener('click', async () => {
+    const source = overlay.querySelector('#ragKSource').value.trim();
+    const title = overlay.querySelector('#ragKTitle').value.trim();
+    const content = overlay.querySelector('#ragKContent').value.trim();
+    const accounts = overlay.querySelector('#ragKAccounts').value.split(',').map((s) => s.trim()).filter(Boolean);
+    const tags = overlay.querySelector('#ragKTags').value.split(',').map((s) => s.trim()).filter(Boolean);
+    if (!title || !content) { showToast('タイトルと内容は必須です', 'error'); return; }
+    try {
+      const res = await apiFetch('/api/knowledge', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ source, title, content, accounts, tags }),
+      });
+      if (!res.ok) throw new Error();
+      const d = await res.json();
+      ragDbState.knowledge.unshift(d.chunk);
+      overlay.remove();
+      renderRagDb();
+      showToast('追加しました', 'success');
+    } catch (_) { showToast('追加に失敗しました', 'error'); }
+  });
 }
 
 // Logout
