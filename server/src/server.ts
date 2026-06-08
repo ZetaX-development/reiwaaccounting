@@ -1,4 +1,6 @@
 if (process.env.NODE_ENV !== 'test') { await import('./bootstrap.js'); }
+import fs from 'node:fs';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
@@ -40,6 +42,18 @@ import { accrualRoutes } from './routes/accruals.js';
 import { arMatchingRoutes } from './routes/ar-matching.js';
 import { bankStatementRoutes } from './routes/bank-statement.js';
 import multipart from '@fastify/multipart';
+
+// デプロイごとに変わるコンテンツハッシュを生成（script.js + styles.css の MD5前8桁）
+function buildDeployHash(repoRoot: string): string {
+  try {
+    const jsPath = path.join(repoRoot, 'script.js');
+    const cssPath = path.join(repoRoot, 'styles.css');
+    const combined = Buffer.concat([fs.readFileSync(jsPath), fs.readFileSync(cssPath)]);
+    return crypto.createHash('md5').update(combined).digest('hex').slice(0, 8);
+  } catch {
+    return Date.now().toString(36);
+  }
+}
 
 const AUTH_BYPASS = new Set([
   '/api/health',
@@ -87,12 +101,49 @@ export async function buildApp(): Promise<FastifyInstance> {
   // server/src/server.ts -> server/src -> server -> repo root
   const here = path.dirname(fileURLToPath(import.meta.url));
   const repoRoot = path.resolve(here, '../..');
+  const deployHash = buildDeployHash(repoRoot);
+
   await app.register(staticPlugin, {
     root: repoRoot,
     prefix: '/',
-    index: ['index.html'],
+    index: false,
     decorateReply: false,
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('.js') || filePath.endsWith('.css')) {
+        // クエリ付きURLでアクセスされるので長期キャッシュOK
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      } else if (filePath.endsWith('.html')) {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      }
+    },
   });
+
+  // HTMLファイルをキャッシュバスティング付きで配信するルート
+  const HTML_FILES = ['index.html', 'login.html', 'admin.html', 'landing.html',
+    'auth/callback.html', 'auth/forgot-password.html', 'auth/set-password.html'];
+
+  function serveHtmlWithHash(filePath: string, reply: import('fastify').FastifyReply) {
+    try {
+      let html = fs.readFileSync(filePath, 'utf-8');
+      // script.js と styles.css に ?v=HASH を注入
+      html = html
+        .replace(/(src=["'])\.\/script\.js(["'])/g, `$1./script.js?v=${deployHash}$2`)
+        .replace(/(href=["'])\.\/styles\.css(["'])/g, `$1./styles.css?v=${deployHash}$2`)
+        .replace(/(src=["'])script\.js(["'])/g, `$1script.js?v=${deployHash}$2`)
+        .replace(/(href=["'])styles\.css(["'])/g, `$1styles.css?v=${deployHash}$2`);
+      reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
+      reply.header('Content-Type', 'text/html; charset=utf-8');
+      reply.send(html);
+    } catch {
+      reply.status(404).send('Not found');
+    }
+  }
+
+  for (const htmlFile of HTML_FILES) {
+    const routePath = htmlFile === 'index.html' ? '/' : '/' + htmlFile;
+    const filePath = path.join(repoRoot, htmlFile);
+    app.get(routePath, (_req, reply) => serveHtmlWithHash(filePath, reply));
+  }
 
   // Global auth guard — only applies to /api/* routes, bypassing static files and OAuth callbacks.
   app.addHook('preHandler', async (req: FastifyRequest, reply) => {
