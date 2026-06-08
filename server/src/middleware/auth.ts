@@ -50,6 +50,15 @@ export async function requireAuth(
     return;
   }
 
+  if (!env.SUPABASE_URL) {
+    return reply.code(503).send({
+      error: {
+        code: 'AUTH_NOT_CONFIGURED',
+        message: 'SUPABASE_URL is not set on the server',
+      },
+    });
+  }
+
   const auth = req.headers.authorization;
   if (!auth?.startsWith('Bearer ')) {
     return reply.code(401).send({ error: { code: 'UNAUTHORIZED' } });
@@ -78,9 +87,8 @@ export async function requireAuth(
   };
 
   // Set JWT claims as session variable for RLS policies.
-  await prisma.$executeRawUnsafe(
-    `SET LOCAL "request.jwt.claims" = '${JSON.stringify({ sub: payload.sub, role: 'authenticated' })}'`,
-  );
+  // Use typed $executeRaw (parameterised) to prevent SQL injection.
+  await prisma.$executeRaw`SET LOCAL "request.jwt.claims" = ${JSON.stringify({ sub: payload.sub, role: 'authenticated' })}`;
 }
 
 export async function requireOwner(

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
+import rateLimit from '@fastify/rate-limit';
 import staticPlugin from '@fastify/static';
 import { env } from './env.js';
 import { logger } from './lib/logger.js';
@@ -15,6 +16,7 @@ import { syncRoutes } from './routes/sync.js';
 import { syncStatusRoutes } from './routes/sync-status.js';
 import { summaryRoutes } from './routes/summary.js';
 import { mfOauthRoutes } from './routes/mf-oauth.js';
+import { freeeOauthRoutes } from './routes/freee-oauth.js';
 import { messageRoutes } from './routes/messages.js';
 import { taskRoutes } from './routes/tasks.js';
 import { ruleRoutes } from './routes/rules.js';
@@ -22,6 +24,7 @@ import { receiptRoutes } from './routes/receipts.js';
 import { modeRoutes } from './routes/mode.js';
 import { mfBooksRoutes } from './routes/mf-books.js';
 import { voucherRoutes } from './routes/vouchers.js';
+import { ccStatementRoutes } from './routes/cc-statement.js';
 import { integrationsDriveRoutes } from './routes/integrations-drive.js';
 import { integrationsLineRoutes } from './routes/integrations-line.js';
 import { journalReviewRoutes } from './routes/journal-reviews.js';
@@ -30,12 +33,17 @@ import { todoRoutes } from './routes/todos.js';
 import { taxSuggestionRoutes } from './routes/tax-suggestions.js';
 import { cashflowRoutes } from './routes/cashflow.js';
 import { portalReportRoutes } from './routes/portal-report.js';
+import { trainingRoutes } from './routes/training.js';
+import { feedbackRoutes } from './routes/feedback.js';
 import multipart from '@fastify/multipart';
 
 const AUTH_BYPASS = new Set([
   '/api/health',
+  '/api/auth/register',
   '/api/mf/oauth/start',
   '/api/mf/oauth/callback',
+  '/api/freee/oauth/start',
+  '/api/freee/oauth/callback',
   '/api/integrations/drive/oauth/authorize',
   '/api/integrations/drive/oauth/callback',
   '/api/integrations/drive/webhook',
@@ -44,7 +52,29 @@ const AUTH_BYPASS = new Set([
 
 export async function buildApp(): Promise<FastifyInstance> {
   const app = Fastify({ logger });
-  await app.register(cors, { origin: true });
+  // CORS: allow same-origin + configured origin only.
+  const allowedOrigin = process.env.CORS_ORIGIN || 'http://localhost:3001';
+  await app.register(cors, {
+    origin: (origin, cb) => {
+      // Allow same-origin requests (no origin header) and the configured origin.
+      if (!origin || origin === allowedOrigin) return cb(null, true);
+      cb(new Error('Not allowed by CORS'), false);
+    },
+    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+  });
+
+  // Rate limiting: 200 req / 15 min per IP for API routes.
+  await app.register(rateLimit, {
+    max: 200,
+    timeWindow: '15 minutes',
+    skipOnError: true,
+    errorResponseBuilder: (_req: FastifyRequest, context: { ttl: number }) => ({
+      error: {
+        code: 'RATE_LIMIT_EXCEEDED',
+        message: `Too many requests. Try again in ${Math.ceil(context.ttl / 1000)} seconds.`,
+      },
+    }),
+  });
   await app.register(multipart, {
     limits: { fileSize: 10 * 1024 * 1024 },
   });
@@ -78,6 +108,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(syncStatusRoutes);
   await app.register(summaryRoutes);
   await app.register(mfOauthRoutes);
+  await app.register(freeeOauthRoutes);
   await app.register(messageRoutes);
   await app.register(taskRoutes);
   await app.register(ruleRoutes);
@@ -85,6 +116,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(modeRoutes);
   await app.register(mfBooksRoutes);
   await app.register(voucherRoutes);
+  await app.register(ccStatementRoutes);
   await app.register(integrationsDriveRoutes);
   await app.register(integrationsLineRoutes);
   await app.register(journalReviewRoutes);
@@ -93,6 +125,8 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(taxSuggestionRoutes);
   await app.register(cashflowRoutes);
   await app.register(portalReportRoutes);
+  await app.register(trainingRoutes);
+  await app.register(feedbackRoutes);
 
   app.setErrorHandler((err, _req, reply) => {
     logger.error({ err }, 'unhandled');
@@ -105,6 +139,11 @@ export async function buildApp(): Promise<FastifyInstance> {
 }
 
 async function main() {
+  if (env.NODE_ENV === 'production' && !env.SUPABASE_URL) {
+    logger.warn(
+      'SUPABASE_URL is not set — authenticated API routes will return 503',
+    );
+  }
   const app = await buildApp();
   await app.listen({ port: env.PORT, host: '0.0.0.0' });
 }

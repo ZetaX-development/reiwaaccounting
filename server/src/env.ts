@@ -20,6 +20,9 @@ const schema = z.object({
     .default('https://api-accounting.moneyforward.com'),
   // Deprecated alias kept so existing .env files don't break the loader.
   MF_BASE_URL: z.string().default(''),
+  FREEE_CLIENT_ID: z.string().default(''),
+  FREEE_CLIENT_SECRET: z.string().default(''),
+  FREEE_REDIRECT_URI: z.string().default(''),
   SENDGRID_API_KEY: z.string().default(''),
   EMAIL_FROM: z.string().default(''),
   GMAIL_USER: z.string().optional(),
@@ -33,7 +36,7 @@ const schema = z.object({
   LINEWORKS_PRIVATE_KEY: z.string().default(''),
   OPENAI_API_KEY: z.string().default(''),
   OPENAI_VISION_MODEL: z.string().default('gpt-5'),
-  OUTREACH_CHANNEL: z.enum(['mock', 'email', 'line']).default('mock'),
+  OUTREACH_CHANNEL: z.enum(['mock', 'email', 'line', 'chatwork']).default('mock'),
   OUTREACH_AUTO: z.coerce.boolean().default(false),
   OUTREACH_EMAIL_FROM: z.string().default('bookmee@example.com'),
   OUTREACH_LINE_TOKEN: z.string().default(''),
@@ -65,6 +68,9 @@ const schema = z.object({
 
   // Local dev only: bypass Supabase auth and use demo-firm
   DEV_BYPASS_AUTH: z.coerce.boolean().default(false),
+
+  // Feedback form: recipient email (server-side only, never exposed to frontend)
+  FEEDBACK_TO_EMAIL: z.string().default(''),
 });
 
 export type Env = z.infer<typeof schema>;
@@ -76,6 +82,10 @@ export function loadEnv(): Env {
       .map((i) => `${i.path.join('.')}: ${i.message}`)
       .join('; ');
     throw new Error(`Invalid environment: ${issues}`);
+  }
+  // Safety guard: DEV_BYPASS_AUTH must never be active in production.
+  if (result.data.NODE_ENV === 'production' && result.data.DEV_BYPASS_AUTH) {
+    throw new Error('DEV_BYPASS_AUTH must not be set in production. Remove it from Railway Variables.');
   }
   return result.data;
 }
