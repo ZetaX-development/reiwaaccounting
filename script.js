@@ -6832,30 +6832,68 @@ function renderSaSourceModal(voucherId) {
   const ocr = v.ocrJson || {};
   const reasoning = d.reasoning || '（推論情報なし）';
   const missingFields = d.missingFields || [];
+  const sources = d.sources || [];
 
   const ocrRows = Object.entries(ocr)
     .filter(([, val]) => val != null && val !== '')
     .map(([key, val]) => `<span class="sa2-modal-ocr-key">${escapeHtml(key)}</span><span class="sa2-modal-ocr-val">${escapeHtml(String(val))}</span>`)
     .join('');
 
+  const patternSources = sources.filter((s) => s.type === 'pattern');
+  const knowledgeSources = sources.filter((s) => s.type === 'knowledge');
+
+  const renderPatternCard = (p) => `
+    <div class="sa2-source-card sa2-source-card--pattern">
+      <div class="sa2-source-card-header">
+        <span class="sa2-source-badge sa2-source-badge--pattern">仕訳パターン</span>
+        <span class="sa2-source-acc">${escapeHtml(p.debit || '')} → ${escapeHtml(p.credit || '')}</span>
+      </div>
+      <div class="sa2-source-scenario">${escapeHtml(p.scenario || '')}</div>
+      ${(p.examples || []).length ? `<div class="sa2-source-examples">${(p.examples || []).map((e) => `<span class="sa2-source-example">「${escapeHtml(e)}」</span>`).join('')}</div>` : ''}
+      ${(p.tags || []).length ? `<div class="sa2-source-tags">${(p.tags || []).map((t) => `<span class="sa2-todo-tag">${escapeHtml(t)}</span>`).join('')}</div>` : ''}
+    </div>`;
+
+  const renderKnowledgeCard = (k) => `
+    <div class="sa2-source-card sa2-source-card--knowledge">
+      <div class="sa2-source-card-header">
+        <span class="sa2-source-badge sa2-source-badge--knowledge">会計事典</span>
+        <span class="sa2-source-origin">${escapeHtml(k.source || '')}</span>
+      </div>
+      <div class="sa2-source-title">${escapeHtml(k.title || '')}</div>
+      <div class="sa2-source-snippet">${escapeHtml(k.snippet || '')}</div>
+    </div>`;
+
   return `<div class="sa2-modal-overlay" id="sa2ModalOverlay">
     <div class="sa2-modal-sheet">
       <div class="sa2-modal-handle"></div>
       <h3 class="sa2-modal-title">仕訳の参照元</h3>
+
+      ${sources.length > 0 ? `
+      <div class="sa2-modal-section">
+        <div class="sa2-modal-section-label">参照した資料（${sources.length}件）</div>
+        <div class="sa2-source-list">
+          ${patternSources.map(renderPatternCard).join('')}
+          ${knowledgeSources.map(renderKnowledgeCard).join('')}
+        </div>
+      </div>` : ''}
+
       <div class="sa2-modal-section">
         <div class="sa2-modal-section-label">AIの判断理由</div>
         <div class="sa2-modal-reasoning">${escapeHtml(reasoning)}</div>
       </div>
+
       ${ocrRows ? `<div class="sa2-modal-section">
         <div class="sa2-modal-section-label">OCR読み取り結果</div>
         <div class="sa2-modal-ocr-grid">${ocrRows}</div>
       </div>` : ''}
+
       ${missingFields.length ? `<div class="sa2-modal-section">
         <div class="sa2-modal-section-label">不足情報</div>
         <ul class="sa2-modal-missing-list">
           ${missingFields.map((f) => `<li class="sa2-modal-missing-item">${escapeHtml(f)}</li>`).join('')}
         </ul>
       </div>` : ''}
+
       <button class="sa2-modal-close" id="sa2ModalClose">閉じる</button>
     </div>
   </div>`;

@@ -5436,3 +5436,21 @@ body.simple-mode textarea {
   font-weight: 600;
   border-top: 1px solid rgba(255,255,255,.08);
 }
+
+/* 参照元カード（NotebookLM風） */
+.sa2-source-list { display:flex; flex-direction:column; gap:.5rem; }
+.sa2-source-card { border-radius:10px; padding:.75rem; border:1.5px solid var(--line); }
+.sa2-source-card--pattern { background:#f0fdf4; border-color:#86efac; }
+.sa2-source-card--knowledge { background:#eff6ff; border-color:#93c5fd; }
+.sa2-source-card-header { display:flex; align-items:center; gap:.5rem; margin-bottom:.3rem; flex-wrap:wrap; }
+.sa2-source-badge { padding:.15rem .45rem; border-radius:20px; font-size:.68rem; font-weight:700; }
+.sa2-source-badge--pattern { background:#dcfce7; color:#15803d; }
+.sa2-source-badge--knowledge { background:#dbeafe; color:#1d4ed8; }
+.sa2-source-acc { font-size:.8rem; font-weight:600; color:var(--ink); }
+.sa2-source-origin { font-size:.75rem; color:var(--muted); }
+.sa2-source-scenario { font-size:.82rem; color:var(--ink); font-weight:500; }
+.sa2-source-title { font-size:.82rem; color:var(--ink); font-weight:600; margin-bottom:.2rem; }
+.sa2-source-snippet { font-size:.75rem; color:var(--muted); line-height:1.5; }
+.sa2-source-examples { display:flex; flex-wrap:wrap; gap:.3rem; margin-top:.3rem; }
+.sa2-source-example { font-size:.72rem; color:#15803d; background:#dcfce7; border-radius:4px; padding:.1rem .35rem; }
+.sa2-source-tags { display:flex; flex-wrap:wrap; gap:.25rem; margin-top:.3rem; }

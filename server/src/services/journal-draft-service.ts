@@ -2,6 +2,8 @@ import OpenAI from 'openai';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { env } from '../env.js';
+import { findSimilarPatterns } from './journal-pattern-service.js';
+import { findSimilarKnowledge } from './knowledge-service.js';
 
 // 借方 (経費系) として AI に選ばせる候補。
 const DEBIT_ACCOUNTS = [
@@ -273,6 +275,37 @@ export async function generateDraftJournal(voucherId: string): Promise<void> {
     if (!text) throw new Error('OpenAI returned empty content');
     const parsed = DraftJournalSchema.parse(JSON.parse(text));
     const hasMissing = parsed.missingFields.length > 0;
+    // RAG参照元収集（参照元モーダル用）
+    let sources: object[] = [];
+    try {
+      const debitAcc = parsed.debit?.account ?? '';
+      const creditAcc = parsed.credit?.account ?? '';
+      const queryText = [debitAcc, creditAcc, parsed.description ?? ''].filter(Boolean).join(' ');
+      const [ragPatterns, ragKnowledge] = await Promise.all([
+        findSimilarPatterns(debitAcc, creditAcc, queryText, 3),
+        findSimilarKnowledge(queryText, 2),
+      ]);
+      sources = [
+        ...ragPatterns.map((p) => ({
+          type: 'pattern' as const,
+          id: p.id,
+          debit: p.debit,
+          credit: p.credit,
+          scenario: p.scenario,
+          examples: (p.memoExamples ?? []).slice(0, 2),
+          tags: p.tags ?? [],
+        })),
+        ...ragKnowledge.map((k) => ({
+          type: 'knowledge' as const,
+          id: k.id,
+          title: k.title,
+          source: k.source ?? '',
+          snippet: (k.content ?? '').slice(0, 200),
+        })),
+      ];
+    } catch (_) {
+      // RAG参照元収集は非必須なのでエラーを無視
+    }
     // spec 30: 不足情報が全て解消され、かつ MF 未一致なら、人手承認なしで自動確定する。
     const autoClassify = !hasMissing && voucher.matchStatus !== 'matched';
     const nextStatus = hasMissing
@@ -281,8 +314,8 @@ export async function generateDraftJournal(voucherId: string): Promise<void> {
         ? 'approved'
         : 'drafted';
     const draftToSave = autoClassify
-      ? { ...parsed, autoClassified: true }
-      : parsed;
+      ? { ...parsed, autoClassified: true, sources }
+      : { ...parsed, sources };
     await prisma.voucher.update({
       where: { id: voucherId },
       data: {
