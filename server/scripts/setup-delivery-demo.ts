@@ -4,9 +4,9 @@
  * Usage (Railway):
  *   railway run npm run setup-delivery-demo
  *
- * Env (optional):
- *   DEMO_EMAIL    default: demo@keiri-marunage.jp
- *   DEMO_PASSWORD default: BookmeeDemo2026!
+ * Env (required; supply through the deployment secret manager):
+ *   DEMO_EMAIL: explicitly selected delivery account
+ *   DEMO_PASSWORD: a unique password; never printed
  */
 import '../src/bootstrap.js';
 // railway run ローカル実行時: .internal URL は届かないので公開 URL に切り替え
@@ -22,9 +22,9 @@ import { fileURLToPath } from 'node:url';
 import { createClient } from '@supabase/supabase-js';
 import { PrismaClient } from '@prisma/client';
 import { env } from '../src/env.js';
+import { readDemoCredentials } from './demo-credentials.js';
 
-const DEMO_EMAIL = process.env.DEMO_EMAIL ?? 'demo@keiri-marunage.jp';
-const DEMO_PASSWORD = process.env.DEMO_PASSWORD ?? 'BookmeeDemo2026!';
+const { email: DEMO_EMAIL, password: DEMO_PASSWORD } = readDemoCredentials(process.env);
 
 const prisma = new PrismaClient();
 
@@ -109,7 +109,7 @@ async function main(): Promise<void> {
   console.log('\n=== 納品デモアカウント ===');
   console.log(`URL:      https://bookmee-production.up.railway.app/login.html`);
   console.log(`Email:    ${DEMO_EMAIL}`);
-  console.log(`Password: ${DEMO_PASSWORD}`);
+  console.log('Password: configured via DEMO_PASSWORD (not displayed)');
   console.log('顧問先: 青山デザイン / 渋谷カフェ / 日本橋工業 / 横浜メディカル');
 }
 
